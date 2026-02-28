@@ -35,7 +35,7 @@ logger = logging.getLogger("aria.engine.roundtable")
 DEFAULT_ROUNDS = 3
 DEFAULT_AGENT_TIMEOUT = 60  # seconds per agent per round
 DEFAULT_TOTAL_TIMEOUT = 300  # seconds for entire roundtable
-MAX_CONTEXT_TOKENS = 2000   # Approx tokens to include from prior turns
+MAX_CONTEXT_TOKENS = 2000   # Default fallback — overridden dynamically per session
 
 
 @dataclass
@@ -136,12 +136,13 @@ class Roundtable:
     async def discuss(
         self,
         topic: str,
-        agent_ids: list[str],
+        agent_ids: list[str] | None = None,
         rounds: int = DEFAULT_ROUNDS,
         synthesizer_id: str = "main",
         agent_timeout: int = DEFAULT_AGENT_TIMEOUT,
         total_timeout: int = DEFAULT_TOTAL_TIMEOUT,
         on_turn: Any = None,  # Optional async callback(RoundtableTurn)
+        max_agents: int = 5,     # hard cap — token economy enforcement
     ) -> RoundtableResult:
         """
         Run a multi-round collaborative discussion.
@@ -165,6 +166,22 @@ class Roundtable:
         Raises:
             EngineError: If fewer than 2 agents, or total timeout exceeded.
         """
+        # Auto-select agents if not explicitly provided
+        if agent_ids is None:
+            agent_ids = self._select_agents_for_topic(topic, max_agents)
+            if len(agent_ids) < 2:
+                raise EngineError(
+                    f"Not enough agents available for roundtable on: '{topic[:80]}'"
+                )
+
+        # Enforce agent cap even for explicit lists — prevents accidental token explosion
+        if len(agent_ids) > max_agents:
+            logger.warning(
+                "Roundtable: truncating %d\u2192%d agents (max_agents=%d)",
+                len(agent_ids), max_agents, max_agents,
+            )
+            agent_ids = agent_ids[:max_agents]
+
         if len(agent_ids) < 2:
             raise EngineError(
                 "Roundtable requires at least 2 participants"
@@ -277,6 +294,79 @@ class Roundtable:
 
         return result
 
+    def _select_agents_for_topic(
+        self,
+        topic: str,
+        max_agents: int = 5,
+    ) -> list[str]:
+        """
+        Auto-select agents by focus keyword match against topic.
+
+        Selection rules:
+            1. Always include >=1 L1 (orchestrator tier) agent by pheromone score
+            2. Fill remaining slots with L2 agents scoring > 0.0 (sorted desc)
+            3. Include L3 agents only if score > 0.4 AND slot available
+            4. Hard cap at max_agents
+
+        Returns:
+            Ordered list of agent_ids (L1 first, then L2, then L3 by score).
+        """
+        from aria_engine.routing import compute_specialty_match
+
+        try:
+            all_agents = list(self._pool._agents.values())
+        except Exception as exc:
+            logger.warning("_select_agents_for_topic: could not list agents: %s", exc)
+            return []
+
+        l1_entries, l2_entries, l3_entries = [], [], []
+
+        for agent in all_agents:
+            if getattr(agent, "status", "offline") in ("offline", "disabled", "error"):
+                continue
+            fp = getattr(agent, "_focus_profile", None)
+            delegation_level = (fp.get("delegation_level") if fp else None) or 2
+            score = compute_specialty_match(topic, agent.focus_type or "")
+
+            entry = (agent.agent_id, score, delegation_level)
+            if delegation_level == 1:
+                l1_entries.append(entry)
+            elif delegation_level == 2:
+                l2_entries.append(entry)
+            else:
+                l3_entries.append(entry)
+
+        # Sort by score (higher = better match)
+        l1_entries.sort(key=lambda x: x[1], reverse=True)
+        l2_entries.sort(key=lambda x: x[1], reverse=True)
+        l3_entries.sort(key=lambda x: x[1], reverse=True)
+
+        selected: list[str] = []
+
+        # Always include top L1 orchestrator if available
+        if l1_entries:
+            selected.append(l1_entries[0][0])
+
+        # Fill L2 slots with scoring agents
+        for agent_id, score, _ in l2_entries:
+            if len(selected) >= max_agents:
+                break
+            if score > 0.0:
+                selected.append(agent_id)
+
+        # Include L3 only if score is high and slots remain
+        for agent_id, score, _ in l3_entries:
+            if len(selected) >= max_agents:
+                break
+            if score > 0.4:
+                selected.append(agent_id)
+
+        logger.debug(
+            "_select_agents_for_topic: topic='%s' -> selected=%s",
+            topic[:60], selected,
+        )
+        return selected
+
     async def _run_round(
         self,
         session_id: str,
@@ -288,7 +378,22 @@ class Roundtable:
         round_timeout: float,
     ) -> list[RoundtableTurn]:
         """Run one round of discussion, collecting all agent responses."""
-        context = self._build_context(prior_turns)
+        # Compute dynamic context cap = min of all participants' token budgets
+        # Ensures context never exceeds what the tightest-budget agent can receive
+        participating_agents = [
+            self._pool.get_agent(aid)
+            for aid in agent_ids
+        ]
+        participant_budgets = [
+            agent._focus_profile.get("token_budget_hint", MAX_CONTEXT_TOKENS)
+            for agent in participating_agents
+            if agent is not None and getattr(agent, "_focus_profile", None)
+        ]
+        context_token_cap = min(participant_budgets) if participant_budgets else MAX_CONTEXT_TOKENS
+        # Approximate chars-per-agent from token cap (1 token ~ 4 chars, split across turns)
+        max_per_agent_chars = max(100, context_token_cap // max(1, len(agent_ids)))
+
+        context = self._build_context(prior_turns, max_per_agent=max_per_agent_chars)
 
         prompt = self._build_round_prompt(
             topic, round_number, context, len(agent_ids)

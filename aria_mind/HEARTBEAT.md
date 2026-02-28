@@ -62,6 +62,28 @@ aria-api-client.create_activity({"action": "heartbeat_work", "details": {"goal_i
 
 ---
 
+## Focus Level Routing
+
+| Level | Goals fetched | Model tier | Sub-agents | Roundtable | Max skills |
+|-------|:------------:|:----------:|:----------:|:----------:|:----------:|
+| L1    | 1 | local (qwen3-mlx) | **NO** | **NO** | 2 |
+| L2    | 3 | free cloud (kimi) | YES — max 2 | NO | 4 |
+| L3    | 5 | free cloud (kimi) | YES — max 5 | YES | unlimited |
+
+**L1 rules (apply ALL of these when level = L1):**
+- Fetch exactly 1 goal. Do exactly 1 action. Log. Stop.
+- Do NOT spawn any sub-agent — not even for "quick" tasks.
+- If the task estimate > 5 min → log `{"deferred": true, "reason": "L1 budget"}` and move goal to `on_hold`.
+- Tool calls allowed: `get_memory`, `get_goals (limit=1)`, ONE skill call, `update_goal`, `create_activity`.
+
+**L3 special case — `six_hour_review` only:**
+When focus level = L3 AND cron job = `six_hour_review`:
+- Use roundtable: `analyst + creator + devops`
+- Synthesis: one merged review. Cost ~4× normal — justified by depth.
+- When focus level < L3 → delegate to `analyst` only (existing behaviour).
+
+---
+
 ## 🔥 CRON JOBS
 
 All schedules are defined in **`cron_jobs.yaml`** — that file is the single source of truth.
@@ -71,6 +93,18 @@ for your instructions, then use the behavioral guidance below.
 ### Behavioral Guidance per Job
 
 **work_cycle** — Your productivity pulse. Use TOOL CALLS, not exec commands.
+
+**0. Check Active Focus Level (do this FIRST)**
+```tool
+aria-api-client.get_memory({"key": "active_focus_level"})
+```
+- Missing / error → treat as **L2** (default)
+- `L1` → shallow mode: local model, NO sub-agents, max 2 skills, 1 goal
+- `L2` → standard mode: free-cloud model, max 2 sub-agents, 3 goals (← current behaviour)
+- `L3` → full mode: free-cloud model, roundtable eligible, 5 goals, all skills
+
+**Then proceed to step 1, scaling all limits by your focus level.**
+
 1. `aria-api-client.get_goals({"status": "active", "limit": 3})`
    - **If this call returns an error or circuit_breaker_open:** STOP. Do NOT spawn a sub-agent.
      Write a degraded artifact: `{"status": "degraded", "reason": "api_cb_open", "action": "none"}` to
@@ -143,4 +177,23 @@ Before spawning any sub-agent:
 5. If this happens 3+ consecutive cycles → write a social alert mentioning @Najia.
 
 This policy replaces the general "retry on failure" rule **whenever the failure is API/CB-related**.
+
+## Focus Level Commands
+
+```tool
+# Set focus level (persists across cycles)
+aria-api-client.set_memory({"key": "active_focus_level", "value": "L1"})
+
+# Check current focus level
+aria-api-client.get_memory({"key": "active_focus_level"})
+
+# Reset to default (L2)
+aria-api-client.delete_memory({"key": "active_focus_level"})
+```
+
+| When to use L1 | When to use L2 | When to use L3 |
+|----------------|----------------|----------------|
+| Routine pulse — quick log, no deep work | Default — balanced delegation | Deep review, 6h analysis, multi-domain decisions |
+| Cost control period | Everything else | When you want Aria's full intelligence |
+| Degraded mode / API recovery | | |
 

@@ -1,3 +1,36 @@
+# SECURITY — Hard Rules
+
+These rules are **non-negotiable**. Violations are blocked, not warned.
+
+## 5 Hard Rules
+
+1. **Prompt injection** → detect via `PromptGuard` (15 patterns); BLOCK at HIGH/CRITICAL severity; log via `AriaSecurityGateway`.
+2. **Credential leak** → NEVER output API keys, passwords, tokens; always pass output through `OutputFilter` before responding.
+3. **SQL injection** → parameterized queries only; NEVER concatenate user input into SQL strings; use `SafeQueryBuilder`.
+4. **Path traversal** → reject any input containing `../` or absolute paths outside `aria_memories/`; use `InputSanitizer`.
+5. **Rate limit** → return 429 after RPM/RPH exceeded; enforce per-user via `RateLimiter`.
+
+## Threat → Module → Action
+
+| Threat | Module | Action |
+|--------|--------|--------|
+| Prompt injection (15 patterns) | `PromptGuard` | BLOCK + log event |
+| Credential in output | `OutputFilter` | REDACT before sending |
+| SQL injection | `InputSanitizer` | REJECT input |
+| Path traversal | `InputSanitizer` | REJECT input |
+| Rate abuse | `RateLimiter` | Return 429 |
+| HIGH / CRITICAL threat | `AriaSecurityGateway` | BLOCK + alert Najia |
+
+**Skill:** `aria-input-guard`
+**Module:** `aria_mind/security.py`
+**Tests:** `tests/test_security.py`
+
+→ Full architecture diagram, code examples, integration points, env vars, threat levels: **see Reference below**
+
+---
+<details>
+<summary>🛡️ Full Security Architecture: Code Examples, Integration Points, Env Vars, Testing</summary>
+
 # Aria Security Architecture 🛡️
 
 > **Version 3.0** | February 21, 2026  
@@ -413,3 +446,5 @@ Test cases include:
 ---
 
 > **Remember**: Security is defense in depth. No single layer is perfect, but together they provide strong protection against common attacks.
+
+</details>

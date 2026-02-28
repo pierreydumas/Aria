@@ -59,6 +59,35 @@ class Heartbeat:
         self._consolidation_interval = 6   # every 6 beats = 6hr (surface→medium promotion)
         self._goal_check_interval = 1      # every beat = 1hr (matches hourly_goal_check cron)
     
+    async def _get_focus_level(self) -> str:
+        """
+        Read active_focus_level from memory store.
+        Returns 'L1', 'L2', or 'L3'. Defaults to 'L2' on error or missing key.
+
+        L1 = shallow (local model, no sub-agents, 1 goal)
+        L2 = standard (free cloud, max 2 sub-agents, 3 goals)  <- default
+        L3 = deep (free cloud, roundtable eligible, 5 goals)
+        """
+        try:
+            from aria_skills.api_client import get_api_client
+            api = await get_api_client()
+            if not api:
+                return "L2"
+            result = await api.get_memory(key="active_focus_level")
+            level = (result or {}).get("value", "L2")
+            if level not in ("L1", "L2", "L3"):
+                return "L2"
+            return level
+        except Exception:
+            return "L2"  # safe default on any failure
+
+    # Focus routing config — defines limits per level
+    FOCUS_ROUTING: dict = {
+        "L1": {"max_goals": 1, "sub_agents": False, "roundtable": False},
+        "L2": {"max_goals": 3, "sub_agents": True,  "roundtable": False},
+        "L3": {"max_goals": 5, "sub_agents": True,  "roundtable": True},
+    }
+
     @property
     def is_healthy(self) -> bool:
         """Check if heartbeat is functioning."""
@@ -246,29 +275,102 @@ class Heartbeat:
                 await self._heal_subsystem(subsystem)
     
     async def _check_goals(self) -> None:
-        """Check active goals and work on the top priority."""
+        """Check active goals and work on the top priority — scaled by focus level."""
         if not self._mind.cognition or not self._mind.cognition._skills:
             return
-        
+
+        # Check circuit breaker FIRST (lesson from The Midnight Cascade 2026-02-28)
+        try:
+            from aria_skills.api_client import get_api_client
+            api = await get_api_client()
+            if not api:
+                self.logger.debug("Goal check skipped: api_client unavailable (CB open?)")
+                self._write_degraded_log("_check_goals", "api_client_unavailable")
+                return
+        except Exception as e:
+            self.logger.debug(f"Goal check skipped: api_client error {e}")
+            return
+
+        # Read focus level — determines how many goals to consider
+        focus_level = await self._get_focus_level()
+        focus_cfg = self.FOCUS_ROUTING.get(focus_level, self.FOCUS_ROUTING["L2"])
+        max_goals = focus_cfg["max_goals"]
+
+        self.logger.debug(f"\U0001f493 Goal check — focus level: {focus_level}, max_goals: {max_goals}")
+
         try:
             goals_skill = self._mind.cognition._skills.get("goals")
             if goals_skill and goals_skill.is_available:
-                actions = await goals_skill.get_next_actions(limit=1)
+                actions = await goals_skill.get_next_actions(limit=max_goals)
                 if actions.success and actions.data:
                     next_action = actions.data
                     if isinstance(next_action, list) and next_action:
-                        self.logger.info(f"🎯 Goal work: {str(next_action[0])[:80]}")
+                        self.logger.info(
+                            f"\U0001f3af Goal work [focus={focus_level}]: "
+                            f"{str(next_action[0])[:80]}"
+                        )
         except Exception as e:
             self.logger.debug(f"Goal check skipped: {e}")
+
+    def _write_degraded_log(self, cycle: str, reason: str) -> None:
+        """Write a degraded-mode log to aria_memories/logs/ when API is unavailable."""
+        import json
+        from pathlib import Path
+        from datetime import datetime, timezone
+
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M")
+        log_dir = Path("aria_memories/logs")
+        try:
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_file = log_dir / f"{cycle}_{ts}.json"
+            log_file.write_text(json.dumps({
+                "status": "degraded",
+                "reason": reason,
+                "cycle": cycle,
+                "action": "halted",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }))
+        except Exception:
+            pass  # File write failure shouldn't crash the heartbeat
     
     async def _trigger_reflection(self) -> None:
-        """Trigger a reflection cycle through cognition."""
+        """
+        Trigger reflection cycle — six_hour_review equivalent.
+        At L3: trigger roundtable (analyst + creator + devops) via engine API.
+        At L2/L1: standard single-agent cognition.reflect() (existing behaviour).
+        """
         if not self._mind.cognition:
             return
-        
+
+        focus_level = await self._get_focus_level()
+
+        if focus_level == "L3":
+            # L3: roundtable for comprehensive six_hour_review
+            try:
+                from aria_skills.api_client import get_api_client
+                api = await get_api_client()
+                if api:
+                    result = await api.post(
+                        "/engine/roundtable",
+                        json={
+                            "topic": "6-hour system review: goals, content, health, errors",
+                            "agent_ids": ["analyst", "creator", "devops"],
+                            "rounds": 1,
+                            "timeout": 240,
+                        },
+                    )
+                    self.logger.info(
+                        f"\U0001f3af Roundtable six_hour_review dispatched "
+                        f"(focus=L3): session_id={result.get('session_id', '?')}"
+                    )
+                    return
+            except Exception as e:
+                self.logger.warning(f"Roundtable dispatch failed, falling back to reflect(): {e}")
+
+        # L1/L2 (or L3 fallback): standard reflection
         try:
             reflection = await self._mind.cognition.reflect()
-            self.logger.info(f"🪞 Reflection complete ({len(reflection)} chars)")
+            self.logger.info(f"\U0001fa9e Reflection complete [focus={focus_level}] ({len(reflection)} chars)")
         except Exception as e:
             self.logger.debug(f"Reflection skipped: {e}")
     

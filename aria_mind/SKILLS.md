@@ -1,34 +1,63 @@
-# SKILLS.md - Complete Skill Reference
+# SKILLS — Routing Guide
 
-I have **40 active skills** available. **Use the tool syntax** to call them:
+**Syntax:** `` `aria-<skill>.<function>({"param": "value"})` ``
+**Escalation:** `api_client` first → `database` only for raw SQL emergencies (migrations, complex JOINs, admin).
+**Catalog:** `python -m aria_mind --list-skills` → JSON index of all 40 skills.
 
-```tool
-aria-<skill-name>.<function>({"param": "value"})
-```
+## Focus → Skill Mapping
 
-> **Standards:** See `aria_skills/SKILL_STANDARD.md` for the skill contract and `aria_skills/SKILL_CREATION_GUIDE.md` for creating new skills.
->
-> **Catalog:** Run `python -m aria_mind --list-skills` to generate a live skill catalog from `aria_skills/catalog.py`.
->
-> **Advanced compatibility skills (targeted, non-default):** `database`, `brainstorm`, `community`, `fact_check`, `model_switcher`, `experiment`.
-> Prefer `api_client` and layer-aligned skills for normal operations.
+| Focus | Primary Skills | Do NOT use without reason |
+|-------|---------------|--------------------------|
+| Orchestrator 🎯 | `api_client`, `goals`, `schedule`, `agent_manager`, `health` | `database`, `brainstorm` |
+| DevSecOps 🔒 | `ci_cd`, `security_scan`, `pytest_runner`, `health` | `moltbook`, `social` |
+| Data 📊 | `database`, `knowledge_graph`, `data_pipeline`, `api_client` | `moltbook`, `rpg_*` |
+| Creative 🎨 | `brainstorm`, `moltbook`, `social` | `database`, `ci_cd` |
+| Social 🌐 | `moltbook`, `community`, `social`, `api_client` | `database`, `ci_cd` |
+| Journalist 📰 | `browser`, `fact_check`, `unified_search`, `knowledge_graph` | `database`, `rpg_*` |
+| Trader 📈 | `market_data`, `portfolio`, `database`, `api_client` | `moltbook`, `rpg_*` |
+| RPG Master 🎲 | `rpg_pathfinder`, `rpg_campaign` | `ci_cd`, `database` |
 
-### Advanced Compatibility Escalation Policy
-
-- Use `api_client` first for CRUD/workflow operations.
-- Escalate to `database` for self-healing, diagnostics, migrations, and recovery when `api_client` cannot complete the task.
-- Use `brainstorm`, `community`, `fact_check`, `model_switcher`, and `experiment` only for explicit specialist tasks.
-- Do not route to advanced compatibility skills by default in routine cron paths.
+---
 
 ## Skill Layers
 
-| Layer | Name | Purpose | Skills |
-|-------|------|---------|--------|
-| 0 | Security | Kernel security & safety | `input_guard` |
-| 1 | Infrastructure | Data access gateway & monitoring | `api_client`, `health`, `litellm` |
-| 2 | Core Services | Infrastructure services | `moonshot`, `ollama`, `model_switcher`, `session_manager`, `working_memory`, `sandbox` |
-| 3 | Domain | Business logic & specialist skills | `brainstorm`, `ci_cd`, `community`, `conversation_summary`, `data_pipeline`, `experiment`, `fact_check`, `knowledge_graph`, `market_data`, `memeothy`, `memory_compression`, `moltbook`, `pattern_recognition`, `portfolio`, `pytest_runner`, `research`, `rpg_campaign`, `rpg_pathfinder`, `security_scan`, `sentiment_analysis`, `social`, `telegram`, `unified_search` |
-| 4 | Orchestration | High-level coordination | `agent_manager`, `goals`, `hourly_goals`, `performance`, `schedule`, `sprint_manager`, `pipeline_skill` |
+| Layer | Purpose | Skills |
+|-------|---------|--------|
+| L0 Security | Kernel gate | `input_guard` |
+| L1 Infra | Data access + monitoring | `api_client`, `health`, `litellm` |
+| L2 Core | Infrastructure services | `moonshot`, `ollama`, `model_switcher`, `session_manager`, `working_memory`, `sandbox` |
+| L3 Domain | Business logic | `brainstorm`, `ci_cd`, `community`, `conversation_summary`, `data_pipeline`, `experiment`, `fact_check`, `knowledge_graph`, `market_data`, `memeothy`, `memory_compression`, `moltbook`, `pattern_recognition`, `portfolio`, `pytest_runner`, `research`, `rpg_campaign`, `rpg_pathfinder`, `security_scan`, `sentiment_analysis`, `social`, `telegram`, `unified_search` |
+| L4 Orch | High-level coordination | `agent_manager`, `goals`, `hourly_goals`, `performance`, `schedule`, `sprint_manager`, `pipeline_skill` |
+
+---
+
+## Rate Limits
+
+| Skill | Hard limit | Notes |
+|-------|:----------:|-------|
+| `moltbook` | 4 posts/day | Enforced by skill |
+| `social` | 10 actions/hour | Across all social skills |
+| `browser` | 30 req/min | Per aria-browser container |
+| `telegram` | 30 msg/min | Telegram API cap |
+| `market_data` | Provider-specific | Check per-API docs |
+
+---
+
+## Low-Token Patterns
+
+```bash
+# Use knowledge graph to find the right skill (saves reading SKILLS.md)
+aria-api-client.find_skill_for_task({"task": "post to moltbook"})  # → moltbook
+# Check what's available
+aria-api-client.graph_search({"query": "browser", "entity_type": "skill"})
+# Run skill from Python container
+exec python3 skills/run_skill.py <skill> <function> '<json_args>'
+```
+
+→ Full api_client cheatsheet + Memory/Goal/Proposal rules: **see TOOLS.md**
+
+<details>
+<summary>📚 Full Skill Catalog, YAML Examples, Composable Pipelines, Error Handling</summary>
 
 ## ⭐ PRIMARY SKILL: aria-api-client
 
@@ -272,3 +301,5 @@ or
 ```
 
 Always check `success` before using `data`.
+
+</details>

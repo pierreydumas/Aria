@@ -366,6 +366,12 @@ def create_app():
     def operations_health():
         return render_template('engine_health.html')
 
+    @app.route('/operations/focus/')
+    @app.route('/operations/focus')
+    def operations_focus():
+        """Focus profile management UI (E7-S76)."""
+        return render_template('engine_focus.html')
+
     # ============================================
     # Engine Routes (native chat UI)
     # ============================================

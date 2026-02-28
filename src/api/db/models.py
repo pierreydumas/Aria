@@ -1001,6 +1001,106 @@ class EngineAgentState(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
 
 
+class FocusProfileEntry(Base):
+    """
+    A named personality layer for agents.
+    Composes additively on top of an agent's base system_prompt.
+    effective_prompt = base_prompt + "\\n\\n---\\n" + system_prompt_addon
+    """
+    __tablename__ = "focus_profiles"
+    __table_args__ = {"schema": "aria_engine"}
+
+    focus_id: Mapped[str] = mapped_column(
+        String(50), primary_key=True,
+        comment="Slug key, e.g. 'devsecops', 'creative'"
+    )
+    display_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    emoji: Mapped[str] = mapped_column(String(10), server_default=text("'🎯'"))
+    description: Mapped[str | None] = mapped_column(Text)
+
+    # Personality
+    tone: Mapped[str] = mapped_column(
+        String(30), server_default=text("'neutral'"),
+        comment="precise | analytical | playful | formal | warm | blunt"
+    )
+    style: Mapped[str] = mapped_column(
+        String(30), server_default=text("'directive'"),
+        comment="directive | socratic | analytical | narrative | concise"
+    )
+
+    # Delegation: 1=L1(orchestrator), 2=L2(specialist), 3=L3(ephemeral)
+    delegation_level: Mapped[int] = mapped_column(
+        Integer, server_default=text("2")
+    )
+
+    # Token discipline — hard ceiling enforced by agent_pool.py S-74
+    token_budget_hint: Mapped[int] = mapped_column(
+        Integer, server_default=text("2000"),
+        comment="Soft max_tokens ceiling when this focus is active"
+    )
+
+    # Temperature — additive delta, applied to agent.temperature in S-73
+    temperature_delta: Mapped[float] = mapped_column(
+        Float, server_default=text("0.0"),
+        comment="+0.3 for creative, -0.2 for precise. Clamped 0.0–1.0."
+    )
+
+    # Routing keywords — replaces hardcoded SPECIALTY_PATTERNS in S-72
+    expertise_keywords: Mapped[list] = mapped_column(
+        JSONB, server_default=text("'[]'::jsonb"),
+        comment="Keyword fragments for specialty routing. Built into regex alternation."
+    )
+
+    # Prompt layer — appended to base system_prompt at call time (S-73)
+    system_prompt_addon: Mapped[str | None] = mapped_column(
+        Text,
+        comment="Injected after agent base prompt. Additive only, never replaces."
+    )
+
+    # Optional model override — stores slug from models.yaml, not hardcoded name
+    model_override: Mapped[str | None] = mapped_column(
+        String(200),
+        comment="model_id slug (e.g. 'qwen3-coder-free'). Resolved via models.yaml."
+    )
+
+    # Skills auto-injected when focus is activated
+    auto_skills: Mapped[list] = mapped_column(
+        JSONB, server_default=text("'[]'::jsonb")
+    )
+
+    enabled: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("NOW()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("NOW()")
+    )
+
+    def to_dict(self) -> dict:
+        """Return JSON-serializable dict. Used by engine_focus router (S-71)."""
+        return {
+            "focus_id": self.focus_id,
+            "display_name": self.display_name,
+            "emoji": self.emoji,
+            "description": self.description,
+            "tone": self.tone,
+            "style": self.style,
+            "delegation_level": self.delegation_level,
+            "token_budget_hint": self.token_budget_hint,
+            "temperature_delta": self.temperature_delta,
+            "expertise_keywords": self.expertise_keywords or [],
+            "system_prompt_addon": self.system_prompt_addon,
+            "model_override": self.model_override,
+            "auto_skills": self.auto_skills or [],
+            "enabled": self.enabled,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+Index("idx_focus_profiles_enabled", FocusProfileEntry.enabled)
+
+
 class EngineConfigEntry(Base):
     __tablename__ = "config"
     __table_args__ = {"schema": "aria_engine"}

@@ -42,6 +42,38 @@ MAX_SUB_AGENTS_PER_TYPE: dict[str, int] = {
 }
 
 
+def _budget_cap(caller: int | None, fp: dict | None) -> int | None:
+    """
+    Apply focus token_budget_hint as a hard ceiling on max_tokens.
+
+    Design contract:
+        - If no focus profile OR token_budget_hint == 0: caller passes through unchanged.
+        - Otherwise: min(caller, token_budget_hint) — focus budget cannot be exceeded,
+          even by explicit caller overrides.
+        - If caller is None and budget is set: use budget as the ceiling.
+
+    Args:
+        caller: Caller-requested max_tokens (int or None = use model default).
+        fp:     Resolved FocusProfileEntry dict (or None if no focus loaded).
+
+    Returns:
+        Capped int, or None if both caller and budget are unset.
+
+    Examples:
+        _budget_cap(4096, {"token_budget_hint": 800})  → 800   (capped)
+        _budget_cap(500,  {"token_budget_hint": 800})  → 500   (under budget)
+        _budget_cap(None, {"token_budget_hint": 800})  → 800   (budget is ceiling)
+        _budget_cap(4096, None)                         → 4096  (no focus, pass through)
+        _budget_cap(4096, {"token_budget_hint": 0})    → 4096  (budget disabled)
+    """
+    budget: int | None = fp.get("token_budget_hint") if fp else None
+    if not budget:       # 0, None, missing, or no focus profile → pass through
+        return caller
+    if caller is None:   # no explicit caller value → enforce budget ceiling
+        return budget
+    return min(caller, budget)
+
+
 @dataclass
 class EngineAgent:
     """
@@ -81,6 +113,7 @@ class EngineAgent:
     _worker_task: asyncio.Task | None = field(default=None, repr=False)
     _llm_gateway: Any | None = field(default=None, repr=False)
     _context: list[dict[str, str]] = field(default_factory=list, repr=False)
+    _focus_profile: dict | None = field(default=None, repr=False)  # populated by load_focus_profile()
 
     async def process(self, message: str, **kwargs: Any) -> dict[str, Any]:
         """
@@ -104,20 +137,46 @@ class EngineAgent:
         # Add user message to context
         self._context.append({"role": "user", "content": message})
 
+        # Resolve focus profile — use cached, no DB call here
+        fp = self._focus_profile  # dict or None, pre-loaded by load_focus_profile()
+
+        # Build effective system prompt — additive composition
+        # Rule: effective = base + "\n\n---\n" + addon. Never replaces base.
+        base_prompt = self.system_prompt or ""
+        if fp and fp.get("system_prompt_addon"):
+            effective_system = base_prompt.rstrip() + "\n\n---\n" + fp["system_prompt_addon"]
+        else:
+            effective_system = base_prompt
+
         # Build messages for LLM
         messages = []
-        if self.system_prompt:
-            messages.append({"role": "system", "content": self.system_prompt})
+        if effective_system:
+            messages.append({"role": "system", "content": effective_system})
         # Sliding window: keep last N context messages
         context_window = kwargs.get("context_window", 50)
         messages.extend(self._context[-context_window:])
 
+        # Apply focus temperature delta — additive, clamped to [0.0, 1.0]
+        base_temp = kwargs.get("temperature", self.temperature)
+        temp_delta = float(fp["temperature_delta"]) if fp and fp.get("temperature_delta") is not None else 0.0
+        effective_temp = max(0.0, min(1.0, base_temp + temp_delta))
+
+        # Apply focus model override — only if caller doesn't force a model
+        effective_model = (
+            kwargs.get("model")
+            or (fp.get("model_override") if fp else None)
+            or self.model
+        )
+
         try:
             response = await self._llm_gateway.complete(
                 messages=messages,
-                model=kwargs.get("model", self.model),
-                temperature=kwargs.get("temperature", self.temperature),
-                max_tokens=kwargs.get("max_tokens", self.max_tokens),
+                model=effective_model,
+                temperature=effective_temp,
+                max_tokens=_budget_cap(
+                    caller=kwargs.get("max_tokens", self.max_tokens),
+                    fp=fp,
+                ),
                 tools=kwargs.get("tools"),
                 enable_thinking=kwargs.get("enable_thinking", False),
             )
@@ -149,6 +208,43 @@ class EngineAgent:
             self.current_task = None
             logger.error("Agent %s process failed: %s", self.agent_id, e)
             raise
+
+    async def load_focus_profile(self, db_engine: "AsyncEngine") -> None:
+        """Load and cache the focus profile for this agent from the DB.
+
+        Must be called before process() to enable focus-aware prompt composition
+        and temperature delta. Safe to call multiple times (re-fetches from DB).
+        """
+        if not self.focus_type:
+            self._focus_profile = None
+            return
+        try:
+            from db.models import FocusProfileEntry
+            from sqlalchemy import select as _select
+            from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession
+            async with _AsyncSession(db_engine) as session:
+                result = await session.execute(
+                    _select(FocusProfileEntry).where(
+                        FocusProfileEntry.focus_id == self.focus_type,
+                        FocusProfileEntry.enabled.is_(True),
+                    )
+                )
+                row = result.scalars().first()
+            self._focus_profile = row.to_dict() if row else None
+            logger.debug(
+                "Agent %s loaded focus_profile: %s (found=%s)",
+                self.agent_id,
+                self.focus_type,
+                self._focus_profile is not None,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Agent %s failed to load focus profile %r: %s",
+                self.agent_id,
+                self.focus_type,
+                exc,
+            )
+            self._focus_profile = None
 
     def clear_context(self) -> None:
         """Clear the agent's conversation context."""

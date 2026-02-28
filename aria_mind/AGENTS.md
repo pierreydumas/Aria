@@ -1,41 +1,46 @@
-# AGENTS.md - Agent Definitions
+# AGENTS — Routing + Delegation
 
-Sub-agents that Aria spawns for specialized work. Each agent maps to a Focus persona.
+**Browser rule (ABSOLUTE):** ALWAYS use `aria-browser` for web access.
+NEVER `web_search` or `web_fetch`. No exceptions without human approval.
 
-## Mandatory Browser Policy
-
-**ALL agents MUST use the docker aria-browser for web access.**  
-**NEVER use Brave Search (`web_search` tool) - it is FORBIDDEN.**
-
-```yaml
-Web Access Rules:
-  - Use browser__navigate, browser__snapshot, browser__scrape tools
-  - Browser endpoint: http://aria-browser:3000 (auto-configured)
-  - NEVER use web_search or web_fetch for browsing
-  - NO EXCEPTIONS without human approval
-```
-
-See: `aria_memories/knowledge/web_access_policy.md`
-
-## Model Strategy
-
-**Source of truth**: `aria_models/models.yaml` → `criteria.tiers` and `criteria.focus_defaults`.
-
-Priority: **Local → Free Cloud → Paid**. Never hardcode model names outside `models.yaml`.
+**Model rule:** Source of truth = `aria_models/models.yaml`. Priority: Local → Free Cloud → Paid.
 
 ---
 
-## Agent → Focus Mapping
+## Agent Routing Table
 
-| Agent | Focus | Model | Skills |
-|-------|-------|-------|--------|
-| aria | Orchestrator 🎯 | qwen3-mlx | goals, schedule, health, browser |
-| devops | DevSecOps 🔒 | qwen3-coder-free | pytest_runner, database, browser |
-| analyst | Data 📊 + Trader 📈 | kimi | knowledge_graph, database, browser |
-| creator | Creative 🎨 + Social 🌐 + Journalist 📰 | trinity-free | moltbook, social, browser |
-| memory | - | qwen3-mlx | database, knowledge_graph, browser |
+| Agent | Focus | Model tier | Delegate when |
+|-------|-------|:----------:|---------------|
+| `aria` | Orchestrator 🎯 | kimi (free cloud) | coordination, routing, task management |
+| `devops` | DevSecOps 🔒 | qwen3-coder-free | code, tests, security, CI/CD, infra |
+| `analyst` | Data 📊 + Trader 📈 | kimi | data analysis, market research, metrics |
+| `creator` | Creative 🎨 + Social 🌐 + Journalist 📰 | trinity-free | content, posts, research, community |
+| `memory` | Memory | qwen3-mlx (local) | store, search, consolidate knowledge |
+| `aria_talk` | Social 💬 | qwen3-mlx (local) | direct user conversation, chat |
+| `rpg_master` | RPG Master 🎲 | kimi | ALL tabletop RPG sessions |
+
+**Pheromone score:** `success_rate×0.6 + speed×0.3 + cost×0.1` · decay 0.95/day · cold-start 0.5
 
 ---
+
+## Coordination Rules
+
+1. `aria` coordinates all agents. Max **5 concurrent** sub-agents.
+2. `AgentCoordinator.solve()` = full explore→work→validate cycle with 3 retries.
+3. Act autonomously within scope — don't ask permission, report results.
+4. Do NOT spawn sub-agents when `circuit_breaker_open`. Accept degraded and stop.
+5. After every delegation → `agent_manager__prune_stale_sessions(max_age_hours=1)`.
+6. At focus L3 on reviews + architectural decisions → prefer roundtable/swarm
+   over single-agent delegation (see ORCHESTRATION.md for trigger conditions).
+
+---
+
+→ Full per-agent YAML configs, AgentRole enum, pheromone scoring details,
+RPG agent roster: **see Reference below**
+
+---
+<details>
+<summary>🤖 Full Agent Configs: YAML per agent, AgentRole enum, Pheromone scoring, RPG agents</summary>
 
 ## AgentRole Enum
 
@@ -65,7 +70,7 @@ Implemented in `aria_agents/scoring.py`. Agents are scored based on historical p
 | Decay factor | 0.95/day | Recent performance weighted higher |
 | Cold-start score | 0.5 | Neutral — untested agents not penalized |
 | Max records/agent | 200 | Bounded memory per agent |
-| Persistence | JSON checkpoint | Survives restarts via `aria_memories/` |  
+| Persistence | JSON checkpoint | Survives restarts via `aria_memories/` |
 
 **Key functions:**
 - `compute_pheromone(records)` → float score 0.0–1.0
@@ -192,15 +197,6 @@ timeout: 300s
 
 ---
 
-## Coordination Rules
-
-1. **aria** coordinates all sub-agents
-2. Max 5 concurrent sub-agents
-3. Each agent has its own context window
-4. Shared memory via PostgreSQL
-
----
-
 ## RPG Agents (Pathfinder 2e)
 
 These agents form Aria's tabletop RPG system. See `aria_mind/RPG.md` for full documentation.
@@ -276,6 +272,15 @@ timeout: 300s
 ```
 
 **System prompt**: `prompts/rpg/paladin.md`
+
+---
+
+## Coordination Rules (Extended)
+
+1. **aria** coordinates all sub-agents
+2. Max 5 concurrent sub-agents
+3. Each agent has its own context window
+4. Shared memory via PostgreSQL
 5. **ACT autonomously** - don't ask permission, report results
 6. Match agent to task:
    - Code/security → devops
@@ -283,5 +288,8 @@ timeout: 300s
    - Content/social/news → creator
    - Storage/recall → memory
    - Conversation/chat → aria_talk
-7. When in doubt, take action rather than ask for permission8. **`solve()` method** (on `AgentCoordinator`): Full explore → work → validate cycle with retry (up to 3 attempts). Use for complex tasks that need validation.
+7. When in doubt, take action rather than ask for permission
+8. **`solve()` method** (on `AgentCoordinator`): Full explore → work → validate cycle with retry (up to 3 attempts). Use for complex tasks that need validation.
+
+</details>
 9. **Pheromone scoring** selects the best agent for each task based on past performance (see `aria_agents/scoring.py`)

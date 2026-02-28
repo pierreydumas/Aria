@@ -1,0 +1,60 @@
+{
+  "name": "focus",
+  "version": "1.0.0",
+  "description": "Focus profile introspection and self-activation. Aria can list focus modes, inspect token budgets and delegation levels, and switch her own focus_type mid-session with minimal token cost.",
+  "tools": [
+    {
+      "name": "focus__list",
+      "description": "List all enabled focus profiles. Returns compact table: id, name, delegation level, token budget, tone. Call this before activating to find the right focus_id.",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "focus__get",
+      "description": "Get full details for one focus profile by ID. Returns all fields except system_prompt_addon body (applied automatically by the engine). addon_length shows how many characters the addon contains.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "focus_id": {
+            "type": "string",
+            "description": "Focus profile ID (e.g. 'devsecops', 'creative', 'orchestrator')"
+          }
+        },
+        "required": ["focus_id"]
+      }
+    },
+    {
+      "name": "focus__activate",
+      "description": "Switch an agent's focus_type to a new profile. Validates the profile is enabled, then PATCHes the agent and returns confirmation with new token budget. If agent_id is omitted, switches Aria's own focus.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "focus_id": {
+            "type": "string",
+            "description": "Focus profile ID to activate"
+          },
+          "agent_id": {
+            "type": "string",
+            "description": "Agent to update (default: current agent / aria-main)"
+          }
+        },
+        "required": ["focus_id"]
+      }
+    },
+    {
+      "name": "focus__status",
+      "description": "Return the current focus_type and status for an agent. Minimal output (~30 tokens). Use to check current focus before switching.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "description": "Agent ID to inspect (default: current agent)"
+          }
+        }
+      }
+    }
+  ]
+}

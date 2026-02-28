@@ -1,3 +1,40 @@
+# RPG — Activation Note
+
+**Skill:** `rpg_pathfinder` (rules engine) · `rpg_campaign` (session/world state)
+**Data:** `aria_memories/rpg/` · **Prompts:** `prompts/rpg/` · **Mode:** Spawn `rpg_master` for ALL sessions.
+
+## Agent Roster
+
+| Agent | Role | Model | Prompt file |
+|-------|------|:-----:|-------------|
+| `rpg_master` | DM — narrates, adjudicates rules, controls world state | kimi | `prompts/rpg/dungeon_master.md` |
+| `rpg_npc` | NPC Controller — friendly/neutral NPCs with distinct voices | trinity-free | `prompts/rpg/npc.md` |
+| `rpg_boss` | Boss Controller — antagonists, tactical combat AI | kimi | `prompts/rpg/boss.md` |
+| `rpg_paladin` | Sera Dawnblade — in-party AI Paladin, party advisor | trinity-free | `prompts/rpg/paladin.md` |
+
+## Turn Sequence
+
+1. `rpg_master` → scene narration + world state update
+2. Human players → declare actions
+3. `rpg_npc` → NPC responses (if NPC involved)
+4. `rpg_boss` → antagonist actions (if in encounter)
+5. `rpg_paladin` → party tactic advice
+6. `rpg_master` → resolve via `rpg_pathfinder` skill → narrate outcome
+
+**Data persistence** (ONLY writable path):
+```
+aria_memories/rpg/characters/   ← player character sheets (YAML)
+aria_memories/rpg/campaigns/    ← campaign definitions
+aria_memories/rpg/sessions/     ← session logs + state
+aria_memories/rpg/world/        ← lore, maps, factions
+aria_memories/rpg/encounters/   ← pre-built + active encounters
+```
+
+→ PF2e rules, character sheet YAML template, campaign format, roundtable RPG protocol: **see Reference below**
+---
+<details>
+<summary>🎲 Full PF2e Rules, Character Sheet Template, Campaign Format, Roundtable Protocol</summary>
+
 # RPG.md — Aria Tabletop RPG System
 
 > Aria's integrated Pathfinder 2e tabletop RPG engine.
@@ -131,7 +168,7 @@ character:
   ancestry: "Human"
   heritage: "Versatile Human"
   background: "Gladiator"
-  class: "Champion"
+  character_class: "Champion"
   subclass: "Paladin (Iomedae)"
   level: 5
   experience: 2400
@@ -239,7 +276,7 @@ spells:
       actions: "◆"
       description: "Heal 6 HP to touched ally, or deal 6 damage to undead"
   devotion_spells: []
-  
+
 conditions: []
 
 notes: |
@@ -321,3 +358,5 @@ During combat, the roundtable follows strict initiative order:
 | 4 | Docker-first | ✅ | Pure Python + YAML, no new services |
 | 5 | aria_memories writable | ✅ | All RPG data in aria_memories/rpg/ |
 | 6 | No soul modification | ✅ | RPG is separate from soul/identity |
+
+</details>

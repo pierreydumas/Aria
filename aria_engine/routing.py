@@ -36,29 +36,23 @@ WEIGHTS = {
     "recency": 0.15,         # Recent success rate (last 10 interactions)
 }
 
-# Specialty keywords per focus type
-SPECIALTY_PATTERNS: dict[str, re.Pattern] = {
-    "social": re.compile(
-        r"(social|post|tweet|moltbook|community|engage|share|content)",
-        re.IGNORECASE,
-    ),
-    "analysis": re.compile(
-        r"(analy|metric|data|report|review|insight|trend|stat)",
-        re.IGNORECASE,
-    ),
-    "devops": re.compile(
-        r"(deploy|docker|server|ci|cd|build|test|infra|monitor|debug)",
-        re.IGNORECASE,
-    ),
-    "creative": re.compile(
-        r"(creat|write|art|story|design|brand|visual|content|blog)",
-        re.IGNORECASE,
-    ),
-    "research": re.compile(
-        r"(research|paper|study|learn|explore|investigate|knowledge)",
-        re.IGNORECASE,
-    ),
+# Fallback specialty patterns (used when DB is unavailable or table is empty)
+_FALLBACK_PATTERNS: dict[str, re.Pattern] = {
+    "social":       re.compile(r"(social|post|tweet|moltbook|community|engage|share|content)", re.IGNORECASE),
+    "analysis":     re.compile(r"(analy|metric|data|report|review|insight|trend|stat)", re.IGNORECASE),
+    "devops":       re.compile(r"(deploy|docker|server|ci|cd|build|test|infra|monitor|debug)", re.IGNORECASE),
+    "devsecops":    re.compile(r"(deploy|docker|server|ci|cd|build|test|infra|monitor|debug|security|vulnerability|patch)", re.IGNORECASE),
+    "creative":     re.compile(r"(creat|write|art|story|design|brand|visual|content|blog)", re.IGNORECASE),
+    "research":     re.compile(r"(research|paper|study|learn|explore|investigate|knowledge)", re.IGNORECASE),
+    "data":         re.compile(r"(analy|metric|data|report|insight|trend|stat|pipeline|ml|query|sql)", re.IGNORECASE),
+    "orchestrator": re.compile(r"(strategy|plan|coordinate|orchestrate|decide|priority|goal|overview)", re.IGNORECASE),
+    "journalist":   re.compile(r"(report|article|news|investigate|story|lead|headline|press|coverage)", re.IGNORECASE),
+    "rpg_master":   re.compile(r"(rpg|campaign|quest|npc|dungeon|character|encounter|lore|world)", re.IGNORECASE),
 }
+
+# Live cache — populated by EngineRouter.initialize_patterns() from DB.
+# Falls back to _FALLBACK_PATTERNS when empty or DB is unavailable.
+SPECIALTY_PATTERNS: dict[str, re.Pattern] = dict(_FALLBACK_PATTERNS)
 
 # Patterns that suggest a question benefits from multiple perspectives
 ESCALATION_PATTERNS: list[tuple[re.Pattern, float]] = [
@@ -202,6 +196,49 @@ class EngineRouter:
         # In-memory record cache per agent (synced to DB periodically)
         self._records: dict[str, list[dict[str, Any]]] = {}
         self._total_invocations = 0
+
+    async def initialize_patterns(self) -> int:
+        """
+        Load focus profile expertise_keywords from DB and compile SPECIALTY_PATTERNS.
+        Idempotent — safe to call multiple times for cache refresh.
+        Falls back to _FALLBACK_PATTERNS if DB unavailable or table empty.
+
+        Returns:
+            Number of focus profiles loaded from DB.
+        """
+        global SPECIALTY_PATTERNS
+        try:
+            from db.models import FocusProfileEntry
+            from sqlalchemy import select as _select
+            async with self._db_engine.begin() as conn:
+                result = await conn.execute(
+                    _select(
+                        FocusProfileEntry.focus_id,
+                        FocusProfileEntry.expertise_keywords,
+                    ).where(FocusProfileEntry.enabled.is_(True))
+                )
+                rows = result.all()
+
+            if not rows:
+                logger.warning("initialize_patterns: no focus profiles in DB — keeping fallback")
+                return 0
+
+            new_patterns: dict[str, re.Pattern] = {}
+            for row in rows:
+                keywords: list[str] = row.expertise_keywords or []
+                if not keywords:
+                    continue
+                pattern_str = "(" + "|".join(re.escape(k) for k in keywords) + ")"
+                new_patterns[row.focus_id] = re.compile(pattern_str, re.IGNORECASE)
+
+            SPECIALTY_PATTERNS = new_patterns
+            logger.info("initialize_patterns: loaded %d focus profiles", len(new_patterns))
+            return len(new_patterns)
+
+        except Exception as exc:
+            logger.warning("initialize_patterns failed (%s) — using fallback patterns", exc)
+            SPECIALTY_PATTERNS = dict(_FALLBACK_PATTERNS)
+            return 0
 
     async def route_message(
         self,

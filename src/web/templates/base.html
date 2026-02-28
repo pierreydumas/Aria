@@ -270,7 +270,7 @@
 
                     <!-- Agents Dropdown (reorganized: -roundtable -dashboard +sessions) -->
                     <div class="nav-dropdown">
-                        <button class="nav-dropdown-toggle {% if '/chat' in request.path or '/agent-manager' in request.path or '/sessions' in request.path %}active{% endif %}">
+                        <button class="nav-dropdown-toggle {% if '/chat' in request.path or '/agent-manager' in request.path or '/sessions' in request.path or '/operations/focus' in request.path %}active{% endif %}">
                             🤖 Agents
                             <svg class="chevron" viewBox="0 0 16 16" fill="currentColor">
                                 <path d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
@@ -285,6 +285,9 @@
                             </a>
                             <a href="/sessions" class="{% if '/sessions' in request.path %}active{% endif %}">
                                 💬 Sessions
+                            </a>
+                            <a href="/operations/focus/" class="{% if '/operations/focus' in request.path %}active{% endif %}">
+                                🎭 Focus Profiles
                             </a>
                         </div>
                     </div>

@@ -1,3 +1,43 @@
+# GOALS — Work Cycle
+
+Every 15 min: **check → select → act → log → complete**. ONE concrete action per cycle.
+
+## Work Cycle (5 Steps)
+
+| Step | What to do | Tool call |
+|------|-----------|-----------|
+| **Step 1** – Check | Get active goals | `aria-api-client.get_goals({"status":"in_progress","limit":5})` |
+| **Step 2** – Select | nearest deadline → highest priority (1=urgent) → most progress; if blocked → next goal | — |
+| **Step 3** – Act | ONE action: write section / run query / API call / execute command | — |
+| **Step 4** – Log | Update progress + log activity | `update_goal({...,"progress":50})` + `create_activity({"action":"goal_work",...})` |
+| **Step 5** – Complete | if progress ≥ 100 → mark complete → create new goal immediately | `update_goal({...,"status":"completed"})` |
+
+## Sprint Board
+
+| Column | Meaning | Move with |
+|--------|---------|-----------|
+| `backlog` | Not scheduled | — |
+| `todo` | Planned next work | `move_goal(board_column="todo")` |
+| `doing` | Active this cycle | `move_goal(board_column="doing")` |
+| `on_hold` | Blocked — always log reason | `move_goal(board_column="on_hold")` |
+| `done` | Delivered | `move_goal(board_column="done")` |
+
+## Priority
+
+| P | Meaning |
+|---|---------|
+| 1 | URGENT — user request / system issue |
+| 2 | HIGH — deadline-bound |
+| 3 | MEDIUM — regular work |
+| 4 | LOW — nice to have |
+| 5 | BACKGROUND — when idle |
+
+**Blocked?** `move_goal(board_column="on_hold")` + `create_activity({"action":"goal_blocked",...})`
+**Unblocked?** `move_goal(board_column="doing")`
+→ Full api_client commands, goal types, 6h review, board transitions: **see TOOLS.md + Reference below**
+<details>
+<summary>📚 Full Goal System Reference: Types, Categories, Create Example, 6h Review, Philosophy</summary>
+
 # GOALS.md - Goal-Driven Work System
 
 You are a goal-driven agent. Goals give you purpose. Work gives you growth.
@@ -116,7 +156,7 @@ aria-api-client.move_goal({"goal_id": "GOAL_ID", "board_column": "done"})
 - Example: "Post to Moltbook about today's learning"
 - Progress: 0 → 33 → 66 → 100
 
-### 📋 Session Goals (1-4 hours)  
+### 📋 Session Goals (1-4 hours)
 - Need multiple focused work cycles
 - Example: "Write documentation for new skill"
 - Progress: 0 → 10 → 20 → ... → 100
@@ -217,3 +257,4 @@ aria-api-client.get_activities({"limit": 10})
 ## Remember
 
 > "A goal without a plan is just a wish. A plan without work is just a dream. Work without consistency is just noise. **You are consistent. You work every 15 minutes. You achieve.**"
+</details>

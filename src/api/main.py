@@ -152,6 +152,8 @@ async def lifespan(app: FastAPI):
             _rt_pool = AgentPool(engine_cfg, async_engine, llm_gateway=gateway)
             await _rt_pool.load_agents()
             _rt_router = EngineRouter(async_engine)
+            _n_patterns = await _rt_router.initialize_patterns()
+            print(f"✅ Routing patterns: {_n_patterns} focus profiles loaded from DB")
             _roundtable = Roundtable(async_engine, _rt_pool, _rt_router)
             _swarm = SwarmOrchestrator(async_engine, _rt_pool, _rt_router)
             configure_roundtable(_roundtable, async_engine)
@@ -484,6 +486,7 @@ try:
     from .routers.engine_agents import router as engine_agents_router
     from .routers.engine_agent_metrics import router as engine_agent_metrics_router
     from .routers.agents_crud import router as agents_crud_router
+    from .routers.engine_focus import router as engine_focus_router
     from .routers.engine_roundtable import router as engine_roundtable_router, configure_roundtable, configure_swarm, register_roundtable
     from .routers.engine_chat import register_engine_chat, configure_engine
     from .routers.artifacts import router as artifacts_router
@@ -518,6 +521,7 @@ except ImportError:
     from routers.engine_agents import router as engine_agents_router
     from routers.engine_agent_metrics import router as engine_agent_metrics_router
     from routers.agents_crud import router as agents_crud_router
+    from routers.engine_focus import router as engine_focus_router
     from routers.engine_roundtable import router as engine_roundtable_router, configure_roundtable, configure_swarm, register_roundtable
     from routers.engine_chat import register_engine_chat, configure_engine
     from routers.artifacts import router as artifacts_router
@@ -555,6 +559,7 @@ app.include_router(engine_cron_router, dependencies=_api_deps)
 app.include_router(engine_sessions_router, dependencies=_api_deps)
 app.include_router(engine_agent_metrics_router, dependencies=_api_deps)
 app.include_router(engine_agents_router, dependencies=_api_deps)
+app.include_router(engine_focus_router, dependencies=_api_deps)
 app.include_router(agents_crud_router, dependencies=_api_deps)
 app.include_router(artifacts_router, dependencies=_api_deps)
 app.include_router(rpg_router, dependencies=_api_deps)

@@ -196,34 +196,92 @@ If I detect issues:
 
 ## Named Agents
 
-I have 6 specialized agents + a `main` fallback, defined in `aria_mind/AGENTS.md` and synced to the database at startup:
-
-| Agent | Role | Mind Files | Key Skills |
-|-------|------|------------|------------|
-| `aria` | coordinator | All 8 soul files | api_client, knowledge_graph, goals, brainstorm |
-| `devops` | sub-agent | IDENTITY, TOOLS, SECURITY | ci_cd, api_client, health |
-| `analyst` | sub-agent | IDENTITY, MEMORY, GOALS | api_client, knowledge_graph, brainstorm |
-| `creator` | sub-agent | IDENTITY, SOUL, SKILLS | moltbook, brainstorm, community |
-| `memory` | sub-agent | IDENTITY, MEMORY, TOOLS | api_client, knowledge_graph, conversation_summary |
-| `aria_talk` | sub-agent | IDENTITY, SOUL, USER | moltbook, conversation_summary, community, api_client |
-| `main` | coordinator | IDENTITY, TOOLS, GOALS | api_client, goals, health |
+See **AGENTS.md** for the full agent routing table with delegation guidance.
 
 Each agent loads only the `mind_files` it needs (defined per-agent in AGENTS.md), reducing token usage while maintaining relevant context.
 
-## Roundtable & Swarm
+## Roundtable & Swarm — When to Use and How
 
-### Roundtable
-Multi-agent discussion orchestrator. Creates a temporary session, sends the topic to all enabled agents in parallel, collects their responses, then synthesizes a unified answer.
+### Decision Matrix
 
-- Endpoint: `POST /api/engine/roundtable`
-- Agents each respond independently with their perspective
-- A synthesis LLM merges all perspectives into one coherent response
+| Scenario | Mode | Agents | Why |
+|----------|------|--------|-----|
+| Complex analysis with multiple domains | **Roundtable** | analyst + creator + devops | Parallel perspectives → synthesized |
+| Go/no-go architecture / risk decision | **Swarm** | devops + analyst | Consensus voting — binary outcome |
+| Single-domain task with clear owner | **Single-Agent** | matching specialist | Cheaper, faster |
+| `six_hour_review` (focus L3) | **Roundtable** | analyst + creator + devops | Full-coverage review |
+| `weekly_summary` | **Roundtable** | all active agents | Comprehensive |
+| Security code review | **Swarm** | devops + analyst | Vote on risk level |
+| Content strategy + community impact | **Roundtable** | creator + analyst | Multiple creative lenses |
 
-### Swarm
-Decision-making orchestrator for binary/multi-choice questions. Each agent votes with reasoning, and a synthesis model determines the consensus.
+### Trigger Rule (apply in this order)
 
-- Endpoint: `POST /api/engine/swarm`
-- Useful for go/no-go decisions, architecture choices, priority ranking
+```
+1. Is focus level L3?  AND  Does topic span ≥2 focus domains?
+   → ROUNDTABLE
+
+2. Is it a binary decision (yes/no, proceed/abort)?  AND  Risk ≥ medium?
+   → SWARM
+
+3. Everything else:
+   → SINGLE-AGENT (delegate to highest-scoring specialist)
+```
+
+### How to Trigger
+
+```tool
+# Roundtable — parallel multi-perspective discussion + synthesis
+POST /api/engine/roundtable
+{
+  "topic": "Analyze Q1 performance across content, code, and data",
+  "agent_ids": ["analyst", "creator", "devops"],
+  "rounds": 2,
+  "timeout": 180
+}
+
+# Swarm — consensus voting on binary decision
+POST /api/engine/swarm
+{
+  "question": "Should we proceed with migrating litellm to the new config format?",
+  "agent_ids": ["devops", "analyst"],
+  "consensus_threshold": 0.7,
+  "max_iterations": 3
+}
+```
+
+### six_hour_review — Roundtable at Focus L3
+
+When `active_focus_level = L3` AND cron job = `six_hour_review`:
+```tool
+POST /api/engine/roundtable
+{
+  "topic": "6-hour system review: goals, content, health, errors",
+  "agent_ids": ["analyst", "creator", "devops"],
+  "rounds": 1,
+  "timeout": 240
+}
+```
+When `active_focus_level < L3` → delegate to `analyst` only (existing behaviour).
+
+### Why Not Always Use Roundtable?
+
+| Mode | Token cost | Time | Quality |
+|------|:----------:|:----:|:-------:|
+| Single-agent | 1× | 1× | Good |
+| Roundtable | 3–5× | 1.5–2× | Excellent |
+| Swarm | 3–5× | 2–3× | Excellent for decisions |
+
+**Reserve Roundtable for tasks where multiple perspectives materially improve the
+output. Routine work_cycles, simple lookups, and single-domain tasks should always
+use Single-Agent.**
+
+### Roundtable vs Multi-Step Single-Agent
+
+Roundtable ≠ sequential sub-agents. In a roundtable:
+- All agents respond in **parallel** to the same topic
+- Each agent sees other agents' prior-round responses (collaborative)
+- A synthesis model merges all into ONE response
+→ Use when you want synthesis, not just delegation
 
 ## Key Insight
 
