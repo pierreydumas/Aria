@@ -38,7 +38,7 @@ E7 and E8 were filed separately but are architecturally inseparable:
 | **E7-S75** | roundtable auto-select focus agents | 5 | 3 | P2 | S72, S73 |
 | **E7-S76** | engine_focus.html management UI | 5 | 2 | P2 | S71 |
 | **E8-S86** | heartbeat.py wiring + active focus endpoints | 5 | 4 | P0 | S71, S78 |
-| **E7-S77** | End-to-end integration tests | 6 | 5 | P1 | S70–S75, S86 |
+| **E7-S77** | Focus Introspection + Activation Skill | 3 | 2 | P2 | S71, S73 |
 
 **Totals:** E7 = 23pts | E8 = 15pts | **Combined = 38pts**
 
@@ -188,7 +188,7 @@ All 17 tickets have been rebuilt at AAA+++ quality with:
 | E7-S74-aaa.md | token_budget_hint cap by focus level ← rebuild from original |
 | E7-S75-aaa.md | roundtable auto-select focus agents ← rebuild from original |
 | E7-S76-aaa.md | engine_focus.html management UI ← rebuild from original |
-| E7-S77-aaa.md | End-to-end integration tests ← rebuild from original |
+| E7-S77-aaa.md | Focus Introspection + Activation Skill (aria_skills/focus/) |
 
 > E7 tickets (S70–S77) are to be rebuilt at AAA+++ standard in the same session they are executed. The roundtable review and constraint analysis for each has been captured in [FINAL_SPRINT_REVIEW.md](FINAL_SPRINT_REVIEW.md).
 

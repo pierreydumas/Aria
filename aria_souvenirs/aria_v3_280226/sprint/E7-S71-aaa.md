@@ -1,25 +1,33 @@
-# S-71: `engine_focus.py` CRUD Router + Seed 8 Profiles
-
-**Epic:** E7 — Focus System v2 | **Priority:** P0 | **Points:** 3 | **Phase:** 1
+# E7-S71 — engine_focus.py CRUD Router + Seed 8 Profiles
+**Epic:** E7 — Focus System v2 | **Priority:** P0 | **Points:** 3 | **Phase:** 1  
+**Status:** NOT STARTED | **Depends on:** E7-S70 (FocusProfileEntry must exist in models.py + DB)  
+**Familiar Value:** Without this router, the focus_profiles table created in S70 is a ghost — unreachable by the frontend, by Aria's api_client skill, and by every engine component. This ticket closes the loop between the DB and the network: Aria can query her own focus configuration via HTTP, and Shiva can edit profiles from the engine UI.
 
 ---
 
 ## Problem
 
-No API endpoint exists for `FocusProfile` (created in S-70).  
-The `engine_agents_mgmt.html` focus dropdown (added in prior sprint) is a static
-hardcoded `<select>` — 8 options, no database backing, no way to edit definitions.  
-Aria has no way to read focus metadata via api_client.  
-The system has no seed data matching the 7 personas defined in `aria_mind/IDENTITY.md`.
+**File:** `src/api/routers/engine_focus.py` — **does NOT exist** (confirmed):
+```bash
+test -f src/api/routers/engine_focus.py && echo "exists" || echo "MISSING"
+# EXPECTED: MISSING
+```
+
+**File:** `src/api/main.py`  
+Current state (verified):
+- Line 484: `from .routers.engine_agents import router as engine_agents_router`  
+- Line 518: `from routers.engine_agents import router as engine_agents_router`  
+- Line 557: `app.include_router(engine_agents_router, dependencies=_api_deps)`  
+
+`engine_focus` is absent from all three locations. The `focus_profiles` table is live but has no HTTP surface.
+
+Also: `engine_agents_mgmt.html` focus dropdown is a static `<select>` with 8 hardcoded `<option>` values — not backed by the DB. S-71 seed endpoint fixes this.
 
 ---
 
 ## Root Cause
 
-S-70 creates the table/model but no API layer. Without endpoints, the table
-is unreachable to the frontend, to Aria's api_client skill, and to the engine's
-routing and prompt composition code. The `main.py` engine router import block
-(lines 482–492 relative, 516–527 absolute) has no `engine_focus` entry.
+S-70 creates the table and ORM model but has no corresponding API layer. FastAPI never discovers routers unless they are explicitly created AND registered in `main.py`. The table is unreachable without this ticket.
 
 ---
 
@@ -27,19 +35,22 @@ routing and prompt composition code. The `main.py` engine router import block
 
 ### 1 — Create `src/api/routers/engine_focus.py`
 
-New file. Full CRUD + seed endpoint. 8 seed profiles matching IDENTITY.md.
+**Full file — copy verbatim:**
 
 ```python
 """
 Focus Profile API — manage personality layers for agents.
 
-Endpoints:
-    GET    /api/engine/focus          — list all focus profiles
-    GET    /api/engine/focus/{id}     — get single profile
-    POST   /api/engine/focus          — create new profile
-    PUT    /api/engine/focus/{id}     — update profile
-    DELETE /api/engine/focus/{id}     — delete profile
-    POST   /api/engine/focus/seed     — insert default profiles (idempotent)
+Routes (all under /api/engine/focus):
+    GET    /             list all profiles
+    GET    /{focus_id}   get one profile
+    POST   /             create profile
+    PUT    /{focus_id}   update profile
+    DELETE /{focus_id}   delete profile
+    POST   /seed         idempotently insert 8 default profiles
+    POST   /active       set active focus level (L1/L2/L3)
+    GET    /active       get current active focus level
+    DELETE /active       reset to L2 default
 """
 import logging
 from datetime import datetime, timezone
@@ -94,7 +105,23 @@ class FocusProfileUpdate(BaseModel):
     enabled: bool | None = None
 
 
-# ── Seed data (matches aria_mind/IDENTITY.md) ─────────────────────────────────
+class ActiveFocusRequest(BaseModel):
+    level: str  # "L1" | "L2" | "L3"
+
+
+class ActiveFocusResponse(BaseModel):
+    level: str
+    config: dict
+
+
+FOCUS_LEVEL_CONFIG: dict[str, dict] = {
+    "L1": {"max_goals": 1, "sub_agents": False, "roundtable": False, "model_tier": "local"},
+    "L2": {"max_goals": 3, "sub_agents": True,  "roundtable": False, "model_tier": "free_cloud"},
+    "L3": {"max_goals": 5, "sub_agents": True,  "roundtable": True,  "model_tier": "free_cloud"},
+}
+
+
+# ── Seed data (matches aria_mind/IDENTITY.md 7 personas + rpg_master) ─────────
 
 SEED_PROFILES: list[dict[str, Any]] = [
     {
@@ -137,7 +164,7 @@ SEED_PROFILES: list[dict[str, Any]] = [
             "one-line rationale. Never output prose when code suffices."
         ),
         "model_override": "qwen3-coder-free",
-        "auto_skills": ["ci_cd", "security_scan", "health", "database", "pytest_runner"],
+        "auto_skills": ["ci_cd", "database", "pytest_runner"],
         "enabled": True,
     },
     {
@@ -158,7 +185,7 @@ SEED_PROFILES: list[dict[str, Any]] = [
             "drawing conclusions. Prefer SQL/code over English explanations."
         ),
         "model_override": None,
-        "auto_skills": ["database", "knowledge_graph", "api_client", "brainstorm", "market_data"],
+        "auto_skills": ["database", "knowledge_graph", "api_client", "brainstorm"],
         "enabled": True,
     },
     {
@@ -196,11 +223,10 @@ SEED_PROFILES: list[dict[str, Any]] = [
         "system_prompt_addon": (
             "You are in SOCIAL ARCHITECT focus. Write for humans, not bots. "
             "Every output must be post-length: punchy, no jargon, one clear "
-            "idea. Lead with impact. Emoji only where they add signal. "
-            "Never exceed 280 characters for social posts unless asked."
+            "idea. Lead with impact. Never exceed 280 characters for social posts unless asked."
         ),
         "model_override": "qwen3-mlx",
-        "auto_skills": ["social", "moltbook", "community", "api_client", "conversation_summary"],
+        "auto_skills": ["social", "moltbook", "community", "api_client"],
         "enabled": True,
     },
     {
@@ -237,12 +263,11 @@ SEED_PROFILES: list[dict[str, Any]] = [
         "expertise_keywords": ["report", "article", "news", "interview", "publish", "investigate", "story", "lead", "headline", "press", "coverage"],
         "system_prompt_addon": (
             "You are in JOURNALIST focus. Inverted pyramid: most important "
-            "facts first. Every claim needs a source or a 'unverified' tag. "
-            "No passive voice. One sentence per idea. If writing an article, "
-            "use: headline → lede → body → context → quote."
+            "facts first. Every claim needs a source or an 'unverified' tag. "
+            "No passive voice. One sentence per idea."
         ),
         "model_override": None,
-        "auto_skills": ["browser", "knowledge_graph", "api_client", "fact_check"],
+        "auto_skills": ["browser", "knowledge_graph", "fact_check"],
         "enabled": True,
     },
     {
@@ -259,8 +284,8 @@ SEED_PROFILES: list[dict[str, Any]] = [
         "system_prompt_addon": (
             "You are in RPG MASTER focus. You sculpt living worlds. "
             "Every scene: sensory detail → conflict hook → player agency. "
-            "NPCs have wants, fears, and contradictions — not just stats. "
-            "Keep tension alive. Never resolve conflict without player input."
+            "NPCs have wants, fears, and contradictions. "
+            "Never resolve conflict without player input."
         ),
         "model_override": None,
         "auto_skills": ["rpg_pathfinder", "rpg_campaign", "llm"],
@@ -269,29 +294,20 @@ SEED_PROFILES: list[dict[str, Any]] = [
 ]
 
 
-# ── Routes ────────────────────────────────────────────────────────────────────
+# ── CRUD Routes ───────────────────────────────────────────────────────────────
 
 @router.get("", response_model=list[FocusProfileSchema])
-async def list_focus_profiles(
-    db: AsyncSession = Depends(get_db),
-) -> list[FocusProfileSchema]:
-    """List all focus profiles."""
+async def list_focus_profiles(db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(FocusProfileEntry).order_by(
-            FocusProfileEntry.delegation_level,
-            FocusProfileEntry.focus_id,
+            FocusProfileEntry.delegation_level, FocusProfileEntry.focus_id
         )
     )
-    rows = result.scalars().all()
-    return [FocusProfileSchema(**r.to_dict()) for r in rows]
+    return [FocusProfileSchema(**r.to_dict()) for r in result.scalars().all()]
 
 
 @router.get("/{focus_id}", response_model=FocusProfileSchema)
-async def get_focus_profile(
-    focus_id: str,
-    db: AsyncSession = Depends(get_db),
-) -> FocusProfileSchema:
-    """Get a single focus profile by ID."""
+async def get_focus_profile(focus_id: str, db: AsyncSession = Depends(get_db)):
     row = await db.get(FocusProfileEntry, focus_id)
     if row is None:
         raise HTTPException(404, f"Focus profile {focus_id!r} not found")
@@ -299,11 +315,7 @@ async def get_focus_profile(
 
 
 @router.post("", response_model=FocusProfileSchema, status_code=201)
-async def create_focus_profile(
-    body: FocusProfileSchema,
-    db: AsyncSession = Depends(get_db),
-) -> FocusProfileSchema:
-    """Create a new focus profile."""
+async def create_focus_profile(body: FocusProfileSchema, db: AsyncSession = Depends(get_db)):
     row = FocusProfileEntry(**body.model_dump())
     db.add(row)
     await db.commit()
@@ -312,17 +324,11 @@ async def create_focus_profile(
 
 
 @router.put("/{focus_id}", response_model=FocusProfileSchema)
-async def update_focus_profile(
-    focus_id: str,
-    body: FocusProfileUpdate,
-    db: AsyncSession = Depends(get_db),
-) -> FocusProfileSchema:
-    """Update fields on a focus profile."""
+async def update_focus_profile(focus_id: str, body: FocusProfileUpdate, db: AsyncSession = Depends(get_db)):
     row = await db.get(FocusProfileEntry, focus_id)
     if row is None:
         raise HTTPException(404, f"Focus profile {focus_id!r} not found")
-    update_data = body.model_dump(exclude_unset=True)
-    for k, v in update_data.items():
+    for k, v in body.model_dump(exclude_unset=True).items():
         setattr(row, k, v)
     row.updated_at = datetime.now(timezone.utc)
     await db.commit()
@@ -331,11 +337,7 @@ async def update_focus_profile(
 
 
 @router.delete("/{focus_id}", status_code=204)
-async def delete_focus_profile(
-    focus_id: str,
-    db: AsyncSession = Depends(get_db),
-) -> None:
-    """Delete a focus profile."""
+async def delete_focus_profile(focus_id: str, db: AsyncSession = Depends(get_db)):
     row = await db.get(FocusProfileEntry, focus_id)
     if row is None:
         raise HTTPException(404, f"Focus profile {focus_id!r} not found")
@@ -344,10 +346,8 @@ async def delete_focus_profile(
 
 
 @router.post("/seed", status_code=201)
-async def seed_focus_profiles(
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    """Idempotently seed the 8 default focus profiles from IDENTITY.md."""
+async def seed_focus_profiles(db: AsyncSession = Depends(get_db)) -> dict:
+    """Idempotently seed the 8 default focus profiles."""
     inserted = 0
     for profile in SEED_PROFILES:
         stmt = pg_insert(FocusProfileEntry).values(**profile)
@@ -357,33 +357,78 @@ async def seed_focus_profiles(
     await db.commit()
     logger.info("Focus seed: %d profiles inserted", inserted)
     return {"inserted": inserted, "total": len(SEED_PROFILES)}
+
+
+# ── Active Focus Level endpoints (used by E8-S86 heartbeat.py) ───────────────
+
+@router.post("/active", response_model=ActiveFocusResponse, status_code=200)
+async def set_active_focus(body: ActiveFocusRequest, db: AsyncSession = Depends(get_db)):
+    """Set active focus level (L1/L2/L3) — stored as memory key."""
+    if body.level not in FOCUS_LEVEL_CONFIG:
+        raise HTTPException(status_code=422, detail="level must be L1, L2, or L3")
+    from db.models import MemoryEntry  # noqa: F401 — import at call time to avoid circular
+    stmt = pg_insert(MemoryEntry).values(
+        key="active_focus_level", value=body.level, category="focus",
+    ).on_conflict_do_update(
+        index_elements=["key"],
+        set_={"value": body.level, "updated_at": datetime.now(timezone.utc)},
+    )
+    await db.execute(stmt)
+    await db.commit()
+    logger.info("active_focus_level set to %s", body.level)
+    return ActiveFocusResponse(level=body.level, config=FOCUS_LEVEL_CONFIG[body.level])
+
+
+@router.get("/active", response_model=ActiveFocusResponse)
+async def get_active_focus(db: AsyncSession = Depends(get_db)):
+    from db.models import MemoryEntry  # noqa: F401
+    result = await db.execute(
+        select(MemoryEntry).where(MemoryEntry.key == "active_focus_level")
+    )
+    row = result.scalars().first()
+    level = row.value if row else "L2"
+    if level not in FOCUS_LEVEL_CONFIG:
+        level = "L2"
+    return ActiveFocusResponse(level=level, config=FOCUS_LEVEL_CONFIG[level])
+
+
+@router.delete("/active", status_code=200)
+async def reset_active_focus(db: AsyncSession = Depends(get_db)) -> dict:
+    from db.models import MemoryEntry  # noqa: F401
+    await db.execute(delete(MemoryEntry).where(MemoryEntry.key == "active_focus_level"))
+    await db.commit()
+    return {"level": "L2", "reset": True}
 ```
 
 ### 2 — Wire into `src/api/main.py`
 
-Two import blocks must both be updated (relative at line ~484, absolute at line ~518).
+**Three locations require edits. Verified exact lines:**
 
-**BEFORE (relative import block, line 484):**
+**BEFORE (line 484 — relative import block):**
 ```python
     from .routers.engine_agents import router as engine_agents_router
+    from .routers.agents_crud import router as agents_crud_router
 ```
 **AFTER:**
 ```python
     from .routers.engine_agents import router as engine_agents_router
+    from .routers.agents_crud import router as agents_crud_router
     from .routers.engine_focus import router as engine_focus_router
 ```
 
-**BEFORE (absolute import block, line 518):**
+**BEFORE (line 518 — absolute import block):**
 ```python
     from routers.engine_agents import router as engine_agents_router
+    from routers.agents_crud import router as agents_crud_router
 ```
 **AFTER:**
 ```python
     from routers.engine_agents import router as engine_agents_router
+    from routers.agents_crud import router as agents_crud_router
     from routers.engine_focus import router as engine_focus_router
 ```
 
-**BEFORE (include_router block, line ~558):**
+**BEFORE (line 557 — include_router block):**
 ```python
 app.include_router(engine_agents_router, dependencies=_api_deps)
 app.include_router(agents_crud_router, dependencies=_api_deps)
@@ -395,74 +440,117 @@ app.include_router(engine_focus_router, dependencies=_api_deps)
 app.include_router(agents_crud_router, dependencies=_api_deps)
 ```
 
+**Note:** Before editing, verify `MemoryEntry` ORM class name:
+```bash
+grep -n "^class.*Memor\|__tablename__.*memor" src/api/db/models.py | head -5
+```
+Use the actual class name in the active endpoints if different.
+
 ---
 
 ## Constraints
 
-| # | Constraint | Applies | Notes |
-|---|-----------|---------|-------|
-| 1 | 5-layer architecture | ✅ | Router is pure API layer; reads DB via `get_db` SessionDep. No direct SQLAlchemy in skills |
-| 2 | No secrets in code | ✅ | No secrets in profiles — model_override stores slug only |
-| 3 | models.yaml SoT | ✅ | `model_override` stores the model slug (e.g. `kimi`) — `agent_pool.process()` resolves it via LLMGateway which reads models.yaml |
-| 4 | Docker-first | ✅ | Verification via `curl` against running container |
-| 5 | aria_memories writable | ✅ | No file writes |
-| 6 | No soul modification | ✅ | `system_prompt_addon` values extend but never override `SOUL.md` values |
+| # | Constraint | Status | Notes |
+|---|-----------|:------:|-------|
+| 1 | 5-layer architecture | ✅ | Router is API layer only. Reads DB via `get_db` SessionDep. No skeleton-layer DB calls from skills. |
+| 2 | No secrets in code | ✅ | No API keys, passwords, or tokens in profiles |
+| 3 | `models.yaml` SoT for model names | ✅ | `model_override` stores slug only (`qwen3-coder-free`). Never a URL. |
+| 4 | Docker-first testing | ✅ | Verification via `curl` against running container |
+| 5 | `aria_memories` writable | ✅ | No file writes |
+| 6 | No soul files modified | ✅ | `system_prompt_addon` values extend personality; SOUL.md not modified |
+| 7 | Idempotent seed | ✅ | `on_conflict_do_nothing` — re-running seed is safe |
 
 ---
 
 ## Dependencies
 
-- **S-70 must complete first** — `FocusProfileEntry` ORM class must exist in `db/models.py` and table must exist in DB
+- **E7-S70 must complete first** — `FocusProfileEntry` ORM class + `to_dict()` method must exist, table must be in DB
 
 ---
 
 ## Verification
 
 ```bash
-# 1. Router imported without error (API container restart not needed — FastAPI hot-reloads)
+# 1. Router module importable
 docker exec aria-api python3 -c "from routers.engine_focus import router; print('OK', router.prefix)"
 # EXPECTED: OK /engine/focus
 
-# 2. Seed the 8 profiles
+# 2. Syntax clean
+docker exec aria-api python3 -c "
+import ast, pathlib
+ast.parse(pathlib.Path('src/api/routers/engine_focus.py').read_text())
+print('syntax OK')
+"
+# EXPECTED: syntax OK
+
+# 3. Seed 8 profiles
 curl -s -X POST http://localhost/api/engine/focus/seed \
   -H "Authorization: Bearer $ARIA_API_KEY" | python3 -m json.tool
 # EXPECTED: {"inserted": 8, "total": 8}
 
-# 3. List profiles
+# 4. List profiles — 8 returned
 curl -s http://localhost/api/engine/focus \
-  -H "Authorization: Bearer $ARIA_API_KEY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d), 'profiles'); print([p['focus_id'] for p in d])"
-# EXPECTED: 8 profiles  ['orchestrator', 'devsecops', 'data', 'creative', 'social', 'research', 'journalist', 'rpg_master']
+  -H "Authorization: Bearer $ARIA_API_KEY" | python3 -c "
+import sys, json; d=json.load(sys.stdin)
+print(len(d), 'profiles')
+print([p['focus_id'] for p in d])
+"
+# EXPECTED: 8 profiles
+# ['orchestrator', 'devsecops', ...]
 
-# 4. Get single profile
+# 5. Get single profile — verify token budget and temperature
 curl -s http://localhost/api/engine/focus/devsecops \
-  -H "Authorization: Bearer $ARIA_API_KEY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['token_budget_hint'], d['temperature_delta'])"
-# EXPECTED: 1500 -0.2
+  -H "Authorization: Bearer $ARIA_API_KEY" | python3 -c "
+import sys, json; d=json.load(sys.stdin)
+print('budget:', d['token_budget_hint'], 'temp_delta:', d['temperature_delta'])
+"
+# EXPECTED: budget: 1500  temp_delta: -0.2
 
-# 5. Seed is idempotent
+# 6. Seed is idempotent
 curl -s -X POST http://localhost/api/engine/focus/seed \
   -H "Authorization: Bearer $ARIA_API_KEY" | python3 -m json.tool
 # EXPECTED: {"inserted": 0, "total": 8}
+
+# 7. Set active focus level
+curl -s -X POST http://localhost/api/engine/focus/active \
+  -H "Authorization: Bearer $ARIA_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"level": "L1"}' | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['level'], d['config']['max_goals'])"
+# EXPECTED: L1 1
+
+# 8. GET active focus
+curl -s http://localhost/api/engine/focus/active \
+  -H "Authorization: Bearer $ARIA_API_KEY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['level'])"
+# EXPECTED: L1
 ```
 
 ---
 
 ## Prompt for Agent
 
-You are executing ticket S-71 for the Aria project. Do exactly the following.
+You are executing ticket **E7-S71** for the Aria project.
 
-**Constraint:** 5-layer architecture. Router only; no skill code. Docker-first.
-Do NOT modify `aria_mind/soul/`. No hardcoded model names — store slugs only.
+**Pre-check — confirm S70 is done:**
+```bash
+grep -n "class FocusProfileEntry" src/api/db/models.py | head -1
+# If empty → STOP. Run E7-S70 first.
+docker exec aria-db psql -U admin -d aria_warehouse -c "\dt aria_engine.focus_profiles"
+# If no table → STOP. Run E7-S70 first.
+```
+
+**Constraint:** 5-layer architecture — router uses `get_db` async session dep. No direct SQLAlchemy engine calls. `model_override` stores slug only. Do NOT modify `aria_mind/soul/`.
 
 **Files to read first:**
-- `src/api/routers/engine_cron.py` lines 1–30 (router pattern to copy)
-- `src/api/routers/engine_agents.py` lines 1–45 (Pydantic schema style)
-- `src/api/db/models.py` lines 970–1015 (FocusProfileEntry you added in S-70)
-- `src/api/main.py` lines 482–492 and 516–527 (import blocks) and 554–560 (include_router list)
+1. `src/api/routers/engine_cron.py` lines 1–30 — copy router pattern
+2. `src/api/db/models.py` lines 1–30 — find MemoryEntry class name
+3. `src/api/main.py` lines 480–492 — relative import block
+4. `src/api/main.py` lines 514–525 — absolute import block
+5. `src/api/main.py` lines 554–562 — include_router list
 
 **Steps:**
-
-1. Create `src/api/routers/engine_focus.py` with the full content in the Fix section above.
-2. In `src/api/main.py`, add the three import/include lines as shown in Fix step 2.
-3. Run `python3 -c "import ast; ast.parse(open('src/api/routers/engine_focus.py').read()); print('OK')"` — confirm no syntax errors.
-4. Run all 5 verification commands. Confirm expected output.
-5. Report: "S-71 DONE — engine_focus.py created, seeded 8 profiles, all verification passed."
+1. Create `src/api/routers/engine_focus.py` with full file content above.
+2. Verify `MemoryEntry` class name from models.py — update active focus endpoints if different.
+3. Apply the three `main.py` edits (relative import, absolute import, include_router).
+4. Run `python3 -c "import ast; ast.parse(open('src/api/routers/engine_focus.py').read()); print('OK')"` — syntax check.
+5. Run all 8 verification commands.
+6. Report: "S-71 DONE — engine_focus.py created, 8 profiles seeded, all verification passed."
