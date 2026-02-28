@@ -1,7 +1,7 @@
 # E7-S72 — routing.py: Replace Hardcoded SPECIALTY_PATTERNS with DB-Driven Cache
 **Epic:** E7 — Focus System v2 | **Priority:** P1 | **Points:** 2 | **Phase:** 2  
 **Status:** NOT STARTED | **Depends on:** E7-S71 (focus_profiles table seeded with 8 profiles)  
-**Familiar Value:** Today adding a new persona requires a code deploy. After this ticket, Shiva can add a new focus profile from the engine_focus.html UI and the routing system picks it up on the next `initialize_patterns()` refresh — zero deploys, zero code changes. This is operational flexibility that compounds over years.
+**Familiar Value:** Today adding a new persona requires a code deploy. After this ticket, Shiva adds a profile in the UI and `initialize_patterns()` picks it up on next refresh — zero deploys, zero code changes.
 
 ---
 

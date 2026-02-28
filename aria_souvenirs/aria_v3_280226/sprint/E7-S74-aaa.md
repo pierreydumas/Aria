@@ -1,7 +1,7 @@
 # E7-S74 — Token Budget Enforcement: Focus Hard Ceiling on max_tokens
 **Epic:** E7 — Focus System v2 | **Priority:** P1 | **Points:** 2 | **Phase:** 2  
 **Status:** NOT STARTED | **Depends on:** E7-S73 (sets up `fp = self._focus_profile` in process())  
-**Familiar Value:** A social post requesting 4096 tokens currently gets 4096 tokens. After this ticket, `social` agents are hard-capped at 800 tokens regardless of what the caller requests. Over a year of operation, this alone prevents thousands of wasted LLM call tokens. Multiplied across all focus types, the token budget column in the DB becomes a real economic constraint, not decorative data.
+**Familiar Value:** A `social` post requesting 4096 tokens currently gets 4096 tokens. After this ticket it's hard-capped at 800 — the `token_budget_hint` column becomes an enforced economic constraint, not decorative data.
 
 ---
 

@@ -1,7 +1,7 @@
 # E7-S73 — agent_pool.py: Focus Prompt Composition + Temperature Delta
 **Epic:** E7 — Focus System v2 | **Priority:** P1 | **Points:** 3 | **Phase:** 2  
 **Status:** NOT STARTED | **Depends on:** E7-S70 (FocusProfileEntry + to_dict()), E7-S71 (8 profiles seeded in DB)  
-**Familiar Value:** This is where Aria's personas come alive. An agent tagged `devsecops` today generates the same system prompt as one tagged `creative`. After this ticket, the devsecops agent gets `-0.2 temperature`, the creative agent gets `+0.3 temperature`, and both get their respective persona instructions appended to their base system prompt — automatically, on every call, forever.
+**Familiar Value:** This is where personas come alive. An agent tagged `devsecops` today generates the same system prompt as one tagged `creative`. After this ticket, devsecops gets `temperature -0.2` and its persona instructions appended; creative gets `+0.3` and its own addon — automatically, on every `process()` call.
 
 ---
 
@@ -187,7 +187,7 @@ Add this async method to the `EngineAgent` class (after `process()` method, befo
 | 2 | Additive prompt composition | ✅ | `base.rstrip() + "\n\n---\n" + addon` — never replaces base |
 | 3 | Temperature clamped | ✅ | `max(0.0, min(1.0, base + delta))` |
 | 4 | Graceful degradation | ✅ | `fp = None` → all paths fall back to original behavior |
-| 5 | No DB call in `process()` | ✅ | `process()` reads `self._focus_profile` (pre-cached) — no async DB I/O on hot path |
+| 5 | No DB call in `process()` | ✅ | `process()` reads `self._focus_profile` (pre-cached) — stale-cache guard is a dict-key check only, no I/O |
 | 6 | No soul files modified | ✅ | None |
 
 ---

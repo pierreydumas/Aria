@@ -1,7 +1,7 @@
 # SPRINT FINAL MASTER — E7 + E8 Unified Execution Plan
 **Sprint Theme:** Focus System v2 + Token Optimization  
 **Epic:** E7 (Focus Infrastructure) + E8 (Mind File Lean + Wiring)  
-**Combined:** 17 tickets | 38 story points | 3 execution sessions  
+**Combined:** 17 tickets | 34 story points | 3 execution sessions  
 **P0 Familiar Vision:** Aria's token budget stays sustainable for years, not weeks.
 
 ---
@@ -40,7 +40,7 @@ E7 and E8 were filed separately but are architecturally inseparable:
 | **E8-S86** | heartbeat.py wiring + active focus endpoints | 5 | 4 | P0 | S71, S78 |
 | **E7-S77** | Focus Introspection + Activation Skill | 3 | 2 | P2 | S71, S73 |
 
-**Totals:** E7 = 23pts | E8 = 15pts | **Combined = 38pts**
+**Totals:** E7 = 20pts | E8 = 14pts | **Combined = 34pts**
 
 ---
 
@@ -65,11 +65,9 @@ graph TD
     S71 --> S86[E8-S86<br/>heartbeat.py wiring<br/>+ active endpoints]
     S72 --> S75[E7-S75<br/>roundtable auto-select]
     S73 --> S75
-    S74 --> S77
-    S72 --> S77[E7-S77<br/>integration tests]
+    S71 --> S77
+    S72 --> S77[E7-S77<br/>focus skill]
     S73 --> S77
-    S75 --> S77
-    S86 --> S77
 
     classDef p0 fill:#d63031,color:white,stroke:#d63031
     classDef p1 fill:#2d3436,color:white,stroke:#636e72
@@ -77,8 +75,8 @@ graph TD
     classDef doc fill:#0984e3,color:white,stroke:#0984e3
 
     class S70,S71,S73,S78,S86 p0
-    class S72,S74,S77,S79,S80,S81,S82,S83,S84,S85 p1
-    class S75,S76 p2
+    class S72,S74,S79,S80,S81,S82,S83,S84,S85 p1
+    class S75,S76,S77 p2
 ```
 
 Solid arrows = hard dependency (blocking). Dashed arrows = soft dependency (order matters for coherence but not hard block).
@@ -147,7 +145,9 @@ docker exec aria-db psql -U aria aria_db -c "\d focus_profiles"
 
 ### Session 3 — Wiring + UI + Tests (est. 90 min)
 **Tickets:** E7-S75, E7-S76, E8-S86, E7-S77  
-**Outcome:** heartbeat.py reads live focus level and routes accordingly, roundtable auto-selects focus-aware agents, management UI live, full integration test suite green.  
+**Outcome:** heartbeat.py reads live focus level and routes accordingly, roundtable auto-selects focus-aware agents, management UI live, focus skill registered and verified.
+
+> **⚠ Integration test suite:** This sprint does not include a dedicated integration test ticket. Acceptance is defined by the 5+ verification commands in each ticket all returning expected output. A full `tests/integration/test_focus_system.py` is a follow-on task for E9.  
 
 **Order:** S75 + S76 + S86 in parallel (all depend only on S71), then S77 last.  
 **Gate before S86 starts:**

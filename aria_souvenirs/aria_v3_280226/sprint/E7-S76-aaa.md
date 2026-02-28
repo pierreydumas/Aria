@@ -1,7 +1,7 @@
 # E7-S76 — engine_focus.html: Focus Profile Management UI
 **Epic:** E7 — Focus System v2 | **Priority:** P2 | **Points:** 3 | **Phase:** 4  
 **Status:** NOT STARTED | **Depends on:** E7-S71 (engine_focus.py CRUD API live)  
-**Familiar Value:** The focus system is operational after S70–S74 but invisible. This page is Shiva's control plane: see all 8 profiles at a glance, toggle levels, edit prompt addons, and adjust token budgets — without writing a single line of JSON. Over years of use, adjusting Aria's personalities without code deploys is the difference between a living familiar and a static configuration.
+**Familiar Value:** S70–S74 make the focus system operational but invisible. This page is Shiva's control plane: all 8 profiles visible at a glance, budget bars, level badges, inline prompt addon editing — no curl, no raw JSON.
 
 ---
 
@@ -306,22 +306,56 @@ document.addEventListener('DOMContentLoaded', loadProfiles);
 
 ### Wire into navigation
 
-**Find:** The engine management nav template (likely `src/web/templates/base.html` or `engine_nav.html`).
+**Verified:** Templates live at `src/web/templates/`. Routes are Flask, not FastAPI — see `src/web/app.py`.
 
-**Add link:**
-```html
-<li class="nav-item">
-  <a class="nav-link" href="/engine/focus">🎭 Focus Profiles</a>
-</li>
+#### Step A — Add route to `src/web/app.py`
+
+**BEFORE (lines ~365–368 — `operations/health/` route):**
+```python
+    @app.route('/operations/health/')
+    def operations_health():
+        return render_template('engine_health.html')
 ```
 
-**Find:** The route in the web server that serves engine management pages (likely in `src/api/main.py` or a static file router).
-
-**Add route:**
+**AFTER:**
 ```python
-@app.get("/engine/focus", include_in_schema=False)
-async def engine_focus_page(request: Request):
-    return templates.TemplateResponse("engine_focus.html", {"request": request})
+    @app.route('/operations/health/')
+    def operations_health():
+        return render_template('engine_health.html')
+
+    @app.route('/operations/focus/')
+    @app.route('/operations/focus')
+    def operations_focus():
+        """Focus profile management UI (E7-S76)."""
+        return render_template('engine_focus.html')
+```
+
+#### Step B — Add nav link to `src/web/templates/base.html`
+
+**BEFORE (inside Agents dropdown, after Sessions link — confirmed line ~290):**
+```html
+                            <a href="/sessions" class="{% if '/sessions' in request.path %}active{% endif %}">
+                                💬 Sessions
+                            </a>
+                        </div>
+                    </div>
+```
+
+**AFTER:**
+```html
+                            <a href="/sessions" class="{% if '/sessions' in request.path %}active{% endif %}">
+                                💬 Sessions
+                            </a>
+                            <a href="/operations/focus/" class="{% if '/operations/focus' in request.path %}active{% endif %}">
+                                🎭 Focus Profiles
+                            </a>
+                        </div>
+                    </div>
+```
+
+**Update dropdown toggle** (same dropdown, line ~275) — add `or '/operations/focus' in request.path` to the active condition:
+```html
+<button class="nav-dropdown-toggle {% if '/chat' in request.path or '/agent-manager' in request.path or '/sessions' in request.path or '/operations/focus' in request.path %}active{% endif %}">
 ```
 
 ---
@@ -351,14 +385,16 @@ async def engine_focus_page(request: Request):
 test -f src/web/templates/engine_focus.html && echo "EXISTS" || echo "MISSING"
 # EXPECTED: EXISTS
 
-# 2. Page loads (HTTP 200)
-curl -s -o /dev/null -w "%{http_code}" \
-  http://localhost/engine/focus \
-  -H "Authorization: Bearer $ARIA_API_KEY"
+# 2. Route registered in Flask app
+grep -n "operations/focus" src/web/app.py
+# EXPECTED: two lines — @app.route decorator + TemplateResponse
+
+# 3. Page loads (HTTP 200)
+curl -s -o /dev/null -w "%{http_code}" http://localhost/operations/focus/
 # EXPECTED: 200
 
-# 3. Page includes key elements
-curl -s http://localhost/engine/focus | grep -c "focus-card\|level-badge\|budget-bar\|editModal"
+# 4. Page includes key elements
+curl -s http://localhost/operations/focus/ | grep -c "focus-card\|level-badge\|budget-bar\|editModal"
 # EXPECTED: >= 4
 
 # 4. Page shows loaded profiles (JS must be able to call API)

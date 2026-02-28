@@ -1,7 +1,7 @@
 # E7-S70 — FocusProfileEntry ORM + DB Table
 **Epic:** E7 — Focus System v2 | **Priority:** P0 | **Points:** 3 | **Phase:** 1  
 **Status:** NOT STARTED | **Depends on:** None — foundation ticket  
-**Familiar Value:** Every other E7 ticket and E8-S86 depends on this row in the DB. Without this table, Aria's focus type is a free-text string tag that means nothing to any system. With it, the system knows that `devsecops` means token_budget=1500, temperature_delta=-0.2, and a specific prompt addon — autonomously, forever.
+**Familiar Value:** Prerequisite for all other E7 tickets and E8-S86. Without this table, `devsecops` is a free-text tag that means nothing to any system. With it, the system knows that `devsecops` means `token_budget=1500`, `temperature_delta=-0.2`, and a specific prompt addon — resolvable at query time by any component.
 
 ---
 

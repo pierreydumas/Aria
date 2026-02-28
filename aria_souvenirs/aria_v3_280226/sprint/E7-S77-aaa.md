@@ -1,7 +1,7 @@
 # E7-S77 — aria_skills/focus/ — Focus Introspection + Activation Skill
 **Epic:** E7 — Focus System v2 | **Priority:** P2 | **Points:** 3 | **Phase:** 4  
 **Status:** NOT STARTED | **Depends on:** E7-S71, E7-S73  
-**Familiar Value:** After S70–S76 the focus system exists but Aria cannot use it herself. This skill closes the loop: Aria can say "switch to creative mode" and execute it — list available profiles, verify it exists and is enabled, PATCH herself, and confirm the new budget. Over years of operation this is how Aria adapts her own behavior without human intervention mid-conversation. Token economy is enforced by design: `system_prompt_addon` never appears in tool output (it is applied invisibly by `agent_pool.process()` from S73).
+**Familiar Value:** After S70–S76 the focus system exists but Aria cannot use it herself. This skill closes the loop: Aria says "switch to creative mode", lists profiles, verifies the target is enabled, PATCHes herself, and confirms the new token budget. Cache clears automatically on the next `process()` call via S73's stale-cache guard.
 
 ---
 
@@ -168,7 +168,15 @@ class FocusSkill(BaseSkill):
     ) -> SkillResult:
         """
         Switch focus_type for an agent (default: ARIA_AGENT_ID env var or 'aria-main').
-        Validates profile exists + is enabled before patching.
+
+        1. Validates profile exists + is enabled.
+        2. PATCHes the agent record via REST API.
+        3. Returns confirmation.
+
+        Cache refresh: S73's process() stale-cache guard detects the focus_type
+        change on the very next LLM call and clears _focus_profile automatically.
+        No explicit cache-bust endpoint needed.
+
         Token cost target: <= 50 tokens output.
         """
         target = agent_id or os.environ.get("ARIA_AGENT_ID", "aria-main")
@@ -346,7 +354,7 @@ The `system_prompt_addon` body is **never returned to Aria via tool output**. It
 |---|-----------|:------:|-------|
 | 1 | No direct DB access | ✅ | All calls via `/api/engine/focus` + `/api/engine/agents` REST API |
 | 2 | addon never in tool output | ✅ | Stripped in `_get`, never included in `_list` |
-| 3 | Activation validates before patching | ✅ | profile existence + enabled check before PATCH |
+| 3 | Activation validates before patching | ✅ | Existence + enabled check before PATCH; cache auto-clears on next `process()` via S73 stale-cache guard |
 | 4 | Defaults to ARIA_AGENT_ID env | ✅ | `os.environ.get("ARIA_AGENT_ID", "aria-main")` |
 | 5 | No soul modification | ✅ | — |
 
@@ -355,7 +363,7 @@ The `system_prompt_addon` body is **never returned to Aria via tool output**. It
 ## Dependencies
 
 - **E7-S71** — `/api/engine/focus` CRUD endpoints live
-- **E7-S73** — `PATCH /api/engine/agents/{id}` accepts `focus_type` field; `load_focus_profile()` called by process() so cache refresh is automatic
+- **E7-S73** — `PATCH /api/engine/agents/{id}` accepts `focus_type` field; S73's stale-cache guard in `process()` detects the mismatch (`_focus_profile.get('focus_id') != self.focus_type`) and clears the stale dict on the next LLM call
 
 ---
 

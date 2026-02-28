@@ -1,7 +1,7 @@
 # E7-S75 — Roundtable: Focus-Aware Agent Auto-Selection + Context Cap
 **Epic:** E7 — Focus System v2 | **Priority:** P1 | **Points:** 5 | **Phase:** 3  
 **Status:** NOT STARTED | **Depends on:** E7-S72 (SPECIALTY_PATTERNS DB-driven), E7-S73 (agents have _focus_profile)  
-**Familiar Value:** Today Aria must enumerate agent IDs manually for every roundtable — "analyst, creator, devops" spelled out each time. This costs tokens AND requires Aria to know which agents are available. After this ticket, Aria says "discuss this devops issue" and the system auto-selects the right agents by keyword matching against the topic. This is the delegation hierarchy becoming self-organizing.
+**Familiar Value:** Today Aria must spell out agent IDs for every roundtable — costing tokens AND requiring her to know which agents are online. After this ticket, topic keyword matching against focus profiles handles selection automatically. The delegation hierarchy becomes self-organizing.
 
 ---
 

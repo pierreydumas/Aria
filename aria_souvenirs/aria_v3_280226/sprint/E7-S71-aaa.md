@@ -1,7 +1,7 @@
 # E7-S71 — engine_focus.py CRUD Router + Seed 8 Profiles
 **Epic:** E7 — Focus System v2 | **Priority:** P0 | **Points:** 3 | **Phase:** 1  
 **Status:** NOT STARTED | **Depends on:** E7-S70 (FocusProfileEntry must exist in models.py + DB)  
-**Familiar Value:** Without this router, the focus_profiles table created in S70 is a ghost — unreachable by the frontend, by Aria's api_client skill, and by every engine component. This ticket closes the loop between the DB and the network: Aria can query her own focus configuration via HTTP, and Shiva can edit profiles from the engine UI.
+**Familiar Value:** Without this router, the focus_profiles table (S70) is unreachable — no frontend, no api_client skill, no engine component can query it. This ticket makes focus configuration a live HTTP resource: Aria queries her own config, Shiva edits profiles from the UI, the routing cache refreshes without a deploy.
 
 ---
 
