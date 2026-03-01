@@ -33,6 +33,9 @@ class AgentManagerSkill(BaseSkill):
     def __init__(self, config: SkillConfig):
         super().__init__(config)
         self._api = None
+        self._subagent_circuit_until: datetime | None = None
+
+    _SUBAGENT_CIRCUIT_SECONDS = 120
 
     @property
     def name(self) -> str:
@@ -86,6 +89,22 @@ class AgentManagerSkill(BaseSkill):
             # If we can't validate, allow it through (fail-open)
             self.logger.warning(f"Could not validate model '{model}', allowing")
             return True
+
+    def _trip_subagent_circuit(self, reason: str) -> None:
+        self._subagent_circuit_until = datetime.now(timezone.utc) + timedelta(
+            seconds=self._SUBAGENT_CIRCUIT_SECONDS
+        )
+        self.logger.warning(
+            "sub-agent circuit opened for %ss: %s",
+            self._SUBAGENT_CIRCUIT_SECONDS,
+            reason,
+        )
+
+    def _subagent_circuit_remaining_seconds(self) -> int:
+        if not self._subagent_circuit_until:
+            return 0
+        remaining = int((self._subagent_circuit_until - datetime.now(timezone.utc)).total_seconds())
+        return max(0, remaining)
 
     # ── Core methods ─────────────────────────────────────────────
 
@@ -387,6 +406,14 @@ class AgentManagerSkill(BaseSkill):
         if not self._api:
             return SkillResult.fail("Not initialized")
 
+        remaining = self._subagent_circuit_remaining_seconds()
+        if remaining > 0:
+            return SkillResult.fail(
+                "Sub-agent comms temporarily unavailable "
+                f"(circuit open, retry in ~{remaining}s). "
+                "Use direct tools in this session instead."
+            )
+
         # Validate model if specified
         if model:
             valid = await self._validate_model(model)
@@ -454,6 +481,7 @@ class AgentManagerSkill(BaseSkill):
             content = response_data.get("content", "")
             total_tokens = response_data.get("total_tokens", 0)
             resp_model = response_data.get("model", model or "default")
+            self._subagent_circuit_until = None
 
             self._log_usage(
                 "spawn_focused_agent", True,
@@ -495,6 +523,7 @@ class AgentManagerSkill(BaseSkill):
             })
         except Exception as e:
             self._log_usage("spawn_focused_agent", False, error=str(e))
+            self._trip_subagent_circuit(str(e))
             # Clean up engine session on failure if it was created
             if session_id:
                 try:
@@ -531,6 +560,14 @@ class AgentManagerSkill(BaseSkill):
         if not self._api:
             return SkillResult.fail("Not initialized")
 
+        remaining = self._subagent_circuit_remaining_seconds()
+        if remaining > 0:
+            return SkillResult.fail(
+                "Sub-agent comms temporarily unavailable "
+                f"(circuit open, retry in ~{remaining}s). "
+                "Continue directly in this session."
+            )
+
         try:
             msg_result = await self._api.post(
                 f"/engine/chat/sessions/{session_id}/messages",
@@ -545,6 +582,7 @@ class AgentManagerSkill(BaseSkill):
                 raise Exception(f"Message send failed: {err}")
 
             response_data = msg_result.data or {}
+            self._subagent_circuit_until = None
             self._log_usage(
                 "send_to_agent", True,
                 session_id=session_id,
@@ -562,6 +600,7 @@ class AgentManagerSkill(BaseSkill):
             })
         except Exception as e:
             self._log_usage("send_to_agent", False, error=str(e))
+            self._trip_subagent_circuit(str(e))
             return SkillResult.fail(f"Follow-up failed: {e}")
 
     # ── (delegate_task removed — use spawn_focused_agent instead) ──

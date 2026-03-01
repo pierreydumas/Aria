@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import AgentSession, EngineChatSession, ModelUsage
+from db.models import AgentSession, EngineChatMessage, EngineChatSession, ModelUsage
 from deps import get_db, get_litellm_db
 from pagination import paginate_query, build_paginated_response
 from schemas.requests import CreateSession, UpdateSession
@@ -64,7 +64,37 @@ async def get_agent_sessions(
     stmt, _ = paginate_query(base, page, limit)
     rows = (await db.execute(stmt)).scalars().all()
 
-    items = [_engine_session_to_dict(s) for s in rows]
+    session_ids = [s.id for s in rows if getattr(s, "id", None) is not None]
+    chat_tokens_by_session: dict[str, int] = {}
+    if session_ids:
+        chat_tokens_result = await db.execute(
+            select(
+                EngineChatMessage.session_id,
+                func.coalesce(func.sum(func.coalesce(EngineChatMessage.tokens_output, 0)), 0).label("chat_tokens"),
+            )
+            .where(EngineChatMessage.session_id.in_(session_ids))
+            .where(EngineChatMessage.role == "assistant")
+            .where(
+                or_(
+                    EngineChatMessage.tool_results.is_not(None),
+                    EngineChatMessage.tool_calls.is_(None),
+                )
+            )
+            .group_by(EngineChatMessage.session_id)
+        )
+        chat_tokens_by_session = {
+            str(row.session_id): int(row.chat_tokens or 0)
+            for row in chat_tokens_result.all()
+        }
+
+    items = [
+        _engine_session_to_dict(
+            s,
+            chat_tokens=chat_tokens_by_session.get(str(s.id), 0),
+            model_tokens=int(s.total_tokens or 0),
+        )
+        for s in rows
+    ]
     return build_paginated_response(items, total, page, limit)
 
 
@@ -111,7 +141,7 @@ async def get_sessions_hourly(
 
     items = [
         {
-            "hour": row.hour.isoformat() if row.hour else None,
+            "hour": _dt_iso_utc(row.hour),
             "agent_id": row.agent_id,
             "count": int(row.count or 0),
         }
@@ -346,14 +376,25 @@ def _parse_iso_dt(value):
         return None
 
 
+def _dt_iso_utc(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    dt = value
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt.isoformat()
+
+
 def _session_to_dict(s):
     """Convert an AgentSession ORM object to a JSON-serializable dict."""
     return {
         "id": str(s.id),
         "agent_id": s.agent_id,
         "session_type": s.session_type,
-        "started_at": s.started_at.isoformat() if s.started_at else None,
-        "ended_at": s.ended_at.isoformat() if s.ended_at else None,
+        "started_at": _dt_iso_utc(s.started_at),
+        "ended_at": _dt_iso_utc(s.ended_at),
         "messages_count": s.messages_count,
         "tokens_used": s.tokens_used,
         "cost_usd": float(s.cost_usd) if s.cost_usd else 0,
@@ -362,18 +403,22 @@ def _session_to_dict(s):
     }
 
 
-def _engine_session_to_dict(s):
+def _engine_session_to_dict(s, chat_tokens: int | None = None, model_tokens: int | None = None):
     """Convert an EngineChatSession ORM object to a JSON-serializable dict."""
+    resolved_model_tokens = int(s.total_tokens or 0) if model_tokens is None else int(model_tokens)
+    resolved_chat_tokens = 0 if chat_tokens is None else int(chat_tokens)
     return {
         "id": str(s.id),
         "agent_id": s.agent_id,
         "session_type": s.session_type,
         "title": s.title,
         "model": s.model,
-        "started_at": s.created_at.isoformat() if s.created_at else None,
-        "ended_at": s.ended_at.isoformat() if s.ended_at else None,
+        "started_at": _dt_iso_utc(s.created_at),
+        "ended_at": _dt_iso_utc(s.ended_at),
         "messages_count": s.message_count or 0,
-        "tokens_used": s.total_tokens or 0,
+        "tokens_used": resolved_model_tokens,
+        "model_tokens": resolved_model_tokens,
+        "chat_tokens": resolved_chat_tokens,
         "cost_usd": float(s.total_cost) if s.total_cost else 0,
         "status": s.status,
         "metadata": s.metadata_json or {},

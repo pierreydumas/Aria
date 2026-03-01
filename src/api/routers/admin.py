@@ -5,9 +5,11 @@ Admin endpoints — service control + soul file access + DB maintenance.
 import asyncio
 import logging
 import os
+from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +24,10 @@ files_router = APIRouter(tags=["Files"])
 logger = logging.getLogger("aria.api.admin")
 
 VACUUM_TABLES = ["activity_log", "model_usage", "heartbeat_log", "thoughts"]
+
+
+class SoulFileUpdate(BaseModel):
+    content: str
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -110,6 +116,35 @@ async def read_soul_file(filename: str):
             return {"filename": filename, "content": f.read()}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Soul file not found")
+
+
+@files_router.post("/soul/{filename}")
+async def write_soul_file(filename: str, body: SoulFileUpdate):
+    allowed = ["HEARTBEAT.md"]
+    if filename not in allowed:
+        raise HTTPException(status_code=403, detail="Write not allowed for this soul file")
+
+    soul_path = f"/aria_mind/{filename}"
+    try:
+        with open(soul_path, "r", encoding="utf-8"):
+            pass
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Soul file not found")
+
+    try:
+        with open(soul_path, "w", encoding="utf-8") as f:
+            f.write(body.content)
+        stat = os.stat(soul_path)
+        return {
+            "success": True,
+            "filename": filename,
+            "path": filename,
+            "size": stat.st_size,
+            "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        logger.warning("Soul file write failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to write soul file: {e}")
 
 
 # ── File Browsers (aria_mind & aria_memories) ────────────────────────────────

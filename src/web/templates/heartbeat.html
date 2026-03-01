@@ -35,6 +35,14 @@
     </div>
 </div>
 
+<!-- Sub Tabs -->
+<div class="subtabs" role="tablist" aria-label="Heartbeat sub navigation">
+    <button class="subtab-btn active" id="subtabSchedulerBtn" onclick="switchSubtab('scheduler')">💓 Scheduler</button>
+    <button class="subtab-btn" id="subtabArtifactBtn" onclick="switchSubtab('artifact')">📝 HEARTBEAT.md</button>
+</div>
+
+<div id="panelScheduler" class="subtab-panel active">
+
 <!-- Stats Overview -->
 <div class="stats-grid">
     <div class="stat-card">
@@ -122,6 +130,27 @@
         </table>
     </div>
 </section>
+</div>
+
+<div id="panelArtifact" class="subtab-panel">
+    <section class="section">
+        <div class="section-header">
+            <h2>📝 HEARTBEAT.md</h2>
+            <p>Central runtime instructions used by recurring jobs. Edit carefully.</p>
+            <div class="section-actions">
+                <button class="btn btn-secondary" onclick="loadHeartbeatArtifact()">Reload</button>
+                <button class="btn btn-primary" id="saveHeartbeatBtn" onclick="saveHeartbeatArtifact()">Save</button>
+            </div>
+        </div>
+        <div class="table-container" style="padding:12px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;">
+                <small id="heartbeatArtifactMeta" style="color:var(--text-muted);">Loading…</small>
+                <small id="heartbeatArtifactState" style="color:var(--text-muted);">Read-only view</small>
+            </div>
+            <textarea id="heartbeatArtifactEditor" class="cron-form-input" spellcheck="false" style="min-height:480px; resize:vertical; font-family:var(--font-mono); font-size:12px;"></textarea>
+        </div>
+    </section>
+</div>
 
 <!-- Toast Notification -->
 <div class="toast" id="toast"></div>
@@ -283,6 +312,31 @@
     color: var(--text-muted);
     font-size: 0.9rem;
 }
+
+/* Sub tabs */
+.subtabs {
+    display: flex;
+    gap: 8px;
+    margin: 0 0 var(--space-lg);
+    border-bottom: 1px solid var(--border-subtle);
+    padding-bottom: 8px;
+}
+.subtab-btn {
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+    border-radius: 8px;
+    padding: 7px 12px;
+    font-size: 13px;
+    cursor: pointer;
+}
+.subtab-btn.active {
+    background: rgba(124,58,237,0.18);
+    border-color: rgba(124,58,237,0.42);
+    color: var(--text-primary);
+}
+.subtab-panel { display: none; }
+.subtab-panel.active { display: block; }
 
 /* Section */
 .section {
@@ -465,6 +519,7 @@
     overflow: hidden;
 }
 
+
 .log-status {
     display: inline-flex;
     align-items: center;
@@ -587,6 +642,14 @@
 // Scheduled Jobs - fetched from API
 let scheduledJobs = [];
 let allLogs = [];
+let heartbeatArtifactModified = false;
+
+function normalizeJobStatus(status) {
+    const s = String(status || '').toLowerCase();
+    if (['ok', 'success', 'completed', 'healthy', 'active'].includes(s)) return 'ok';
+    if (['error', 'failed', 'fail', 'unhealthy'].includes(s)) return 'error';
+    return s || 'unknown';
+}
 
 // Utility: relative time formatting
 function formatRelativeTime(date) {
@@ -608,6 +671,84 @@ function formatRelativeTime(date) {
     else text = `${days}d ${hours % 24}h`;
 
     return isFuture ? `in ${text}` : `${text} ago`;
+}
+
+function switchSubtab(tab) {
+    const schedulerBtn = document.getElementById('subtabSchedulerBtn');
+    const artifactBtn = document.getElementById('subtabArtifactBtn');
+    const schedulerPanel = document.getElementById('panelScheduler');
+    const artifactPanel = document.getElementById('panelArtifact');
+
+    if (tab === 'artifact') {
+        schedulerBtn.classList.remove('active');
+        artifactBtn.classList.add('active');
+        schedulerPanel.classList.remove('active');
+        artifactPanel.classList.add('active');
+        loadHeartbeatArtifact();
+        return;
+    }
+
+    artifactBtn.classList.remove('active');
+    schedulerBtn.classList.add('active');
+    artifactPanel.classList.remove('active');
+    schedulerPanel.classList.add('active');
+}
+
+async function loadHeartbeatArtifact() {
+    const meta = document.getElementById('heartbeatArtifactMeta');
+    const state = document.getElementById('heartbeatArtifactState');
+    const editor = document.getElementById('heartbeatArtifactEditor');
+    const saveBtn = document.getElementById('saveHeartbeatBtn');
+
+    try {
+        meta.textContent = 'Loading HEARTBEAT.md…';
+        state.textContent = 'Canonical soul file view';
+        saveBtn.disabled = true;
+        const resp = await fetch(`${API_BASE}/soul/HEARTBEAT.md`);
+        const data = await resp.json();
+        if (!resp.ok || typeof data?.content !== 'string') {
+            throw new Error(data?.detail || `HTTP ${resp.status}`);
+        }
+        editor.value = data.content || '';
+        heartbeatArtifactModified = false;
+        meta.textContent = `${data.filename || 'HEARTBEAT.md'} · canonical source (/aria_mind)`;
+        state.textContent = 'Loaded';
+        saveBtn.disabled = false;
+    } catch (err) {
+        meta.textContent = 'Failed to load HEARTBEAT.md';
+        state.textContent = `Error: ${err.message}`;
+        showToast(`Error loading HEARTBEAT.md: ${err.message}`, 'error');
+    }
+}
+
+async function saveHeartbeatArtifact() {
+    const meta = document.getElementById('heartbeatArtifactMeta');
+    const state = document.getElementById('heartbeatArtifactState');
+    const editor = document.getElementById('heartbeatArtifactEditor');
+    const saveBtn = document.getElementById('saveHeartbeatBtn');
+
+    try {
+        saveBtn.disabled = true;
+        state.textContent = 'Saving…';
+        const resp = await fetch(`${API_BASE}/soul/HEARTBEAT.md`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: editor.value }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || data?.success === false) {
+            throw new Error(data?.detail || `HTTP ${resp.status}`);
+        }
+        heartbeatArtifactModified = false;
+        meta.textContent = `${data.path || 'HEARTBEAT.md'} · ${(data.size || editor.value.length)} bytes · saved ${new Date().toLocaleTimeString()}`;
+        state.textContent = 'Saved';
+        showToast('✅ HEARTBEAT.md updated', 'success');
+    } catch (err) {
+        state.textContent = `Error: ${err.message}`;
+        showToast(`Error saving HEARTBEAT.md: ${err.message}`, 'error');
+    } finally {
+        saveBtn.disabled = false;
+    }
 }
 
 // Icon mapping for job names
@@ -652,8 +793,8 @@ function cronToFrequency(expr) {
 async function loadHeartbeatData() {
     await Promise.all([
         loadScheduledJobs(),
-        loadScheduleStatus()
-        // Note: loadHeartbeatLogs() removed - logs now populated from jobs/live data
+        loadScheduleStatus(),
+        loadHeartbeatLogs()
     ]);
 }
 
@@ -685,14 +826,21 @@ async function loadScheduledJobs() {
                 id: job.id,
                 name: job.name,
                 icon: jobIcons[job.name] || '📋',
-                schedule: job.schedule_expr,
-                description: job.payload_text ? job.payload_text.substring(0, 100) + '...' : 'No description',
-                frequency: cronToFrequency(job.schedule_expr),
+                schedule: job.schedule_expr || job.schedule || '',
+                description: (job.payload_text || job.payload) ? (job.payload_text || job.payload).substring(0, 100) + '...' : 'No description',
+                frequency: cronToFrequency(job.schedule_expr || job.schedule || ''),
                 enabled: job.enabled,
                 lastRun: job.last_run_at,
                 nextRun: job.next_run_at,
-                lastStatus: job.last_status,
+                lastStatus: normalizeJobStatus(job.last_status),
                 lastDurationMs: job.last_duration_ms
+                ,
+                payload: job.payload_text || job.payload || '',
+                agent_id: job.agent_id || 'main',
+                payload_type: job.payload_kind || job.payload_type || 'prompt',
+                session_mode: job.session_target || job.session_mode || 'isolated',
+                max_duration_seconds: job.max_duration_seconds || 300,
+                retry_count: job.retry_count || 0
             }));
             document.getElementById('totalJobs').textContent = scheduledJobs.length;
             
@@ -718,19 +866,29 @@ async function loadScheduledJobs() {
             
             document.getElementById('successfulRuns').textContent = successful;
             document.getElementById('failedRuns').textContent = failed;
+
+            const nextRuns = scheduledJobs
+                .filter(job => job.enabled !== false && job.nextRun)
+                .map(job => new Date(job.nextRun))
+                .filter(dt => !isNaN(dt.getTime()))
+                .sort((a, b) => a - b);
+            if (nextRuns.length > 0) {
+                document.getElementById('nextJob').textContent = formatRelativeTime(nextRuns[0]);
+            }
             
             // Populate allLogs from job data for Recent Executions table
-            allLogs = scheduledJobs
-                .filter(job => job.lastRun)
-                .map(job => ({
-                    job_name: job.name,
-                    status: job.lastStatus === 'ok' ? 'success' : job.lastStatus,
-                    executed_at: job.lastRun,
-                    details: `Schedule: ${job.schedule}`,
-                    duration: job.lastDurationMs
-                }));
-            
-            filterLogs();
+            if (!Array.isArray(allLogs) || allLogs.length === 0) {
+                allLogs = scheduledJobs
+                    .filter(job => job.lastRun)
+                    .map(job => ({
+                        job_name: job.name,
+                        status: job.lastStatus === 'ok' ? 'success' : (job.lastStatus === 'error' ? 'failed' : job.lastStatus),
+                        executed_at: job.lastRun,
+                        details: `Schedule: ${job.schedule}`,
+                        duration: job.lastDurationMs
+                    }));
+                filterLogs();
+            }
         } else {
             // No jobs found anywhere
             scheduledJobs = [];
@@ -772,6 +930,9 @@ async function loadScheduleStatus() {
     try {
         const response = await fetch(`${API_BASE}/schedule`);
         const data = await response.json();
+        if (!response.ok || data?.error) {
+            throw new Error(data?.error || `HTTP ${response.status}`);
+        }
         
         document.getElementById('heartbeatStatus').textContent = 'System Active';
         document.getElementById('pulseIndicator').classList.remove('offline');
@@ -796,6 +957,17 @@ async function loadScheduleStatus() {
             document.getElementById('nextJob').textContent = formatRelativeTime(nextJobTime);
         }
     } catch (error) {
+        try {
+            const hbResp = await fetch(`${API_BASE}/heartbeat/latest`);
+            const hb = await hbResp.json();
+            if (hbResp.ok && hb?.created_at) {
+                document.getElementById('heartbeatStatus').textContent = 'System Active';
+                document.getElementById('pulseIndicator').classList.remove('offline');
+                document.getElementById('lastTickTime').textContent = `Last tick: ${formatRelativeTime(new Date(hb.created_at))}`;
+                return;
+            }
+        } catch (e) {}
+
         document.getElementById('heartbeatStatus').textContent = 'System Offline';
         document.getElementById('pulseIndicator').classList.add('offline');
         document.getElementById('lastTickTime').textContent = 'Unable to reach scheduler';
@@ -826,8 +998,8 @@ function updateLogStats() {
         return logTime >= oneDayAgo;
     });
     
-    const successful = recentLogs.filter(log => log.status === 'success' || log.status === 'completed').length;
-    const failed = recentLogs.filter(log => log.status === 'error' || log.status === 'failed').length;
+    const successful = recentLogs.filter(log => normalizeJobStatus(log.status) === 'ok').length;
+    const failed = recentLogs.filter(log => normalizeJobStatus(log.status) === 'error').length;
     
     document.getElementById('successfulRuns').textContent = successful;
     document.getElementById('failedRuns').textContent = failed;
@@ -939,14 +1111,17 @@ function filterLogs() {
     
     tbody.innerHTML = filtered.map(log => {
         const executedAt = log.executed_at || log.created_at;
-        const status = log.status || 'unknown';
-        const statusClass = status === 'success' || status === 'completed' ? 'success' : 
-                           status === 'error' || status === 'failed' ? 'error' : 'running';
+        const normalizedStatus = normalizeJobStatus(log.status);
+        const status = normalizedStatus === 'ok' ? 'success' : (normalizedStatus === 'error' ? 'failed' : (log.status || 'unknown'));
+        const statusClass = normalizedStatus === 'ok' ? 'success' : 
+                           normalizedStatus === 'error' ? 'error' : 'running';
         
         // Get icon and name, fallback to job_name if not found in scheduledJobs
         const jobInfo = scheduledJobs.find(j => j.id === log.job_name || j.name === log.job_name);
-        const icon = jobInfo?.icon || jobIcons[log.job_name] || '📋';
-        const displayName = jobInfo?.name || log.job_name || 'Unknown Job';
+        const fallbackHeartbeat = (!log.job_name && String(log.status || '').toLowerCase() === 'healthy') ||
+            (typeof log.details === 'object' && log.details && (log.details.timestamp || log.details.beat_number));
+        const icon = jobInfo?.icon || (fallbackHeartbeat ? '💓' : (jobIcons[log.job_name] || '📋'));
+        const displayName = jobInfo?.name || log.job_name || (fallbackHeartbeat ? 'Heartbeat Tick' : 'Unknown Job');
         
         // details may be JSONB object or string
         const detailStr = typeof log.details === 'object' && log.details !== null
@@ -1130,6 +1305,16 @@ async function triggerSingleJob(jobId) {
 setInterval(loadHeartbeatData, 60000);
 
 // Initialize
-document.addEventListener('DOMContentLoaded', () => loadHeartbeatData());
+document.addEventListener('DOMContentLoaded', () => {
+    const editor = document.getElementById('heartbeatArtifactEditor');
+    if (editor) {
+        editor.addEventListener('input', () => {
+            heartbeatArtifactModified = true;
+            const state = document.getElementById('heartbeatArtifactState');
+            if (state) state.textContent = 'Modified (unsaved)';
+        });
+    }
+    loadHeartbeatData();
+});
 </script>
 {% endblock %}

@@ -13,7 +13,7 @@
     <button class="btn btn-secondary btn-sm" onclick="syncFromMd()">🔄 Sync from AGENTS.md</button>
     <button class="btn btn-secondary btn-sm" onclick="loadAgents()">♻️ Refresh</button>
     <div style="flex:1;"></div>
-    <select id="filterType" class="form-select form-select-sm" style="width:auto;" onchange="loadAgents()">
+    <select id="filterType" class="form-input mgmt-filter" onchange="loadAgents()">
         <option value="">All Types</option>
         <option value="agent">🎯 Agent</option>
         <option value="sub_agent">🔗 Sub-Agent</option>
@@ -21,7 +21,7 @@
         <option value="swarm">🐝 Swarm</option>
         <option value="focus">🎯 Focus</option>
     </select>
-    <select id="filterFocus" class="form-select form-select-sm" style="width:auto;" onchange="loadAgents()">
+    <select id="filterFocus" class="form-input mgmt-filter" onchange="loadAgents()">
         <option value="">All Focus</option>
         <option value="orchestrator">🎯 Orchestrator</option>
         <option value="devsecops">🔒 DevSecOps</option>
@@ -31,7 +31,7 @@
         <option value="memory">💾 Memory</option>
         <option value="trader">📈 Trader</option>
     </select>
-    <select id="filterStatus" class="form-select form-select-sm" style="width:auto;" onchange="loadAgents()">
+    <select id="filterStatus" class="form-input mgmt-filter" onchange="loadAgents()">
         <option value="">All Status</option>
         <option value="idle">💤 Idle</option>
         <option value="busy">⚡ Busy</option>
@@ -249,6 +249,12 @@
     font-size: 13px; box-sizing: border-box;
 }
 .form-input:focus { outline: none; border-color: var(--accent, #7c3aed); }
+.mgmt-filter {
+    width: auto;
+    min-width: 140px;
+    padding: 6px 10px;
+    font-size: 13px;
+}
 .toast {
     position: fixed; bottom: 24px; right: 24px; z-index: 9999;
     padding: 12px 20px; border-radius: 8px; font-size: 13px; color: #fff;
@@ -397,9 +403,20 @@ function openAddModal() {
     document.getElementById('agentModal').style.display = 'flex';
 }
 
-function openEditModal(id) {
-    const a = allAgents.find(x => x.agent_id === id);
-    if (!a) return;
+async function openEditModal(id) {
+    const fromList = allAgents.find(x => x.agent_id === id);
+    if (!fromList) return;
+
+    let a = fromList;
+    try {
+        const resp = await fetch(`${API}/agents/db/${encodeURIComponent(id)}`);
+        if (resp.ok) {
+            a = await resp.json();
+        }
+    } catch (e) {
+        console.warn('Falling back to cached list data for edit modal:', e);
+    }
+
     editingId = id;
     document.getElementById('modalTitle').textContent = `Edit: ${a.display_name || a.agent_id}`;
     document.getElementById('fId').value = a.agent_id;

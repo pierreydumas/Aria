@@ -215,7 +215,147 @@ def create_app():
     
     @app.route('/services')
     def services():
-        return render_template('services.html')
+        dynamic_host = request.host.split(':')[0]
+        service_layers = [
+            {
+                'title': '🌐 External Access',
+                'services': [
+                    {
+                        'id': 'traefik',
+                        'name': 'Traefik',
+                        'icon': '🔀',
+                        'port': ':80/:443',
+                        'href': '/traefik/dashboard/',
+                        'target': '_blank',
+                    },
+                    {
+                        'id': 'aria-engine',
+                        'name': 'Aria Chat',
+                        'icon': '💬',
+                        'port': 'Native',
+                        'href': '/chat/',
+                    },
+                    {
+                        'id': 'litellm',
+                        'name': 'LiteLLM',
+                        'icon': '⚡',
+                        'port': f":{_litellm_port}",
+                        'href': '/models',
+                        'control': True,
+                        'control_note': 'Router',
+                    },
+                ],
+            },
+            {
+                'title': '🐳 Docker Core Services',
+                'services': [
+                    {
+                        'id': 'aria-web',
+                        'name': 'aria-web',
+                        'icon': '🌐',
+                        'port': 'Flask :5000',
+                        'href': '/',
+                        'control': True,
+                        'control_note': 'Flask UI',
+                    },
+                    {
+                        'id': 'aria-api',
+                        'name': 'aria-api',
+                        'icon': '🚀',
+                        'port': 'FastAPI :8000',
+                        'href': '/api/docs',
+                        'target': '_blank',
+                        'control': True,
+                        'control_note': 'FastAPI',
+                    },
+                ],
+            },
+            {
+                'title': '🧠 LLM Backends',
+                'services': [
+                    {
+                        'id': 'mlx',
+                        'name': 'MLX',
+                        'icon': '🍎',
+                        'port': ':8080 (Metal)',
+                        'href': f'http://{dynamic_host}:8080/',
+                        'target': '_blank',
+                        'control': True,
+                        'control_note': 'Apple Silicon',
+                    },
+                    {
+                        'id': 'ollama',
+                        'name': 'Ollama',
+                        'icon': '🦙',
+                        'port': ':11434',
+                        'href': '/ollama/',
+                        'target': '_blank',
+                        'control': True,
+                        'control_note': 'Local LLM',
+                    },
+                    {
+                        'id': 'openrouter',
+                        'name': 'OpenRouter',
+                        'icon': '🌐',
+                        'port': 'Free Models',
+                        'clickable': False,
+                        'status': 'info',
+                    },
+                ],
+            },
+            {
+                'title': '💾 Storage & Monitoring',
+                'services': [
+                    {
+                        'id': 'postgres',
+                        'name': 'PostgreSQL',
+                        'icon': '🐘',
+                        'port': ':5432',
+                        'clickable': False,
+                    },
+                    {
+                        'id': 'grafana',
+                        'name': 'Grafana',
+                        'icon': '📈',
+                        'port': ':3001',
+                        'href': '/grafana/',
+                        'target': '_blank',
+                        'control': True,
+                        'control_note': 'Dashboards',
+                    },
+                    {
+                        'id': 'prometheus',
+                        'name': 'Prometheus',
+                        'icon': '📊',
+                        'port': ':9090',
+                        'href': '/prometheus/',
+                        'target': '_blank',
+                        'control': True,
+                        'control_note': 'Metrics',
+                    },
+                    {
+                        'id': 'pgadmin',
+                        'name': 'PgAdmin',
+                        'icon': '🔧',
+                        'port': ':5050',
+                        'href': '/pgadmin/',
+                        'target': '_blank',
+                    },
+                ],
+            },
+        ]
+
+        control_services = []
+        for layer in service_layers:
+            for service in layer['services']:
+                if service.get('control'):
+                    control_services.append(service)
+
+        return render_template(
+            'services.html',
+            service_layers=service_layers,
+            control_services=control_services,
+        )
     
     @app.route('/litellm')
     def litellm():

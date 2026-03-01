@@ -168,7 +168,10 @@
                     <!-- Memory Dropdown (reorganized) -->
                     <div class="nav-dropdown">
                         <button class="nav-dropdown-toggle {% if '/memories' in request.path or '/knowledge' in request.path or '/memory-graph' in request.path or '/working-memory' in request.path or '/records' in request.path or '/activities' in request.path or '/thoughts' in request.path or '/memory-search' in request.path or '/memory-timeline' in request.path or '/embedding-explorer' in request.path or '/memory-dashboard' in request.path or '/memory-explorer' in request.path %}active{% endif %}">
-                            💾 Memory
+                            <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                                <path d="M8 0a5.53 5.53 0 0 0-3.594 1.342C3.567 2.06 3 3.013 3 4c0 1.204.757 2.364 2 3.127V7.5a.5.5 0 0 0 .5.5h5a.5.5 0 0 0 .5-.5v-.373c1.243-.763 2-1.923 2-3.127 0-.987-.567-1.94-1.406-2.658A5.53 5.53 0 0 0 8 0zM5.5 9A1.5 1.5 0 0 0 4 10.5v.5A1.5 1.5 0 0 0 5.5 12h5a1.5 1.5 0 0 0 1.5-1.5v-.5A1.5 1.5 0 0 0 10.5 9h-5zM6 13.5a.5.5 0 0 0 0 1h4a.5.5 0 0 0 0-1H6z"/>
+                            </svg>
+                            Memory
                             <svg class="chevron" viewBox="0 0 16 16" fill="currentColor">
                                 <path d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
                             </svg>
@@ -271,7 +274,10 @@
                     <!-- Agents Dropdown (reorganized: -roundtable -dashboard +sessions) -->
                     <div class="nav-dropdown">
                         <button class="nav-dropdown-toggle {% if '/chat' in request.path or '/agent-manager' in request.path or '/sessions' in request.path or '/operations/focus' in request.path %}active{% endif %}">
-                            🤖 Agents
+                            <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                                <path d="M6 1a.5.5 0 0 1 .5.5V2h3v-.5a.5.5 0 0 1 1 0V2h.5A1.5 1.5 0 0 1 12.5 3.5V4h.5A1.5 1.5 0 0 1 14.5 5.5v5A1.5 1.5 0 0 1 13 12h-.5v.5A1.5 1.5 0 0 1 11 14h-1.5a.5.5 0 0 1 0-1H11a.5.5 0 0 0 .5-.5V12h-7v.5a.5.5 0 0 0 .5.5H6.5a.5.5 0 0 1 0 1H5a1.5 1.5 0 0 1-1.5-1.5V12H3A1.5 1.5 0 0 1 1.5 10.5v-5A1.5 1.5 0 0 1 3 4h.5v-.5A1.5 1.5 0 0 1 5 2h.5v-.5A.5.5 0 0 1 6 1zM3 5a.5.5 0 0 0-.5.5v5A.5.5 0 0 0 3 11h10a.5.5 0 0 0 .5-.5v-5A.5.5 0 0 0 13 5H3zm2 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm6 0a1 1 0 1 1 0 2 1 1 0 0 1 0-2z"/>
+                            </svg>
+                            Agents
                             <svg class="chevron" viewBox="0 0 16 16" fill="currentColor">
                                 <path d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
                             </svg>
@@ -295,7 +301,11 @@
                     <!-- Skills Dropdown (reorganized: +skill-stats, merged catalog into health) -->
                     <div class="nav-dropdown">
                         <button class="nav-dropdown-toggle {% if '/skills' in request.path or '/skill-graph' in request.path or '/skill-health' in request.path or '/skill-stats' in request.path %}active{% endif %}">
-                            🔧 Skills
+                            <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                                <path d="M1 3a2 2 0 0 1 2-2h3v2H3v10h10V10h2v3a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V3z"/>
+                                <path d="M7.854 2.146a.5.5 0 0 1 .707 0l1.147 1.147 1.146-1.147a.5.5 0 1 1 .708.708L10.415 4l1.147 1.146a.5.5 0 0 1-.708.708L9.708 4.707 8.561 5.854a.5.5 0 0 1-.707-.708L9 4 7.854 2.854a.5.5 0 0 1 0-.708z"/>
+                            </svg>
+                            Skills
                             <svg class="chevron" viewBox="0 0 16 16" fill="currentColor">
                                 <path d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
                             </svg>
@@ -367,12 +377,18 @@
 
                     <!-- Security (single link, removed api-key-rotations) -->
                     <a href="/security" class="{% if '/security' in request.path %}active{% endif %}">
-                        🛡️ Security
+                        <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                            <path d="M8 0c-.69 0-1.843.265-3.185.842C3.46 1.424 2.086 2.255 1 3.2v4.59c0 2.94 1.587 5.67 4.19 7.213L8 16l2.81-.997C13.413 13.46 15 10.73 15 7.79V3.2c-1.086-.945-2.46-1.776-3.815-2.358C9.843.265 8.69 0 8 0zm0 1c.532 0 1.571.232 2.791.756 1.18.507 2.38 1.224 3.209 1.952V7.79c0 2.56-1.378 4.937-3.532 6.187L8 14.871l-2.468-.894A6.78 6.78 0 0 1 2 7.79V3.708c.829-.728 2.029-1.445 3.209-1.952C6.429 1.232 7.468 1 8 1z"/>
+                        </svg>
+                        Security
                     </a>
 
                     <!-- Identity Dropdown -->
                     <div class="nav-dropdown">
                         <button class="nav-dropdown-toggle {% if '/soul' in request.path %}active{% endif %}">
+                            <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+                                <path d="M3 14s-1 0-1-1 1-4 6-4 6 3 6 4-1 1-1 1H3zm5-6a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/>
+                            </svg>
                             Identity
                             <svg class="chevron" viewBox="0 0 16 16" fill="currentColor">
                                 <path d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
@@ -412,23 +428,15 @@
                 <div class="footer-brand">
                     <div class="footer-logo">🌟</div>
                     <div class="footer-text">
-                        <strong>Aria Blue</strong> - Autonomous AI Agent
+                        <a href="https://datascience-adventure.xyz/" target="_blank" rel="noopener noreferrer">
+                            <strong>Aria Blue</strong>
+                        </a>
                     </div>
-                </div>
-                <div class="footer-links">
-                    <a href="{{ api_base_url }}/status">API Status</a>
-                    <a href="/api/docs" target="_blank">API Docs</a>
-                    <a href="/services">Services</a>
                 </div>
             </div>
             <div class="footer-divider"></div>
             <div class="footer-bottom">
-                <span>&copy; 2025-2026 Aria Blue. All rights reserved.</span>
-                <div class="footer-tech">
-                    <span class="footer-tech-badge">Flask</span>
-                    <span class="footer-tech-badge">PostgreSQL</span>
-                    <span class="footer-tech-badge">MLX</span>
-                </div>
+                <span>&copy; 2026 Aria Blue. All rights reserved.</span>
             </div>
         </div>
     </footer>

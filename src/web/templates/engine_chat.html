@@ -2131,6 +2131,7 @@
             }
             // Don't auto-retry if the close was intentional (switchSession / createNewSession)
             if (e.target._intentionalClose) return;
+            abortStreamingMessage('Connection lost while streaming');
             setStatus('disconnected');
             wsAttempts++;
             if (!sessionId) return;
@@ -2145,6 +2146,7 @@
 
         ws.onerror = (e) => {
             console.error('WebSocket error:', e);
+            abortStreamingMessage('Connection error while streaming');
         };
     }
 
@@ -2329,6 +2331,32 @@
 
         // Auto-generate title after first assistant response
         autoGenerateTitle();
+    }
+
+    function abortStreamingMessage(reason = 'Stream interrupted') {
+        if (!isStreaming && !streamingMessageEl) return;
+
+        isStreaming = false;
+        if (streamingMessageEl) {
+            streamingMessageEl.classList.remove('streaming');
+            const indicator = document.getElementById('streamIndicator');
+            if (indicator) indicator.remove();
+
+            if (!streamContent || !streamContent.trim()) {
+                streamContent = `⚠️ ${reason}.`;
+            } else {
+                streamContent += `\n\n⚠️ ${reason}.`;
+            }
+            renderStreamContent();
+        }
+
+        streamingMessageEl = null;
+        streamingMessageId = '';
+        streamContent = '';
+        streamThinking = '';
+
+        const sendBtn = document.getElementById('sendBtn');
+        if (sendBtn) sendBtn.disabled = false;
     }
 
     // ── Messages ────────────────────────────────────────────────

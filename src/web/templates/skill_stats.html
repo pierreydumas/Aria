@@ -131,6 +131,7 @@
         font-weight: 700;
     }
     .status-badge.ok { background: rgba(34,197,94,0.2); color: var(--success); }
+    .status-badge.warn { background: rgba(245,158,11,0.2); color: #f59e0b; }
     .status-badge.fail { background: rgba(239,68,68,0.2); color: var(--danger); }
 
     .story-list {
@@ -155,6 +156,33 @@
         font-size: 13px;
         color: var(--text-primary);
         line-height: 1.4;
+    }
+    .story-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+    }
+    .story-row .story-text {
+        flex: 1;
+        min-width: 0;
+    }
+    .story-actions {
+        margin-top: 0;
+        flex-shrink: 0;
+    }
+    .story-link-btn {
+        border: 1px solid var(--border-color);
+        background: rgba(59,130,246,0.12);
+        color: #93c5fd;
+        border-radius: 8px;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 4px 8px;
+        cursor: pointer;
+    }
+    .story-link-btn:hover {
+        background: rgba(59,130,246,0.2);
     }
 
     .candidate-card {
@@ -195,6 +223,18 @@
         border-radius: 10px;
         background: rgba(255,255,255,0.01);
     }
+    #session-trace-graph {
+        height: 560px;
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        background: rgba(255,255,255,0.01);
+    }
+    .trace-meta {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-bottom: 10px;
+        line-height: 1.5;
+    }
 
     .empty-state {
         text-align: center;
@@ -230,6 +270,7 @@
     <button class="tab-btn" data-tab="usage">⏱️ Usage Time</button>
     <button class="tab-btn" data-tab="pathfind">🧭 Path Find</button>
     <button class="tab-btn" data-tab="story">🧠 Interrogation Story</button>
+    <button class="tab-btn" data-tab="trace">🕸️ Session Trace</button>
     <button class="tab-btn" data-tab="advanced">📈 Advanced</button>
 </div>
 
@@ -320,6 +361,32 @@
     </div>
 </div>
 
+<div class="tab-panel" id="panel-trace">
+    <div class="page-controls" style="margin-bottom: 14px;">
+        <button class="btn btn-primary" onclick="loadLatestSessionTrace()">Load Latest Session Trace</button>
+        <select id="trace-session-select" class="filter-select" style="min-width: 320px;"></select>
+        <button class="btn btn-secondary" onclick="loadSelectedSessionTrace()">Load Selected Session Trace</button>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);">
+            <input type="checkbox" id="trace-show-raw-ids" onchange="toggleRawIds()">
+            Show raw IDs
+        </label>
+    </div>
+    <div class="content-card" style="margin-bottom: 14px;">
+        <h4>
+            🧾 Latest Session Match (Active + Archive)
+            <span id="trace-noise-badge" style="display:none;margin-left:8px;font-size:12px;color:var(--text-secondary);font-weight:500;"></span>
+        </h4>
+        <div id="trace-meta" class="trace-meta">Click "Load Latest Session Trace" to analyze latest session path.</div>
+        <div id="trace-list" class="story-list">
+            <div class="empty-state">No session trace loaded yet.</div>
+        </div>
+    </div>
+    <div class="content-card">
+        <h4>🧠 Aria Query Path Graph</h4>
+        <div id="session-trace-graph"></div>
+    </div>
+</div>
+
 <div class="tab-panel" id="panel-advanced">
     <div class="stats-grid">
         <div class="stat-card blue"><h4>P95 Latency</h4><div class="value" id="adv-p95">-</div></div>
@@ -362,14 +429,39 @@
 let insights = null;
 let charts = {};
 let pathNetwork = null;
+let traceNetwork = null;
+let showRawIds = false;
+let latestSessionTracePayload = null;
+let pinnedTraceSessionId = '';
+const skillStatsTraceSessionId = (() => {
+    const key = 'aria_skill_stats_trace_session_id';
+    const existing = localStorage.getItem(key);
+    if (existing) return existing;
+    const created = `web-skill-stats-${(window.crypto?.randomUUID ? window.crypto.randomUUID() : Date.now().toString())}`;
+    localStorage.setItem(key, created);
+    return created;
+})();
+
+function activateTab(tabName) {
+    const nextBtn = document.querySelector(`.tab-btn[data-tab="${tabName}"]`);
+    const nextPanel = document.getElementById('panel-' + tabName);
+    if (!nextBtn || !nextPanel) return;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    nextBtn.classList.add('active');
+    nextPanel.classList.add('active');
+
+    if (tabName === 'trace' && traceNetwork) {
+        setTimeout(() => {
+            if (!traceNetwork) return;
+            traceNetwork.redraw();
+            traceNetwork.fit({ animation: { duration: 220, easingFunction: 'easeInOutQuad' } });
+        }, 80);
+    }
+}
 
 document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-        btn.classList.add('active');
-        document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
-    });
+    btn.addEventListener('click', () => activateTab(btn.dataset.tab));
 });
 
 function fmtNumber(n) {
@@ -390,6 +482,118 @@ function fmtDate(iso) {
     return dt.toLocaleString();
 }
 
+function errorRateClass(rate) {
+    const value = Number(rate || 0);
+    if (value >= 12) return 'fail';
+    if (value >= 4) return 'warn';
+    return 'ok';
+}
+
+function shortNodeId(value) {
+    const text = String(value || '').trim();
+    if (!text) return '—';
+    if (text.length <= 16) return text;
+    return `${text.slice(0, 8)}…${text.slice(-6)}`;
+}
+
+function looksLikeUuid(value) {
+    const text = String(value || '').trim();
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(text);
+}
+
+function displayTarget(value, options = {}) {
+    const raw = Boolean(options?.raw);
+    const text = String(value || '').trim();
+    if (!text) return '—';
+    if (looksLikeUuid(text)) {
+        return raw ? text : shortNodeId(text);
+    }
+    return text;
+}
+
+function toggleRawIds() {
+    const checkbox = document.getElementById('trace-show-raw-ids');
+    showRawIds = Boolean(checkbox?.checked);
+    if (latestSessionTracePayload) renderSessionTrace(latestSessionTracePayload);
+    renderStory();
+}
+
+function shortSessionId(value) {
+    const text = String(value || '').trim();
+    if (!text) return '—';
+    if (text.length <= 14) return text;
+    return `${text.slice(0, 8)}…${text.slice(-4)}`;
+}
+
+function newTraceId() {
+    return window.crypto?.randomUUID ? window.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function traceHeaders({ traceId, spanId, parentSpanId = '' } = {}) {
+    return {
+        'X-Aria-Session-Id': skillStatsTraceSessionId,
+        'X-Aria-Trace-Id': traceId || newTraceId(),
+        'X-Aria-Span-Id': spanId || newTraceId(),
+        'X-Aria-Parent-Span-Id': parentSpanId || '',
+        'X-Aria-Trace-Origin': 'skill-stats',
+    };
+}
+
+function renderGraphStoryText(event) {
+    const parts = [`Graph ${esc(event.queryType || 'query')}`];
+
+    if (event.task) {
+        parts.push(`Task ${esc(event.task)}`);
+    }
+    if (event.startId || event.startName) {
+        const label = event.startName
+            ? event.startName
+            : (looksLikeUuid(event.startId)
+                ? (showRawIds ? event.startId : 'Unknown graph node')
+                : (event.startShort || shortNodeId(event.startId)));
+        const title = event.startId || event.startName || '—';
+        parts.push(`Start <span title="${esc(title)}">${esc(label)}</span>`);
+    }
+    if (event.direction) {
+        parts.push(`Direction ${esc(event.direction)}`);
+    }
+    if (event.maxDepth) {
+        parts.push(`Depth ${esc(event.maxDepth)}`);
+    }
+    if (event.showRelation) {
+        parts.push(`Relation ${esc(event.relationType || 'all')}`);
+    }
+    parts.push(`Results ${esc(event.resultCount || 0)}`);
+
+    return parts.join(' · ');
+}
+
+async function viewGraphLoop(startId) {
+    if (!startId) return;
+
+    activateTab('pathfind');
+    const taskInput = document.getElementById('task-query');
+    if (!taskInput) return;
+
+    let taskSeed = String(startId);
+    try {
+        const traceId = newTraceId();
+        const traversal = await fetchAriaData(`${API_BASE_URL}/knowledge-graph/traverse?start=${encodeURIComponent(startId)}&max_depth=1&direction=both`, {
+            headers: traceHeaders({ traceId }),
+        });
+        const firstNode = Array.isArray(traversal?.nodes) && traversal.nodes.length ? traversal.nodes[0] : null;
+        const nodeName = firstNode?.name || firstNode?.label || null;
+        if (nodeName) {
+            taskSeed = String(nodeName);
+        }
+    } catch {
+        // keep startId fallback
+    }
+
+    taskInput.value = taskSeed;
+    await runPathFind();
+}
+
 async function loadSkillStatsDashboard() {
     const hours = document.getElementById('hours-filter').value;
     insights = await fetchAriaData(`${API_BASE_URL}/skills/insights?hours=${hours}&limit=150`);
@@ -397,6 +601,12 @@ async function loadSkillStatsDashboard() {
     renderUsageTime();
     renderStory();
     renderAdvanced();
+    await loadSessionTraceSessions();
+    if (pinnedTraceSessionId) {
+        await loadSelectedSessionTrace();
+    } else {
+        await loadLatestSessionTrace();
+    }
 }
 
 function certitudePercent(value, idx = 0) {
@@ -461,10 +671,19 @@ function renderDecisionGraph(task, candidates, traversalByCandidate) {
         edges: new vis.DataSet(edges),
     };
     const options = {
-        physics: { stabilization: true, barnesHut: { gravitationalConstant: -3200, springLength: 150 } },
+        physics: { stabilization: true, barnesHut: { gravitationalConstant: -2600, springLength: 170 } },
         interaction: { hover: true },
         layout: { hierarchical: { enabled: true, direction: 'LR', sortMethod: 'directed', levelSeparation: 180, nodeSpacing: 120 } },
-        edges: { arrows: { to: { enabled: true, scaleFactor: 0.7 } }, smooth: { type: 'cubicBezier', forceDirection: 'horizontal', roundness: 0.35 } },
+        nodes: {
+            shapeProperties: { borderRadius: 8 },
+            margin: { top: 10, right: 12, bottom: 10, left: 12 },
+            font: { size: 13 },
+        },
+        edges: {
+            arrows: { to: { enabled: true, scaleFactor: 0.7 } },
+            smooth: { type: 'cubicBezier', forceDirection: 'horizontal', roundness: 0.35 },
+            width: 2,
+        },
     };
 
     if (pathNetwork) {
@@ -517,7 +736,7 @@ function renderOverview() {
             <td>${esc(s.skill_name)}</td>
             <td>${fmtNumber(s.invocations)}</td>
             <td>${Math.round(s.avg_duration_ms || 0)}ms</td>
-            <td>${(s.error_rate || 0).toFixed(1)}%</td>
+            <td><span class="status-badge ${errorRateClass(s.error_rate)}">${(s.error_rate || 0).toFixed(1)}%</span></td>
             <td>${fmtNumber(s.total_tokens)}</td>
         </tr>
     `).join('');
@@ -580,9 +799,13 @@ async function runPathFind() {
     const graphWrap = document.getElementById('path-graph-summary');
     candidatesWrap.innerHTML = 'Searching...';
     graphWrap.innerHTML = 'Traversing...';
+    const traceId = newTraceId();
+    const rootSpanId = newTraceId();
 
     try {
-        const result = await fetchAriaData(`${API_BASE_URL}/knowledge-graph/skill-for-task?task=${encodeURIComponent(task)}&limit=5`);
+        const result = await fetchAriaData(`${API_BASE_URL}/knowledge-graph/skill-for-task?task=${encodeURIComponent(task)}&limit=5`, {
+            headers: traceHeaders({ traceId, spanId: rootSpanId }),
+        });
         const candidates = result?.candidates || [];
 
         if (!candidates.length) {
@@ -610,7 +833,9 @@ async function runPathFind() {
         const graphCandidates = candidates.slice(0, 3);
         const traversals = await Promise.all(graphCandidates.map(async (candidate) => {
             try {
-                return await fetchAriaData(`${API_BASE_URL}/knowledge-graph/traverse?start=${encodeURIComponent(candidate.id)}&max_depth=2&direction=both`);
+                return await fetchAriaData(`${API_BASE_URL}/knowledge-graph/traverse?start=${encodeURIComponent(candidate.id)}&max_depth=2&direction=both`, {
+                    headers: traceHeaders({ traceId, parentSpanId: rootSpanId }),
+                });
             } catch {
                 return { nodes: [], edges: [] };
             }
@@ -641,6 +866,225 @@ async function runPathFind() {
     }
 }
 
+function renderSessionTraceGraph(trace) {
+    const container = document.getElementById('session-trace-graph');
+    if (!container || !window.vis) {
+        if (container) container.innerHTML = '<div class="empty-state">Graph library unavailable.</div>';
+        return;
+    }
+
+    const nodes = (trace?.trace_nodes || []).map((node) => {
+        if (node.kind === 'session') {
+            return {
+                id: node.id,
+                label: node.label,
+                shape: 'box',
+                color: { background: '#1f2937', border: '#60a5fa' },
+                font: { color: '#e5e7eb' },
+            };
+        }
+
+        const queryType = String(node.query_type || 'query').toLowerCase();
+        const palette = queryType.includes('traverse')
+            ? { background: '#111827', border: '#3b82f6' }
+            : queryType.includes('skill_for_task')
+                ? { background: '#1a1427', border: '#a855f7' }
+                : queryType.includes('search')
+                    ? { background: '#13201b', border: '#22c55e' }
+                    : { background: '#111827', border: '#64748b' };
+
+        return {
+            id: node.id,
+            label: (() => {
+                const text = String(node.label || '');
+                const parts = text.split('\n');
+                if (parts.length < 2) return text;
+                const secondLineRaw = parts.slice(1).join(' ');
+                const isUnresolvedTraverse = queryType.includes('traverse') && looksLikeUuid(secondLineRaw);
+                const secondLine = isUnresolvedTraverse
+                    ? (showRawIds ? secondLineRaw : 'Unknown graph node')
+                    : displayTarget(secondLineRaw, { raw: showRawIds });
+                return `${parts[0]}\n${secondLine}`;
+            })(),
+            shape: 'box',
+            color: palette,
+            font: { color: '#f3f4f6', size: 12 },
+            margin: { top: 8, right: 10, bottom: 8, left: 10 },
+        };
+    });
+
+    const edges = (trace?.trace_edges || []).map((edge) => ({
+        from: edge.from,
+        to: edge.to,
+        arrows: 'to',
+        color: edge.kind === 'loop' ? '#f59e0b' : (edge.kind === 'parent' ? '#22c55e' : '#3b82f6'),
+        dashes: edge.kind === 'loop',
+        width: edge.kind === 'loop' ? 2 : (edge.kind === 'parent' ? 2 : 1),
+        smooth: { type: edge.kind === 'loop' ? 'curvedCW' : 'dynamic', roundness: edge.kind === 'loop' ? 0.25 : 0.0 },
+    }));
+
+    const data = { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(edges) };
+    const options = {
+        physics: {
+            stabilization: true,
+            forceAtlas2Based: { gravitationalConstant: -35, springLength: 120, springConstant: 0.05 },
+            minVelocity: 0.75,
+            solver: 'forceAtlas2Based',
+        },
+        layout: { improvedLayout: true },
+        interaction: { hover: true, dragNodes: true, dragView: true, zoomView: true },
+        nodes: { shapeProperties: { borderRadius: 8 } },
+    };
+
+    if (traceNetwork) {
+        traceNetwork.destroy();
+    }
+    traceNetwork = new vis.Network(container, data, options);
+    const fitTraceGraph = () => {
+        if (!traceNetwork) return;
+        traceNetwork.redraw();
+        traceNetwork.fit({ animation: { duration: 280, easingFunction: 'easeInOutQuad' } });
+    };
+
+    setTimeout(fitTraceGraph, 50);
+    setTimeout(fitTraceGraph, 220);
+    traceNetwork.once('stabilized', () => {
+        fitTraceGraph();
+    });
+}
+
+function renderSessionTrace(trace) {
+    latestSessionTracePayload = trace || null;
+    const metaEl = document.getElementById('trace-meta');
+    const listEl = document.getElementById('trace-list');
+    const noiseBadgeEl = document.getElementById('trace-noise-badge');
+
+    if (noiseBadgeEl) {
+        noiseBadgeEl.style.display = 'none';
+        noiseBadgeEl.textContent = '';
+    }
+
+    if (!trace?.session) {
+        metaEl.textContent = trace?.notes || 'No matching session found.';
+        listEl.innerHTML = '<div class="empty-state">No query flow found for latest session.</div>';
+        const graphContainer = document.getElementById('session-trace-graph');
+        if (graphContainer) graphContainer.innerHTML = '<div class="empty-state">No trace graph available.</div>';
+        return;
+    }
+
+    const session = trace.session;
+    const source = session.source_table === 'archive' ? 'archive' : 'active';
+    const notes = String(trace?.notes || '').trim();
+    const filteredUiNoiseCount = Number(trace?.filtered_ui_noise_count || 0);
+    if (noiseBadgeEl && filteredUiNoiseCount > 0) {
+        noiseBadgeEl.textContent = `Filtered UI noise: ${fmtNumber(filteredUiNoiseCount)}`;
+        noiseBadgeEl.style.display = 'inline';
+    }
+    metaEl.innerHTML =
+        `<strong>Session:</strong> ${shortSessionId(session.session_id)} (${source}) · ` +
+        `<strong>Type:</strong> ${esc(session.session_type || '—')} · ` +
+        `<strong>Status:</strong> ${esc(session.status || '—')} · ` +
+        `<strong>Queries:</strong> ${fmtNumber(trace.query_count || 0)}` +
+        (filteredUiNoiseCount > 0 ? ` · <strong>Filtered UI noise:</strong> ${fmtNumber(filteredUiNoiseCount)}` : '') +
+        (notes ? `<div style="margin-top:6px;color:var(--text-muted);">${esc(notes)}</div>` : '');
+
+    const queries = trace.queries || [];
+    if (!queries.length) {
+        listEl.innerHTML = '<div class="empty-state">Latest session found but no graph query activity in inferred window.</div>';
+    } else {
+        const orderedQueries = [...queries].sort((a, b) => (String(b.created_at || '')).localeCompare(String(a.created_at || '')));
+        listEl.innerHTML = orderedQueries.slice(0, 120).map((item, idx) => {
+            const params = item.params || {};
+            const rawTarget = params.task || item.start_name || item.query_target || params.start || params.q || '—';
+            const unresolvedTraverseId = String(item.query_type || '').toLowerCase().includes('traverse') && !item.start_name && looksLikeUuid(rawTarget);
+            const p = unresolvedTraverseId
+                ? (showRawIds ? String(rawTarget) : 'Unknown graph node')
+                : displayTarget(rawTarget, { raw: showRawIds });
+            return `
+                <div class="story-item">
+                    <div class="story-time">#${idx + 1} · ${fmtDate(item.created_at)}</div>
+                    <div class="story-text">${esc(item.query_type)} · ${esc(String(p))} · Results ${fmtNumber(item.result_count || 0)}</div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    renderSessionTraceGraph(trace);
+}
+
+function renderSessionOptions(payload) {
+    const select = document.getElementById('trace-session-select');
+    if (!select) return;
+    const sessions = payload?.sessions || [];
+    if (!sessions.length) {
+        pinnedTraceSessionId = '';
+        select.innerHTML = '<option value="">No sessions found</option>';
+        return;
+    }
+
+    const currentSelected = (select.value || '').trim();
+    const preferredSelection = pinnedTraceSessionId || currentSelected;
+
+    select.innerHTML = sessions.map((item, idx) => {
+        const source = item.source_table === 'archive' ? 'A' : 'L';
+        const title = (item.title || item.session_type || 'session').toString().slice(0, 48);
+        const label = `${idx + 1}. [${source}] ${title} · ${shortSessionId(item.session_id)}`;
+        return `<option value="${esc(item.session_id)}">${esc(label)}</option>`;
+    }).join('');
+
+    if (preferredSelection && sessions.some((item) => String(item.session_id) === preferredSelection)) {
+        select.value = preferredSelection;
+    }
+}
+
+async function loadSessionTraceSessions() {
+    const hours = document.getElementById('hours-filter')?.value || '24';
+    try {
+        const payload = await fetchAriaData(`${API_BASE_URL}/skills/session-trace/sessions?hours=${encodeURIComponent(hours)}&limit=20`);
+        renderSessionOptions(payload || {});
+    } catch {
+        const select = document.getElementById('trace-session-select');
+        if (select) select.innerHTML = '<option value="">Failed to load sessions</option>';
+    }
+}
+
+async function loadSelectedSessionTrace() {
+    const hours = document.getElementById('hours-filter')?.value || '24';
+    const select = document.getElementById('trace-session-select');
+    const selected = (select?.value || '').trim();
+    if (!selected) {
+        pinnedTraceSessionId = '';
+        await loadLatestSessionTrace();
+        return;
+    }
+    pinnedTraceSessionId = selected;
+    const metaEl = document.getElementById('trace-meta');
+    if (metaEl) metaEl.textContent = `Loading selected session trace ${shortSessionId(selected)}...`;
+    try {
+        const trace = await fetchAriaData(`${API_BASE_URL}/skills/session-trace/latest?hours=${encodeURIComponent(hours)}&session_id=${encodeURIComponent(selected)}`);
+        renderSessionTrace(trace || {});
+    } catch (err) {
+        if (metaEl) metaEl.textContent = `Selected session trace unavailable: ${err?.message || err}`;
+    }
+}
+
+async function loadLatestSessionTrace() {
+    const hours = document.getElementById('hours-filter')?.value || '24';
+    const metaEl = document.getElementById('trace-meta');
+    pinnedTraceSessionId = '';
+    if (metaEl) metaEl.textContent = 'Analyzing latest session across active + archived tables...';
+    try {
+        const trace = await fetchAriaData(`${API_BASE_URL}/skills/session-trace/latest?hours=${encodeURIComponent(hours)}`);
+        renderSessionTrace(trace || {});
+    } catch (err) {
+        const listEl = document.getElementById('trace-list');
+        if (metaEl) metaEl.textContent = `Session trace unavailable: ${err?.message || err}`;
+        if (listEl) listEl.innerHTML = '<div class="empty-state">Failed to load session trace.</div>';
+        const graphContainer = document.getElementById('session-trace-graph');
+        if (graphContainer) graphContainer.innerHTML = '<div class="empty-state">Trace graph unavailable.</div>';
+    }
+}
+
 function renderStory() {
     const wrap = document.getElementById('story-list');
     const invocations = insights?.recent_invocations || [];
@@ -652,11 +1096,31 @@ function renderStory() {
             ts: i.created_at || '',
             text: `Aria executed skill "${i.skill_name}" with tool "${i.tool_name || 'unknown'}" (${i.duration_ms || 0}ms) and got ${i.success ? 'success' : 'failure'}.`
         })),
-        ...graphQueries.map(q => ({
-            type: 'graph',
-            ts: q.created_at || '',
-            text: `Aria queried graph via "${q.query_type}" with params ${JSON.stringify(q.params || {})} and received ${q.result_count || 0} results.`
-        }))
+        ...graphQueries.map(q => {
+            const params = q.params || {};
+            const queryType = String(q.query_type || 'query');
+            const startId = String(params.start || '');
+            const startName = String(q.start_name || '');
+            const task = String(params.task || '');
+            const direction = params.direction != null ? String(params.direction) : '';
+            const maxDepth = params.max_depth != null ? String(params.max_depth) : '';
+            const relationType = params.relation_type ? String(params.relation_type) : '';
+            const resultCount = Number(q.result_count || 0);
+            return {
+                type: 'graph',
+                ts: q.created_at || '',
+                queryType,
+                startId,
+                startName,
+                task,
+                startShort: shortNodeId(startId),
+                direction,
+                maxDepth,
+                relationType,
+                showRelation: queryType === 'traverse' || Boolean(relationType),
+                resultCount,
+            };
+        })
     ].sort((a, b) => (b.ts || '').localeCompare(a.ts || ''));
 
     if (!events.length) {
@@ -667,7 +1131,13 @@ function renderStory() {
     wrap.innerHTML = events.slice(0, 120).map(e => `
         <div class="story-item">
             <div class="story-time">${fmtDate(e.ts)} · ${e.type === 'graph' ? 'Graph' : 'Skill'}</div>
-            <div class="story-text">${esc(e.text)}</div>
+            <div class="story-row">
+                <div class="story-text">${e.type === 'graph'
+                    ? renderGraphStoryText(e)
+                    : esc(e.text)
+                }</div>
+                ${e.type === 'graph' && e.startId ? `<div class="story-actions"><button class="story-link-btn" onclick="viewGraphLoop('${esc(e.startId)}')">View in Path Find</button></div>` : ''}
+            </div>
         </div>
     `).join('');
 }
@@ -801,8 +1271,22 @@ function renderAdvanced() {
     `).join('');
 }
 
+function isTraceTabActive() {
+    const tracePanel = document.getElementById('panel-trace');
+    return Boolean(tracePanel?.classList.contains('active'));
+}
+
+async function autoRefreshDashboard() {
+    if (isTraceTabActive()) return;
+    await loadSkillStatsDashboard();
+}
+
 document.getElementById('hours-filter').addEventListener('change', loadSkillStatsDashboard);
 loadSkillStatsDashboard();
-setInterval(loadSkillStatsDashboard, 30000);
+setInterval(() => {
+    autoRefreshDashboard().catch(() => {
+        // keep periodic refresh resilient to transient API errors
+    });
+}, 30000);
 </script>
 {% endblock %}

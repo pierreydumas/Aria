@@ -146,6 +146,8 @@ nav {
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+    display: inline-block;
+    white-space: nowrap;
 }
 
 /* Navigation Links */
@@ -286,15 +288,8 @@ footer p {
     .grid-3 { grid-template-columns: repeat(2, 1fr); }
 }
 
-@media (max-width: 768px) {
-    .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
-    main { padding: var(--space-md); }
-    header .container { padding: 0 var(--space-md); }
-    nav { gap: var(--space-sm); }
-    .logo { font-size: 1rem; }
-    .logo-text span { font-size: 1.05rem; }
-    
-    /* Mobile: hide nav by default, show hamburger */
+@media (max-width: 1100px) {
+    /* Tablet/mobile: hide nav by default, show hamburger */
     .nav-links {
         display: none;
         position: fixed;
@@ -309,6 +304,7 @@ footer p {
         overflow-y: auto;
         z-index: 999;
         border-top: 1px solid var(--border-subtle);
+        align-items: stretch;
     }
     
     .nav-links.active {
@@ -366,6 +362,15 @@ footer p {
     .api-status {
         display: none;
     }
+}
+
+@media (max-width: 768px) {
+    .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+    main { padding: var(--space-md); }
+    header .container { padding: 0 var(--space-md); }
+    nav { gap: var(--space-sm); }
+    .logo { font-size: 1rem; }
+    .logo-text span { font-size: 1rem; }
 }
 
 /* Utility Classes */

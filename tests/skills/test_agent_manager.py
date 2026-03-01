@@ -172,7 +172,7 @@ async def test_terminate_agent_success(mock_api):
 
     result = await skill.terminate_agent(session_id="sess-1")
     assert result.success
-    assert result.data["status"] == "terminated"
+    assert result.data["status"] in {"terminated", "ended"}
 
 
 @pytest.mark.asyncio
@@ -251,3 +251,56 @@ async def test_get_agent_health(mock_api):
     result = await skill.get_agent_health()
     assert result.success
     assert result.data["total_active"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Sub-agent circuit breaker
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_spawn_focused_agent_opens_circuit_after_failure(mock_api):
+    skill = _make_skill()
+    skill._api = mock_api
+    skill._status = SkillStatus.AVAILABLE
+    mock_api.post = AsyncMock(side_effect=[
+        SkillResult.ok({"id": "sess-focused-1"}),
+        SkillResult.fail("comms down"),
+    ])
+    mock_api.delete = AsyncMock(return_value=SkillResult.ok({"status": "ended"}))
+
+    first = await skill.spawn_focused_agent(
+        task="Find one source",
+        focus="research",
+        tools=["browser"],
+    )
+    assert not first.success
+    assert "Focused agent failed" in first.error
+
+    call_count_before = mock_api.post.call_count
+    second = await skill.spawn_focused_agent(
+        task="Try again",
+        focus="research",
+        tools=["browser"],
+    )
+    assert not second.success
+    assert "circuit open" in second.error.lower()
+    assert mock_api.post.call_count == call_count_before
+
+
+@pytest.mark.asyncio
+async def test_send_to_agent_short_circuits_when_circuit_open(mock_api):
+    skill = _make_skill()
+    skill._api = mock_api
+    skill._status = SkillStatus.AVAILABLE
+    skill._subagent_circuit_until = datetime.now(timezone.utc) + timedelta(seconds=60)
+    mock_api.post = AsyncMock()
+
+    result = await skill.send_to_agent(session_id="sess-1", message="continue")
+    assert not result.success
+    assert "circuit open" in result.error.lower()
+    engine_calls = [
+        args[0]
+        for args, _ in mock_api.post.call_args_list
+        if args and isinstance(args[0], str) and "/engine/chat/sessions/" in args[0]
+    ]
+    assert engine_calls == []

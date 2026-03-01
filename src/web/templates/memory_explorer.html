@@ -15,7 +15,40 @@
     border-radius: var(--radius-lg);
     padding: 1.25rem;
     text-align: center;
+    position: relative;
+    overflow: hidden;
 }
+.stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    opacity: 0.9;
+}
+.stat-card .stat-legend {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-top: 0.45rem;
+    font-size: 0.74rem;
+    color: var(--text-muted);
+}
+.stat-card .stat-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.04);
+}
+.stat-card.stat-total::before { background: linear-gradient(90deg, #06b6d4, #22d3ee); }
+.stat-card.stat-total .stat-dot { background: #22d3ee; }
+.stat-card.stat-categories::before { background: linear-gradient(90deg, #8b5cf6, #a78bfa); }
+.stat-card.stat-categories .stat-dot { background: #a78bfa; }
+.stat-card.stat-sources::before { background: linear-gradient(90deg, #10b981, #34d399); }
+.stat-card.stat-sources .stat-dot { background: #34d399; }
+.stat-card.stat-importance::before { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+.stat-card.stat-importance .stat-dot { background: #fbbf24; }
 .stat-card .stat-value {
     font-size: 2rem;
     font-weight: 700;
@@ -43,8 +76,8 @@
     transition: all 0.2s;
 }
 .cat-chip:hover, .cat-chip.active {
-    background: rgba(59, 130, 246, 0.25);
-    border-color: var(--accent-blue);
+    filter: brightness(1.08);
+    transform: translateY(-1px);
 }
 .cat-chip .chip-count {
     font-weight: 700;
@@ -56,9 +89,9 @@
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
     padding: 1.25rem;
-    transition: transform 0.15s, box-shadow 0.15s;
+    transition: transform 0.15s, box-shadow 0.15s, border-color 0.2s;
 }
-.semantic-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+.semantic-card:hover { transform: translateY(-2px); box-shadow: 0 8px 18px rgba(0,0,0,0.24); border-color: rgba(139, 92, 246, 0.5); }
 .sem-header {
     display: flex;
     justify-content: space-between;
@@ -117,6 +150,7 @@
     padding: 0.15rem 0.5rem;
     background: var(--bg-tertiary);
     border-radius: 4px;
+    border: 1px solid transparent;
 }
 .search-section {
     background: var(--bg-secondary);
@@ -126,16 +160,20 @@
     margin-bottom: 2rem;
 }
 .search-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 130px auto;
     gap: 0.75rem;
-    align-items: flex-end;
+    align-items: end;
 }
-.search-row .input-group { flex: 1; }
+.search-row .input-group { min-width: 0; }
 .search-row .input-group label {
     display: block;
     font-size: 0.85rem;
     color: var(--text-muted);
     margin-bottom: 0.3rem;
+}
+.search-row .input-group .input {
+    width: 100%;
 }
 .search-results {
     margin-top: 1rem;
@@ -169,11 +207,101 @@
 .top-accessed li {
     display: flex;
     justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
     padding: 0.5rem 0;
     border-bottom: 1px solid var(--border-color);
     font-size: 0.85rem;
 }
 .top-accessed li:last-child { border-bottom: none; }
+.top-accessed li > span:first-child {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.fit-select {
+    min-width: 130px;
+    width: 100%;
+    background: rgba(99, 102, 241, 0.14) !important;
+    background-color: rgba(99, 102, 241, 0.14) !important;
+    border: 1px solid rgba(99, 102, 241, 0.35);
+    color: var(--text-primary) !important;
+    border-radius: 10px;
+    -webkit-appearance: none;
+    appearance: none;
+    color-scheme: dark;
+}
+.fit-select:focus {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.18);
+}
+.fit-select option {
+    background: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+}
+.memory-filters {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+    align-items: end;
+    gap: 0.9rem;
+}
+.memory-filters .filter-group {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+    min-width: 0;
+}
+.memory-filters .filter-label {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.84rem;
+}
+.memory-filters .fit-select {
+    min-width: 0;
+    max-width: none;
+}
+.semantic-card.search-hit {
+    border-color: rgba(34, 211, 238, 0.35);
+    background: linear-gradient(180deg, rgba(34,211,238,0.06), transparent 45%), var(--bg-secondary);
+}
+@media (max-width: 900px) {
+    .search-row {
+        grid-template-columns: 1fr;
+    }
+    .search-row .input-group[style] {
+        width: 100% !important;
+    }
+    .memory-filters {
+        grid-template-columns: 1fr;
+    }
+}
+@media (min-width: 980px) {
+    .top-accessed {
+        position: relative;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0 1.5rem;
+        padding: 0 0.25rem;
+    }
+    .top-accessed::before {
+        content: '';
+        position: absolute;
+        top: 0.2rem;
+        bottom: 0.2rem;
+        left: 50%;
+        width: 1px;
+        background: linear-gradient(to bottom, transparent, var(--border-color), transparent);
+        opacity: 0.7;
+        transform: translateX(-0.5px);
+        pointer-events: none;
+    }
+    .top-accessed li {
+        margin: 0;
+    }
+}
 </style>
 {% endblock %}
 
@@ -185,10 +313,26 @@
 
 <!-- Stats Row -->
 <div class="memory-stats" id="statsRow">
-    <div class="stat-card"><span class="stat-value" id="statTotal">-</span><span class="stat-label">Total Memories</span></div>
-    <div class="stat-card"><span class="stat-value" id="statCategories">-</span><span class="stat-label">Categories</span></div>
-    <div class="stat-card"><span class="stat-value" id="statSources">-</span><span class="stat-label">Sources</span></div>
-    <div class="stat-card"><span class="stat-value" id="statImportance">-</span><span class="stat-label">Avg Importance</span></div>
+    <div class="stat-card stat-total">
+        <span class="stat-value" id="statTotal">-</span>
+        <span class="stat-label">Total Memories</span>
+        <span class="stat-legend"><span class="stat-dot"></span>Semantic entries</span>
+    </div>
+    <div class="stat-card stat-categories">
+        <span class="stat-value" id="statCategories">-</span>
+        <span class="stat-label">Categories</span>
+        <span class="stat-legend"><span class="stat-dot"></span>Cluster groups</span>
+    </div>
+    <div class="stat-card stat-sources">
+        <span class="stat-value" id="statSources">-</span>
+        <span class="stat-label">Sources</span>
+        <span class="stat-legend"><span class="stat-dot"></span>Ingestion channels</span>
+    </div>
+    <div class="stat-card stat-importance">
+        <span class="stat-value" id="statImportance">-</span>
+        <span class="stat-label">Avg Importance</span>
+        <span class="stat-legend"><span class="stat-dot"></span>Priority signal</span>
+    </div>
 </div>
 
 <!-- Category Chips -->
@@ -202,9 +346,9 @@
             <label for="searchQuery">Query (natural language)</label>
             <input type="text" class="input" id="searchQuery" placeholder="e.g. What patterns relate to goal completion?">
         </div>
-        <div class="input-group" style="width:120px;">
+        <div class="input-group">
             <label for="searchLimit">Limit</label>
-            <select class="input" id="searchLimit">
+            <select class="input fit-select" id="searchLimit">
                 <option value="5">5</option>
                 <option value="10" selected>10</option>
                 <option value="25">25</option>
@@ -228,16 +372,16 @@
 </div>
 
 <!-- Memory List -->
-<div class="filters" style="margin-bottom:1rem;">
+<div class="filters memory-filters" style="margin-bottom:1rem;">
     <div class="filter-group">
         <label class="filter-label">Source:</label>
-        <select id="sourceFilter" class="input" onchange="loadMemories()">
+        <select id="sourceFilter" class="input fit-select" onchange="loadMemories()">
             <option value="">All Sources</option>
         </select>
     </div>
     <div class="filter-group">
         <label class="filter-label">Min Importance:</label>
-        <select id="impFilter" class="input" onchange="loadMemories()">
+        <select id="impFilter" class="input fit-select" onchange="loadMemories()">
             <option value="0">Any</option>
             <option value="0.3">≥ 0.3</option>
             <option value="0.5">≥ 0.5</option>
@@ -263,6 +407,26 @@ function importanceColor(v) {
     return '#888';
 }
 
+function categoryChipStyle(category, active = false) {
+    const hue = hashHue(category || 'all');
+    const bgA = active ? 0.3 : 0.16;
+    const borderA = active ? 0.72 : 0.45;
+    const textL = active ? 86 : 80;
+    return `background: hsla(${hue}, 88%, 58%, ${bgA}); border: 1px solid hsla(${hue}, 90%, 62%, ${borderA}); color: hsl(${hue}, 90%, ${textL}%);`;
+}
+
+function hashHue(text) {
+    const s = String(text || 'unknown');
+    let hash = 0;
+    for (let i = 0; i < s.length; i++) hash = ((hash << 5) - hash) + s.charCodeAt(i);
+    return Math.abs(hash) % 360;
+}
+
+function chipStyleFromText(text, alpha = 0.18) {
+    const hue = hashHue(text);
+    return `background: hsla(${hue}, 85%, 58%, ${alpha}); border: 1px solid hsla(${hue}, 85%, 62%, 0.46); color: hsl(${hue}, 88%, 78%);`;
+}
+
 async function loadStats() {
     try {
         const r = await fetchWithRetry(`${API}/memories/semantic/stats`);
@@ -274,9 +438,9 @@ async function loadStats() {
 
         // Category chips
         const chips = document.getElementById('categoryChips');
-        chips.innerHTML = `<span class="cat-chip ${!activeCategory ? 'active' : ''}" onclick="filterCategory('')">All<span class="chip-count">${d.total}</span></span>`;
+        chips.innerHTML = `<span class="cat-chip ${!activeCategory ? 'active' : ''}" style="${categoryChipStyle('all', !activeCategory)}" onclick="filterCategory('')">All<span class="chip-count">${d.total}</span></span>`;
         for (const [cat, cnt] of Object.entries(d.by_category || {})) {
-            chips.innerHTML += `<span class="cat-chip ${activeCategory === cat ? 'active' : ''}" onclick="filterCategory('${escapeHtml(cat)}')">${escapeHtml(cat)}<span class="chip-count">${cnt}</span></span>`;
+            chips.innerHTML += `<span class="cat-chip ${activeCategory === cat ? 'active' : ''}" style="${categoryChipStyle(cat, activeCategory === cat)}" onclick="filterCategory('${escapeHtml(cat)}')">${escapeHtml(cat)}<span class="chip-count">${cnt}</span></span>`;
         }
 
         // Source filter
@@ -301,9 +465,7 @@ async function loadStats() {
 function filterCategory(cat) {
     activeCategory = cat;
     loadMemories();
-    // Update chip highlight
-    document.querySelectorAll('.cat-chip').forEach(c => c.classList.remove('active'));
-    event.target.classList.add('active');
+    loadStats();
 }
 
 async function loadMemories(page = 1, limit = 20) {
@@ -337,13 +499,15 @@ function renderCard(m) {
     const pct = Math.round(imp * 100);
     const cat = m.category || 'general';
     const src = m.source || '';
+    const catStyle = chipStyleFromText(cat, 0.16);
+    const srcStyle = chipStyleFromText(src || 'source', 0.13);
     const ts = m.created_at ? formatTime(m.created_at) : '';
     const content = m.content || m.summary || '';
     const accessCnt = m.access_count || 0;
     return `
         <div class="semantic-card">
             <div class="sem-header">
-                <span class="sem-category">${escapeHtml(cat)}</span>
+                <span class="sem-category" style="${catStyle}">${escapeHtml(cat)}</span>
                 <span class="sem-importance">
                     <div class="importance-bar"><div class="importance-fill" style="width:${pct}%;background:${col}"></div></div>
                     ${imp.toFixed(2)}
@@ -352,7 +516,7 @@ function renderCard(m) {
             <div class="sem-content">${escapeHtml(content.substring(0, 500))}</div>
             <div class="sem-footer">
                 <span>${ts}${accessCnt ? ` · ${accessCnt}× accessed` : ''}</span>
-                ${src ? `<span class="sem-source">${escapeHtml(src)}</span>` : ''}
+                ${src ? `<span class="sem-source" style="${srcStyle}">${escapeHtml(src)}</span>` : ''}
             </div>
         </div>`;
 }
@@ -373,13 +537,13 @@ async function semanticSearch() {
             return `
                 <div class="semantic-card">
                     <div class="sem-header">
-                        <span class="sem-category">${escapeHtml(m.category || 'general')}</span>
+                        <span class="sem-category" style="${chipStyleFromText(m.category || 'general', 0.16)}">${escapeHtml(m.category || 'general')}</span>
                         <span class="similarity-badge">${(sim * 100).toFixed(1)}% match</span>
                     </div>
                     <div class="sem-content">${escapeHtml((m.content || '').substring(0, 400))}</div>
                     <div class="sem-footer">
                         <span>${m.created_at ? formatTime(m.created_at) : ''}</span>
-                        ${m.source ? `<span class="sem-source">${escapeHtml(m.source)}</span>` : ''}
+                        ${m.source ? `<span class="sem-source" style="${chipStyleFromText(m.source, 0.13)}">${escapeHtml(m.source)}</span>` : ''}
                     </div>
                 </div>`;
         }).join('') + '</div>';

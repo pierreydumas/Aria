@@ -43,6 +43,7 @@
         <div class="tier-desc">Vector-embedded & searchable</div>
     </div>
 </div>
+<div id="tierNote" style="display:none;margin:-0.5rem 0 1rem 0;color:var(--text-muted);font-size:0.82rem;"></div>
 
 <div class="grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-bottom:1.25rem;">
     <div class="card">
@@ -57,7 +58,7 @@
     </div>
 </div>
 
-<div class="grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-bottom:1.25rem;">
+<div class="stack-cards" style="display:grid;grid-template-columns:1fr;gap:1.25rem;margin-bottom:1.25rem;">
     <div class="card">
         <div class="card-header">
             <h3>Recent Consolidations <span id="recentBadge" class="badge badge-secondary">0</span></h3>
@@ -68,6 +69,21 @@
                 <thead><tr><th>Summary</th><th>Source</th><th>Category</th><th>Imp.</th><th>When</th></tr></thead>
                 <tbody id="recentBody"></tbody>
             </table>
+        </div>
+        <div class="card-footer pager-row">
+            <div class="pager-left">
+                <label for="recentPageSize" class="pager-label">Rows</label>
+                <select id="recentPageSize" class="pager-select">
+                    <option value="8" selected>8</option>
+                    <option value="20">20</option>
+                    <option value="50">50</option>
+                </select>
+            </div>
+            <div class="pager-center">
+                <button id="recentPrev" class="pager-btn">← Prev</button>
+                <span id="recentPageInfo" class="pager-info">Page 1 / 1</span>
+                <button id="recentNext" class="pager-btn">Next →</button>
+            </div>
         </div>
     </div>
     <div class="card">
@@ -80,6 +96,21 @@
                 <thead><tr><th>Key</th><th>Importance</th><th>Accesses</th><th>Age</th></tr></thead>
                 <tbody id="promoBody"></tbody>
             </table>
+        </div>
+        <div class="card-footer pager-row">
+            <div class="pager-left">
+                <label for="promoPageSize" class="pager-label">Rows</label>
+                <select id="promoPageSize" class="pager-select">
+                    <option value="8" selected>8</option>
+                    <option value="20">20</option>
+                    <option value="50">50</option>
+                </select>
+            </div>
+            <div class="pager-center">
+                <button id="promoPrev" class="pager-btn">← Prev</button>
+                <span id="promoPageInfo" class="pager-info">Page 1 / 1</span>
+                <button id="promoNext" class="pager-btn">Next →</button>
+            </div>
         </div>
     </div>
 </div>
@@ -99,12 +130,38 @@
 .tier-medium { border-color:#a78bfa66; }
 .tier-deep { border-color:#f59e0b66; }
 .tier-semantic { border-color:#8b5cf666; }
+.table thead th { font-size:0.72rem; color:var(--text-muted); }
+.table tbody td { font-size:0.84rem; vertical-align:middle; }
+.table tbody tr:nth-child(odd) { background:rgba(99,102,241,0.05); }
+.table tbody tr:hover { background:rgba(139,92,246,0.12); }
+.imp-wrap { display:flex; align-items:center; gap:0.45rem; min-width:96px; }
+.imp-meter { width:80px; background:var(--bg-elevated); border-radius:999px; height:10px; overflow:hidden; border:1px solid var(--border-color); }
+.imp-fill { background:linear-gradient(90deg, #22d3ee, #8b5cf6); height:100%; border-radius:999px; }
+.imp-text { color:var(--text-secondary); font-size:0.78rem; min-width:34px; text-align:right; font-weight:700; }
+.source-chip, .cat-chip { display:inline-flex; align-items:center; border-radius:999px; padding:0.15rem 0.55rem; font-size:0.72rem; font-weight:600; border:1px solid transparent; }
+.source-seed_activities { background:rgba(34,211,238,0.15); color:#67e8f9; border-color:rgba(34,211,238,0.35); }
+.source-seed_thoughts { background:rgba(139,92,246,0.18); color:#c4b5fd; border-color:rgba(139,92,246,0.35); }
+.source-analysis_api { background:rgba(16,185,129,0.18); color:#6ee7b7; border-color:rgba(16,185,129,0.35); }
+.source-default { background:rgba(148,163,184,0.15); color:#cbd5e1; border-color:rgba(148,163,184,0.35); }
+.cat-chip { background:rgba(59,130,246,0.14); color:#93c5fd; border-color:rgba(59,130,246,0.32); }
+.key-cell { color:var(--text-primary); font-weight:600; }
+.pager-row { display:flex; align-items:center; justify-content:space-between; gap:0.75rem; padding:0.7rem 1rem; border-top:1px solid var(--border-color); flex-wrap:wrap; }
+.pager-left { display:flex; align-items:center; gap:0.45rem; }
+.pager-center { display:flex; align-items:center; gap:0.65rem; }
+.pager-label { color:var(--text-muted); font-size:0.78rem; }
+.pager-select { background:rgba(99,102,241,0.16); color:#c7d2fe; border:1px solid rgba(99,102,241,0.35); border-radius:8px; padding:0.24rem 0.45rem; font-size:0.78rem; }
+.pager-btn { background:rgba(99,102,241,0.16); color:#c7d2fe; border:1px solid rgba(99,102,241,0.35); border-radius:8px; padding:0.32rem 0.6rem; font-size:0.78rem; cursor:pointer; }
+.pager-btn:hover:not(:disabled) { background:rgba(99,102,241,0.28); }
+.pager-btn:disabled { opacity:0.45; cursor:not-allowed; }
+.pager-info { color:var(--text-muted); font-size:0.78rem; }
 @media(max-width:768px){ .tier-flow { flex-direction:column; } .tier-arrow { transform:rotate(90deg); } }
 </style>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
 <script>
 const API = window.API_BASE || '/api';
+const recentState = { items: [], page: 1, pageSize: 8 };
+const promoState = { items: [], page: 1, pageSize: 8 };
 
 function fmtBytes(b) {
     if (b < 1024) return b + ' B';
@@ -120,11 +177,44 @@ function timeAgo(ts) {
     return (s/86400).toFixed(0) + 'd ago';
 }
 function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function sourceClass(source) {
+    const key = (source || '').trim();
+    if (!key) return 'source-default';
+    if (key === 'seed_activities') return 'source-seed_activities';
+    if (key === 'seed_thoughts') return 'source-seed_thoughts';
+    if (key === 'analysis_api') return 'source-analysis_api';
+    return 'source-default';
+}
+function paginate(items, page, pageSize) {
+    const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+    const safePage = Math.min(Math.max(1, page), totalPages);
+    const start = (safePage - 1) * pageSize;
+    return { totalPages, safePage, slice: items.slice(start, start + pageSize) };
+}
+function bindPagerButtons(state, prevId, nextId, renderFn) {
+    const prev = document.getElementById(prevId);
+    const next = document.getElementById(nextId);
+    prev.onclick = () => { if (state.page > 1) { state.page -= 1; renderFn(); } };
+    next.onclick = () => {
+        const pages = Math.max(1, Math.ceil(state.items.length / state.pageSize));
+        if (state.page < pages) { state.page += 1; renderFn(); }
+    };
+}
+function bindPageSize(state, selectId, renderFn) {
+    const sel = document.getElementById(selectId);
+    sel.onchange = () => {
+        state.pageSize = Number(sel.value) || 8;
+        state.page = 1;
+        renderFn();
+    };
+}
 
 async function loadData() {
     try {
         const res = await fetch(`${API}/memory-consolidation`);
         const d = await res.json();
+        window._semanticTotal = d.semantic_total ?? 0;
+        window._fileTierRoot = d.file_tier_root || '';
         document.getElementById('loadingState').style.display = 'none';
         document.getElementById('mainContent').style.display = '';
         renderTiers(d.file_tiers || {});
@@ -138,15 +228,27 @@ async function loadData() {
 }
 
 function renderTiers(tiers) {
+    let totalFileTierCount = 0;
     for (const [tier, data] of Object.entries(tiers)) {
         const cnt = document.getElementById(tier + 'Count');
         const sz = document.getElementById(tier + 'Size');
         if (cnt) cnt.textContent = data.count;
         if (sz) sz.textContent = fmtBytes(data.total_bytes);
+        totalFileTierCount += Number(data.count || 0);
     }
-    // Semantic count from recent_consolidations source
-    document.getElementById('semanticCount').textContent = '—';
+    // Semantic count from database aggregate
+    document.getElementById('semanticCount').textContent = window._semanticTotal ?? '—';
     document.getElementById('semanticSize').textContent = 'pgvector';
+
+    const tierNote = document.getElementById('tierNote');
+    if (totalFileTierCount === 0) {
+        tierNote.style.display = '';
+        const root = window._fileTierRoot ? ` (scanned path: ${window._fileTierRoot})` : '';
+        tierNote.textContent = 'Surface/Medium/Deep are file-tier folders and currently empty; SemanticDB values come from PostgreSQL semantic_memories.' + root;
+    } else {
+        tierNote.style.display = 'none';
+        tierNote.textContent = '';
+    }
 }
 
 function renderSourceChart(sources) {
@@ -180,29 +282,63 @@ function renderCompressionChart(stats) {
 }
 
 function renderRecent(items) {
+    recentState.items = items;
     document.getElementById('recentBadge').textContent = items.length;
+    const pageData = paginate(recentState.items, recentState.page, recentState.pageSize);
+    recentState.page = pageData.safePage;
     const body = document.getElementById('recentBody');
-    if (!items.length) { body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">No consolidations in last 24h</td></tr>'; return; }
-    body.innerHTML = items.map(m => `<tr>
+    if (!recentState.items.length) {
+        body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">No consolidations in last 24h</td></tr>';
+        document.getElementById('recentPageInfo').textContent = 'Page 1 / 1';
+        document.getElementById('recentPrev').disabled = true;
+        document.getElementById('recentNext').disabled = true;
+        return;
+    }
+    body.innerHTML = pageData.slice.map(m => `<tr>
         <td title="${esc(m.summary)}" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(m.summary)}</td>
-        <td><span class="badge badge-secondary" style="font-size:0.7rem;">${esc(m.source||'—')}</span></td>
-        <td style="color:var(--text-muted);font-size:0.8rem;">${esc(m.category||'—')}</td>
-        <td><div style="width:50px;background:var(--bg-elevated);border-radius:2px;height:6px;"><div style="width:${Math.round((m.importance||0)*100)}%;background:var(--accent-primary);height:100%;border-radius:2px;"></div></div></td>
+        <td><span class="source-chip ${sourceClass(m.source)}">${esc(m.source||'—')}</span></td>
+        <td><span class="cat-chip">${esc(m.category||'—')}</span></td>
+        <td>
+            <div class="imp-wrap">
+                <div class="imp-meter"><div class="imp-fill" style="width:${Math.round((m.importance||0)*100)}%;"></div></div>
+                <span class="imp-text">${Math.round((m.importance||0)*100)}%</span>
+            </div>
+        </td>
         <td style="color:var(--text-muted);font-size:0.78rem;">${timeAgo(m.created_at)}</td>
     </tr>`).join('');
+    document.getElementById('recentPageInfo').textContent = `Page ${pageData.safePage} / ${pageData.totalPages}`;
+    document.getElementById('recentPrev').disabled = pageData.safePage <= 1;
+    document.getElementById('recentNext').disabled = pageData.safePage >= pageData.totalPages;
 }
 
 function renderPromo(items) {
+    promoState.items = items;
     document.getElementById('promoBadge').textContent = items.length;
+    const pageData = paginate(promoState.items, promoState.page, promoState.pageSize);
+    promoState.page = pageData.safePage;
     const body = document.getElementById('promoBody');
-    if (!items.length) { body.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);">No candidates</td></tr>'; return; }
-    body.innerHTML = items.map(m => `<tr>
-        <td style="font-size:0.82rem;">${esc(m.key)}</td>
-        <td><span style="color:var(--accent-primary);font-weight:600;">${((m.importance||0)*100).toFixed(0)}%</span></td>
+    if (!promoState.items.length) {
+        body.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);">No candidates</td></tr>';
+        document.getElementById('promoPageInfo').textContent = 'Page 1 / 1';
+        document.getElementById('promoPrev').disabled = true;
+        document.getElementById('promoNext').disabled = true;
+        return;
+    }
+    body.innerHTML = pageData.slice.map(m => `<tr>
+        <td class="key-cell" style="font-size:0.82rem;">${esc(m.key)}</td>
+        <td><span style="color:#a5b4fc;font-weight:700;">${((m.importance||0)*100).toFixed(0)}%</span></td>
         <td style="color:var(--text-muted);">${m.access_count||0}</td>
         <td style="color:var(--text-muted);font-size:0.78rem;">${timeAgo(m.created_at)}</td>
     </tr>`).join('');
+    document.getElementById('promoPageInfo').textContent = `Page ${pageData.safePage} / ${pageData.totalPages}`;
+    document.getElementById('promoPrev').disabled = pageData.safePage <= 1;
+    document.getElementById('promoNext').disabled = pageData.safePage >= pageData.totalPages;
 }
+
+bindPagerButtons(recentState, 'recentPrev', 'recentNext', () => renderRecent(recentState.items));
+bindPagerButtons(promoState, 'promoPrev', 'promoNext', () => renderPromo(promoState.items));
+bindPageSize(recentState, 'recentPageSize', () => renderRecent(recentState.items));
+bindPageSize(promoState, 'promoPageSize', () => renderPromo(promoState.items));
 
 loadData();
 </script>

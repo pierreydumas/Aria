@@ -105,6 +105,17 @@ async def _get_db():
         yield db
 
 
+def _dt_iso_utc(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    dt = value
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt.isoformat()
+
+
 def _row_to_response(row) -> AgentResponse:
     return AgentResponse(
         agent_id=row.agent_id,
@@ -127,11 +138,11 @@ def _row_to_response(row) -> AgentResponse:
         pheromone_score=float(row.pheromone_score or 0.5),
         timeout_seconds=getattr(row, "timeout_seconds", None) or 600,
         rate_limit=getattr(row, "rate_limit", None) or {},
-        last_active_at=row.last_active_at.isoformat() if row.last_active_at else None,
+        last_active_at=_dt_iso_utc(row.last_active_at),
         app_managed=getattr(row, "app_managed", False) or False,
         metadata=row.metadata_json if hasattr(row, "metadata_json") else (getattr(row, "metadata", None) or {}),
-        created_at=row.created_at.isoformat() if row.created_at else None,
-        updated_at=row.updated_at.isoformat() if row.updated_at else None,
+        created_at=_dt_iso_utc(row.created_at),
+        updated_at=_dt_iso_utc(row.updated_at),
     )
 
 

@@ -94,6 +94,16 @@ for your instructions, then use the behavioral guidance below.
 
 **work_cycle** — Your productivity pulse. Use TOOL CALLS, not exec commands.
 
+### work_cycle Execution Budget (STRICT)
+
+- Execute **one pass only**. Do not loop.
+- **Max tool calls: 10** total for the job.
+- Do **not** call `read_artifact` / `list_artifacts` repeatedly to rediscover instructions.
+- Sub-agent delegation is allowed **only** for complex actions (research/analysis/build tasks expected >2 minutes).
+- Do **not** spawn sub-agents for routine control-plane steps (goal fetch/update, activity log, artifact write, session prune).
+- Do **not** retry the same successful call.
+- If a non-critical call fails once (artifact write, memory sync), record degraded status and continue.
+
 **0. Check Active Focus Level (do this FIRST)**
 ```tool
 aria-api-client.get_memory({"key": "active_focus_level"})
@@ -105,7 +115,7 @@ aria-api-client.get_memory({"key": "active_focus_level"})
 
 **Then proceed to step 1, scaling all limits by your focus level.**
 
-1. `aria-api-client.get_goals({"status": "active", "limit": 3})`
+1. `aria-api-client.get_goals({"status": "in_progress", "limit": 3})`
    - **If this call returns an error or circuit_breaker_open:** STOP. Do NOT spawn a sub-agent.
      Write a degraded artifact: `{"status": "degraded", "reason": "api_cb_open", "action": "none"}` to
      `aria_memories/logs/work_cycle_<YYYY-MM-DD_HHMM>.json` via direct file write, then end the cycle.
@@ -117,6 +127,13 @@ aria-api-client.get_memory({"key": "active_focus_level"})
 6. If progress >= 100: Mark complete, create next goal
 7. Prune stale sessions: `agent_manager__prune_stale_sessions(max_age_hours=1)` — use 1h, not default 6h
 8. If you need exec: `exec python3 skills/run_skill.py <skill> <function> '<args>'` (NEVER `aria_mind/skills/...`)
+
+### work_cycle Artifact Write Rule (STRICT)
+
+- Write exactly one JSON artifact to `aria_memories/logs/work_cycle_<YYYY-MM-DD_HHMM>.json`.
+- Use exactly one write attempt via API artifact tool/path.
+- If that single write fails, set `cycle.artifact_log.status="degraded"` and continue.
+- **Never** spawn sub-agents to write artifacts (small JSON writes are local/simple).
 
 **six_hour_review** — Delegate to analyst (trinity-free). Analyze last 6h, adjust priorities, log insights. Include `get_session_stats`. Target: ≤5 active sessions.
 

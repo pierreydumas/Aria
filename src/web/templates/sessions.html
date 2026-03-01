@@ -210,14 +210,15 @@
                 <th>Type</th>
                 <th>Status</th>
                 <th>Msgs</th>
-                <th>Tokens</th>
+                <th title="Full session token total (conversation traffic)">Chat Tokens</th>
+                <th title="Assistant visible output tokens (compact output signal)">Output Tokens</th>
                 <th>Cost</th>
                 <th>Started</th>
                 <th>Duration</th>
             </tr>
         </thead>
         <tbody id="sessions-body">
-            <tr><td colspan="8" class="empty-state">Loading...</td></tr>
+            <tr><td colspan="12" class="empty-state">Loading...</td></tr>
         </tbody>
     </table>
     <div id="sessions-pagination"></div>
@@ -531,14 +532,15 @@ function renderRecent() {
                 <td><span class="type-badge">${escapeHtml(s.session_type)}</span></td>
                 <td><span class="status-badge ${escapeHtml(s.status)}">${escapeHtml(s.status)}</span></td>
                 <td>${s.messages_count || '-'}</td>
-                <td>${s.tokens_used ? formatNumber(s.tokens_used) : '-'}</td>
+                <td>${s.model_tokens != null ? formatNumber(s.model_tokens) : (s.tokens_used != null ? formatNumber(s.tokens_used) : '-')}</td>
+                <td>${s.chat_tokens != null ? formatNumber(s.chat_tokens) : '-'}</td>
                 <td>${s.cost_usd ? formatCost(s.cost_usd) : '-'}</td>
                 <td>${formatDate(s.started_at)}</td>
                 <td>${fmtDuration(s.started_at, s.ended_at)}</td>
             </tr>
         `).join('');
     } else {
-        body.innerHTML = '<tr><td colspan="11" class="empty-state">No sessions found</td></tr>';
+        body.innerHTML = '<tr><td colspan="12" class="empty-state">No sessions found</td></tr>';
     }
 }
 

@@ -78,6 +78,14 @@ EXEMPT_PREFIXES = (
     "/graphql",
 )
 
+# Endpoints that serve interactive docs and need frontend assets/scripts
+DOCS_ENDPOINTS = {
+    "/docs",
+    "/docs/oauth2-redirect",
+    "/redoc",
+    "/openapi.json",
+}
+
 # Sensitive field names that should be redacted in logs
 SENSITIVE_FIELDS = {"password", "api_key", "token", "secret", "authorization", "credentials"}
 
@@ -187,7 +195,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         # Skip security for exempt endpoints
         if request.url.path in EXEMPT_ENDPOINTS:
             response = await call_next(request)
-            return self._add_security_headers(response)
+            return self._add_security_headers(response, request.url.path)
         
         # Skip body scanning for exempt prefix paths (internal APIs)
         path = request.url.path.rstrip("/")
@@ -199,7 +207,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         # Dashboard pages fire many concurrent GET requests for charts/stats
         if request.method in ("GET", "HEAD", "OPTIONS"):
             response = await call_next(request)
-            return self._add_security_headers(response)
+            return self._add_security_headers(response, request.url.path)
         
         # Rate limiting (POST/PUT/PATCH/DELETE only)
         allowed, reason = self.rate_limiter.is_allowed(client_ip)
@@ -241,7 +249,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         
         # Add security headers
-        response = self._add_security_headers(response)
+        response = self._add_security_headers(response, request.url.path)
         
         # Log request
         duration = time.time() - start_time
@@ -336,7 +344,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         
         return None
     
-    def _add_security_headers(self, response: Response) -> Response:
+    def _add_security_headers(self, response: Response, request_path: str = "") -> Response:
         """Add security headers to response."""
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
@@ -344,12 +352,28 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
         response.headers["Pragma"] = "no-cache"
-        
-        # Content Security Policy for API
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'none'; "
-            "frame-ancestors 'none'"
-        )
+
+        path = request_path.rstrip("/") or "/"
+        if path.startswith("/api"):
+            path = path[4:] or "/"
+
+        # Docs UI requires JS/CSS/image assets and inline bootstrap script.
+        # Keep strict CSP everywhere else.
+        if path in DOCS_ENDPOINTS:
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "img-src 'self' data: https://fastapi.tiangolo.com; "
+                "font-src 'self' data: https://cdn.jsdelivr.net; "
+                "connect-src 'self'; "
+                "frame-ancestors 'none'"
+            )
+        else:
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'none'; "
+                "frame-ancestors 'none'"
+            )
         
         return response
     

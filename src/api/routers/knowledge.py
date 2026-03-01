@@ -141,13 +141,53 @@ async def _resolve_entity_id(db: AsyncSession, ref: str) -> uuid.UUID:
 
 # ── S4-05: Query logging helper ──────────────────────────────────────────────
 
-async def _log_query(db: AsyncSession, query_type: str, params: dict, result_count: int, source: str = "api"):
+def _extract_trace_context(request: Request | None) -> dict:
+    if request is None:
+        return {}
+
+    headers = request.headers
+    session_id = (headers.get("x-aria-session-id") or request.query_params.get("session_id") or "").strip()
+    trace_id = (headers.get("x-aria-trace-id") or request.query_params.get("trace_id") or "").strip()
+    span_id = (headers.get("x-aria-span-id") or "").strip()
+    parent_span_id = (headers.get("x-aria-parent-span-id") or "").strip()
+    origin = (headers.get("x-aria-trace-origin") or "").strip()
+
+    if not span_id:
+        span_id = str(uuid.uuid4())
+
+    trace = {
+        "session_id": session_id or None,
+        "trace_id": trace_id or None,
+        "span_id": span_id,
+        "parent_span_id": parent_span_id or None,
+        "origin": origin or None,
+    }
+    return {k: v for k, v in trace.items() if v not in (None, "")}
+
+
+async def _log_query(
+    db: AsyncSession,
+    query_type: str,
+    params: dict,
+    result_count: int,
+    source: str = "api",
+    request: Request | None = None,
+):
     """Log a knowledge graph query for analytics."""
     try:
+        merged_params = dict(params or {})
+        trace_context = _extract_trace_context(request)
+        if trace_context:
+            existing_trace = merged_params.get("__trace")
+            if isinstance(existing_trace, dict):
+                merged_params["__trace"] = {**existing_trace, **trace_context}
+            else:
+                merged_params["__trace"] = trace_context
+
         log = KnowledgeQueryLog(
             id=uuid.uuid4(),
             query_type=query_type,
-            params=params,
+            params=merged_params,
             result_count=result_count,
             source=source,
         )
@@ -367,6 +407,7 @@ async def delete_auto_generated(db: AsyncSession = Depends(get_db)):
 
 @router.get("/knowledge-graph/traverse")
 async def graph_traverse(
+    request: Request,
     start: str = Query(..., description="Starting entity ID or name"),
     relation_type: str | None = Query(None, description="Filter by relation type"),
     max_depth: int = Query(3, ge=1, le=10),
@@ -437,7 +478,13 @@ async def graph_traverse(
 
         current_level = next_level_ids
 
-    await _log_query(db, "traverse", {"start": start, "relation_type": relation_type, "max_depth": max_depth, "direction": direction}, len(nodes))
+    await _log_query(
+        db,
+        "traverse",
+        {"start": start, "relation_type": relation_type, "max_depth": max_depth, "direction": direction},
+        len(nodes),
+        request=request,
+    )
     return {"nodes": nodes, "edges": edges, "traversal_depth": max_depth, "total_nodes": len(nodes), "total_edges": len(edges)}
 
 
@@ -445,6 +492,7 @@ async def graph_traverse(
 
 @router.get("/knowledge-graph/search")
 async def graph_search(
+    request: Request,
     q: str = Query(..., min_length=1, description="Search query"),
     entity_type: str | None = Query(None, description="Filter by entity type"),
     limit: int = Query(25, ge=1, le=200),
@@ -465,7 +513,7 @@ async def graph_search(
     result = await db.execute(stmt)
     entities = [e.to_dict() for e in result.scalars().all()]
 
-    await _log_query(db, "search", {"q": q, "entity_type": entity_type}, len(entities))
+    await _log_query(db, "search", {"q": q, "entity_type": entity_type}, len(entities), request=request)
     return {"results": entities, "query": q, "count": len(entities)}
 
 
@@ -473,6 +521,7 @@ async def graph_search(
 
 @router.get("/knowledge-graph/skill-for-task")
 async def find_skill_for_task(
+    request: Request,
     task: str = Query(..., min_length=1, description="Task description"),
     limit: int = Query(5, ge=1, le=20),
     db: AsyncSession = Depends(get_db),
@@ -552,7 +601,7 @@ async def find_skill_for_task(
         "count": len(candidates[:limit]),
         "tools_searched": len(tool_matches),
     }
-    await _log_query(db, "skill_for_task", {"task": task}, len(candidates[:limit]))
+    await _log_query(db, "skill_for_task", {"task": task}, len(candidates[:limit]), request=request)
     return result_data
 
 
@@ -577,6 +626,7 @@ async def get_query_log(
 
 @router.get("/knowledge-graph/kg-traverse")
 async def kg_traverse(
+    request: Request,
     start: str = Query(..., description="Starting entity UUID, name, or 'type:name' ref"),
     relation_type: str | None = Query(None, description="Filter by relation type"),
     max_depth: int = Query(2, ge=1, le=5),
@@ -672,6 +722,7 @@ async def kg_traverse(
         db, "kg_traverse",
         {"start": start, "relation_type": relation_type, "max_depth": max_depth, "direction": direction},
         len(nodes),
+        request=request,
     )
     return {
         "nodes": nodes,
@@ -686,6 +737,7 @@ async def kg_traverse(
 
 @router.get("/knowledge-graph/kg-search")
 async def kg_search(
+    request: Request,
     q: str = Query(..., min_length=1, description="Search query (name substring)"),
     entity_type: str | None = Query(None, description="Filter by entity type"),
     limit: int = Query(25, ge=1, le=200),
@@ -706,6 +758,6 @@ async def kg_search(
     result = await db.execute(stmt)
     entities = [e.to_dict() for e in result.scalars().all()]
 
-    await _log_query(db, "kg_search", {"q": q, "entity_type": entity_type}, len(entities))
+    await _log_query(db, "kg_search", {"q": q, "entity_type": entity_type}, len(entities), request=request)
     return {"results": entities, "query": q, "count": len(entities)}
 

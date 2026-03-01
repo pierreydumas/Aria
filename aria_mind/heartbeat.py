@@ -275,11 +275,10 @@ class Heartbeat:
                 await self._heal_subsystem(subsystem)
     
     async def _check_goals(self) -> None:
-        """Check active goals and work on the top priority — scaled by focus level."""
+        """Execute one concrete goal-work step per cycle, scaled by focus level."""
         if not self._mind.cognition or not self._mind.cognition._skills:
             return
 
-        # Check circuit breaker FIRST (lesson from The Midnight Cascade 2026-02-28)
         try:
             from aria_skills.api_client import get_api_client
             api = await get_api_client()
@@ -291,24 +290,97 @@ class Heartbeat:
             self.logger.debug(f"Goal check skipped: api_client error {e}")
             return
 
-        # Read focus level — determines how many goals to consider
         focus_level = await self._get_focus_level()
         focus_cfg = self.FOCUS_ROUTING.get(focus_level, self.FOCUS_ROUTING["L2"])
         max_goals = focus_cfg["max_goals"]
+        progress_step = {"L1": 5, "L2": 10, "L3": 15}.get(focus_level, 10)
+        memory_seed_limit = {"L1": 20, "L2": 50, "L3": 100}.get(focus_level, 50)
 
-        self.logger.debug(f"\U0001f493 Goal check — focus level: {focus_level}, max_goals: {max_goals}")
+        self.logger.debug(f"\U0001f493 Goal cycle — focus={focus_level}, candidates={max_goals}")
+
+        def _normalize_goal_list(payload: Any) -> list[dict[str, Any]]:
+            if isinstance(payload, list):
+                return [g for g in payload if isinstance(g, dict)]
+            if isinstance(payload, dict):
+                if isinstance(payload.get("next_actions"), list):
+                    return [g for g in payload["next_actions"] if isinstance(g, dict)]
+                if isinstance(payload.get("items"), list):
+                    return [g for g in payload["items"] if isinstance(g, dict)]
+                if isinstance(payload.get("goals"), list):
+                    return [g for g in payload["goals"] if isinstance(g, dict)]
+            return []
+
+        def _parse_due(goal: dict[str, Any]) -> datetime:
+            raw_due = goal.get("due_date") or goal.get("target_date")
+            if not raw_due or not isinstance(raw_due, str):
+                return datetime.max.replace(tzinfo=timezone.utc)
+            try:
+                parsed = datetime.fromisoformat(raw_due.replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                return parsed
+            except Exception:
+                return datetime.max.replace(tzinfo=timezone.utc)
 
         try:
-            goals_skill = self._mind.cognition._skills.get("goals")
-            if goals_skill and goals_skill.is_available:
-                actions = await goals_skill.get_next_actions(limit=max_goals)
-                if actions.success and actions.data:
-                    next_action = actions.data
-                    if isinstance(next_action, list) and next_action:
-                        self.logger.info(
-                            f"\U0001f3af Goal work [focus={focus_level}]: "
-                            f"{str(next_action[0])[:80]}"
-                        )
+            goals_result = await api.get_goals(status="in_progress", limit=max_goals)
+            if not goals_result.success:
+                goals_result = await api.get_goals(status="active", limit=max_goals)
+
+            goals = _normalize_goal_list(goals_result.data)
+            if not goals:
+                self.logger.debug("Goal cycle: no in-progress goals found")
+                return
+
+            prioritized = sorted(
+                goals,
+                key=lambda g: (
+                    _parse_due(g),
+                    int(g.get("priority", 3) or 3),
+                    -float(g.get("progress", 0) or 0),
+                ),
+            )
+            goal = prioritized[0]
+
+            goal_ref = str(goal.get("goal_id") or goal.get("id") or "").strip()
+            if not goal_ref:
+                self.logger.debug("Goal cycle skipped: selected goal has no id")
+                return
+
+            current_progress = int(float(goal.get("progress", 0) or 0))
+            next_progress = min(100, current_progress + progress_step)
+
+            await api.move_goal(goal_id=goal_ref, board_column="doing", position=0)
+            await api.update_goal(goal_id=goal_ref, progress=next_progress)
+
+            if next_progress >= 100:
+                await api.update_goal(goal_id=goal_ref, status="completed", progress=100)
+                await api.move_goal(goal_id=goal_ref, board_column="done", position=0)
+
+            activity_details = {
+                "goal_id": goal_ref,
+                "title": goal.get("title"),
+                "focus_level": focus_level,
+                "progress_before": current_progress,
+                "progress_after": next_progress,
+                "action": "heartbeat_goal_step",
+                "completed": next_progress >= 100,
+            }
+            await api.create_activity(
+                action="goal_work",
+                skill="heartbeat",
+                details=activity_details,
+                success=True,
+            )
+
+            seed_result = await api.seed_memories(limit=memory_seed_limit, skip_existing=True)
+            if not seed_result.success:
+                self.logger.debug(f"Goal cycle memory seed skipped: {seed_result.error}")
+
+            self.logger.info(
+                f"\U0001f3af Goal work [{focus_level}] {goal_ref}: "
+                f"{current_progress}% → {next_progress}%"
+            )
         except Exception as e:
             self.logger.debug(f"Goal check skipped: {e}")
 

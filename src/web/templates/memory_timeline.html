@@ -6,15 +6,15 @@
     <p class="subtitle">Temporal patterns of memory creation and TTL decay</p>
 </div>
 
-<div class="controls-bar" style="display:flex;gap:1rem;align-items:center;margin-bottom:1.5rem;flex-wrap:wrap;">
-    <label style="color:var(--text-muted);font-size:0.85rem;">Lookback period:</label>
-    <select id="hoursSelect" class="form-control" style="width:160px;" onchange="loadData()">
+<div class="controls-bar">
+    <label class="controls-label" for="hoursSelect">Lookback period:</label>
+    <select id="hoursSelect" class="controls-select" onchange="loadData()">
         <option value="24">Last 24 hours</option>
         <option value="168" selected>Last 7 days</option>
         <option value="336">Last 2 weeks</option>
         <option value="720">Last 30 days</option>
     </select>
-    <button class="btn btn-sm btn-secondary" onclick="loadData()">↻ Refresh</button>
+    <button class="btn btn-secondary btn-sm" onclick="loadData()">↻ Refresh</button>
 </div>
 
 <div class="grid grid-2" style="gap:1.25rem;margin-bottom:1.25rem;">
@@ -29,26 +29,81 @@
 </div>
 
 <div class="card" style="margin-bottom:1.25rem;">
-    <div class="card-header"><h3>Creation Heatmap — Hour of Day × Day of Week</h3></div>
+    <div class="card-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;">
+        <h3 style="margin:0;">Creation Heatmap — Hour of Day × Day of Week</h3>
+        <div class="heatmap-legend" aria-label="Heatmap intensity legend">
+            <span class="legend-label">Low</span>
+            <span class="legend-ramp" aria-hidden="true"></span>
+            <span class="legend-label">High</span>
+        </div>
+    </div>
     <div class="card-body">
         <div id="heatmapContainer" style="overflow-x:auto;"></div>
     </div>
 </div>
 
 <div class="card">
-    <div class="card-header"><h3>Working Memory TTL Countdowns</h3><span id="ttlCount" class="badge badge-secondary">0 items</span></div>
+    <div class="card-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:0.75rem;">
+        <div>
+            <h3 style="margin:0;">Working Memory TTL Countdowns</h3>
+            <p class="ttl-subtitle" style="margin:0.35rem 0 0 0;">Top working-memory items by importance. Bar shows remaining vs elapsed TTL hours.</p>
+        </div>
+        <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:0.35rem;color:var(--text-muted);font-size:0.78rem;">
+                <input id="ttlShowExpired" type="checkbox" checked onchange="renderTtl(window._ttlItemsRaw || [])">
+                Show expired
+            </label>
+            <span id="ttlCount" class="badge badge-secondary">0 items</span>
+        </div>
+    </div>
     <div class="card-body" style="height:280px;"><canvas id="ttlChart"></canvas></div>
+    <div id="ttlExplain" style="padding:0 1rem 1rem 1rem;color:var(--text-muted);font-size:0.8rem;"></div>
 </div>
 
 <style>
 .grid-2 { display:grid; grid-template-columns:1fr 1fr; }
 @media(max-width:768px){ .grid-2 { grid-template-columns:1fr; } }
+.controls-bar {
+    display:flex;
+    gap:0.75rem;
+    align-items:center;
+    margin-bottom:1.5rem;
+    flex-wrap:wrap;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 0.7rem 0.9rem;
+}
+.controls-label { color:var(--text-muted); font-size:0.85rem; }
+.controls-select {
+    width: 170px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.42rem 0.55rem;
+    font-size: 0.85rem;
+}
+.controls-select:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 2px rgba(99,102,241,0.15);
+}
 .heatmap-grid { display:grid; grid-template-columns:60px repeat(24,1fr); gap:2px; min-width:700px; font-size:0.72rem; }
-.heatmap-cell { height:22px; border-radius:2px; background:var(--bg-elevated); cursor:default; transition:transform 0.1s; }
-.heatmap-cell:hover { transform:scale(1.3); }
+.heatmap-cell { height:22px; border-radius:2px; background:var(--bg-elevated); border:1px solid rgba(148,163,184,0.16); cursor:default; transition:transform 0.1s, border-color 0.1s; }
+.heatmap-cell:hover { transform:scale(1.2); border-color: rgba(148,163,184,0.45); }
 .heatmap-label { display:flex; align-items:center; color:var(--text-muted); font-size:0.72rem; }
 .heatmap-hour-label { text-align:center; color:var(--text-muted); }
-.ttl-bar-expired { background: #ef4444 !important; }
+.heatmap-legend { display:flex; align-items:center; gap:0.45rem; }
+.legend-label { color:var(--text-muted); font-size:0.72rem; }
+.legend-ramp {
+    width:88px;
+    height:10px;
+    border-radius:999px;
+    border:1px solid rgba(148,163,184,0.25);
+    background: linear-gradient(to right, rgba(99,102,241,0.18), rgba(99,102,241,0.95));
+}
+.ttl-subtitle { color: var(--text-muted); font-size: 0.8rem; }
 </style>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
@@ -142,7 +197,7 @@ function renderHeatmap(data) {
         html += `<div class="heatmap-label">${DAYS[dow]}</div>`;
         for (let h = 0; h < 24; h++) {
             const cnt = grid[dow][h];
-            const alpha = cnt ? (0.15 + 0.85 * cnt / maxCount).toFixed(2) : '0.05';
+            const alpha = cnt ? (0.30 + 0.65 * cnt / maxCount).toFixed(2) : '0.12';
             html += `<div class="heatmap-cell" style="background:rgba(99,102,241,${alpha})" title="${DAYS[dow]} ${h}:00 — ${cnt} memories"></div>`;
         }
     }
@@ -151,15 +206,27 @@ function renderHeatmap(data) {
 }
 
 function renderTtl(items) {
+    window._ttlItemsRaw = items || [];
     const el = document.getElementById('ttlCount');
-    el.textContent = `${(items||[]).length} items`;
+    const explain = document.getElementById('ttlExplain');
+    const showExpired = document.getElementById('ttlShowExpired')?.checked ?? true;
+    const visibleItems = (items || []).filter(i => showExpired || !(i.expired || Number(i.remaining_hours || 0) <= 0));
+    el.textContent = `${visibleItems.length} items`;
     const ctx = document.getElementById('ttlChart').getContext('2d');
     if (ttlChart) ttlChart.destroy();
-    if (!items || items.length === 0) return;
-    const labels = items.map(i => i.key.split('/').pop().substring(0, 20));
-    const remaining = items.map(i => Math.max(0, i.remaining_hours));
-    const total = items.map(i => i.ttl_hours || 24);
-    const colors = items.map(i => {
+    if (!visibleItems.length) {
+        explain.textContent = showExpired
+            ? 'No working-memory TTL entries in this period.'
+            : 'No non-expired TTL entries in this period.';
+        return;
+    }
+    const labels = visibleItems.map(i => i.key.split('/').pop().substring(0, 24));
+    const remaining = visibleItems.map(i => Math.max(0, Number(i.remaining_hours || 0)));
+    const total = visibleItems.map(i => Math.max(0, Number(i.ttl_hours || 24)));
+    const elapsed = total.map((t, idx) => Math.max(0, t - remaining[idx]));
+    const expiredCount = (items || []).filter(i => i.expired || (Number(i.remaining_hours || 0) <= 0)).length;
+    explain.textContent = `Remaining (colored) = hours left before expiry. Elapsed (gray) = already consumed. Expired: ${expiredCount}/${(items || []).length}.`;
+    const colors = visibleItems.map(i => {
         if (i.expired) return 'rgba(239,68,68,0.8)';
         const pct = i.remaining_hours / (i.ttl_hours || 1);
         if (pct < 0.25) return 'rgba(239,68,68,0.7)';
@@ -171,11 +238,35 @@ function renderTtl(items) {
         data: {
             labels,
             datasets: [
-                { label: 'Remaining (h)', data: remaining, backgroundColor: colors, borderRadius: 4 },
-                { label: 'Total TTL (h)', data: total, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 4 },
+                { label: 'Elapsed (h)', data: elapsed, backgroundColor: 'rgba(148,163,184,0.26)', borderRadius: 4, stack: 'ttl' },
+                { label: 'Remaining (h)', data: remaining, backgroundColor: colors, borderRadius: 4, stack: 'ttl' },
             ]
         },
-        options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { labels: { color: '#94a3b8' } } }, scales: { x: { stacked: false, ticks: { color: '#64748b' } }, y: { ticks: { color: '#94a3b8', font: { size: 10 } } } } }
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            indexAxis: 'y',
+            plugins: {
+                legend: { labels: { color: '#94a3b8' } },
+                tooltip: {
+                    callbacks: {
+                        footer: (ctxItems) => {
+                            const idx = ctxItems?.[0]?.dataIndex;
+                            if (idx === undefined) return '';
+                            return `Total TTL: ${total[idx]}h`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    stacked: true,
+                    ticks: { color: '#64748b' },
+                    title: { display: true, text: 'Hours (TTL)', color: '#94a3b8' }
+                },
+                y: { stacked: true, ticks: { color: '#94a3b8', font: { size: 10 } } }
+            }
+        }
     });
 }
 

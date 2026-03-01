@@ -14,8 +14,24 @@ function escapeHtml(text) {
 
 // ── Date / Time Formatting ──────────────────────────────────────────────────
 
+function parseAriaDate(value) {
+    if (!value) return null;
+    if (value instanceof Date) return value;
+    let raw = String(value).trim();
+    if (!raw) return null;
+
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(raw)) {
+        raw += 'Z';
+    }
+
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return null;
+    return date;
+}
+
 function formatRelativeTime(date) {
-    if (!(date instanceof Date)) date = new Date(date);
+    if (!(date instanceof Date)) date = parseAriaDate(date);
+    if (!date) return '-';
     const now = new Date();
     const diff = now - date;
 
@@ -47,17 +63,20 @@ function formatRelativeTime(date) {
 
 function formatDate(isoString) {
     if (!isoString) return '-';
-    return new Date(isoString).toLocaleString();
+    const date = parseAriaDate(isoString);
+    return date ? date.toLocaleString() : String(isoString);
 }
 
 function formatDateTime(isoString) {
     if (!isoString) return '-';
-    return new Date(isoString).toLocaleString();
+    const date = parseAriaDate(isoString);
+    return date ? date.toLocaleString() : String(isoString);
 }
 
 function formatTime(ts) {
     if (!ts) return '';
-    return new Date(ts).toLocaleString();
+    const date = parseAriaDate(ts);
+    return date ? date.toLocaleString() : String(ts);
 }
 
 function showToast(message, type = 'info') {

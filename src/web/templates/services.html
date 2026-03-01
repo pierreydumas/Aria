@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% set dynamic_host = request.host.split(':')[0] %}
 {% block title %}Services - Aria{% endblock %}
 
 {% block extra_css %}
@@ -53,7 +52,7 @@
 .architecture-diagram {
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
+    gap: 1.25rem;
 }
 .arch-layer {
     background: var(--bg-tertiary);
@@ -80,11 +79,11 @@
     flex-direction: column;
     align-items: center;
     gap: 0.3rem;
-    padding: 0.75rem 1rem;
+    padding: 0.65rem 0.85rem;
     background: var(--bg-secondary);
     border: 2px solid var(--border-color);
     border-radius: var(--radius-md);
-    min-width: 110px;
+    min-width: 104px;
     text-align: center;
     font-size: 0.85rem;
     transition: all 0.2s;
@@ -108,16 +107,27 @@
     border-color: var(--warning);
 }
 .arch-service-icon {
-    font-size: 1.8rem;
+    font-size: 1.4rem;
 }
 .arch-service-name {
     font-weight: 600;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
 }
 .arch-service-port {
     font-size: 0.7rem;
     color: var(--text-muted);
     font-family: var(--font-mono);
+}
+.arch-service-hint {
+    display: none;
+    max-width: 132px;
+    font-size: 0.64rem;
+    color: var(--danger);
+    line-height: 1.2;
+    word-break: break-word;
+}
+.arch-service.offline .arch-service-hint {
+    display: block;
 }
 .arch-service-status {
     position: absolute;
@@ -179,6 +189,16 @@
     padding-top: 1.5rem;
     border-top: 1px solid var(--border-color);
 }
+.control-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+.control-panel-body.collapsed {
+    display: none;
+}
 .control-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -239,6 +259,15 @@
     font-size: 0.7rem;
     color: var(--text-muted);
 }
+.control-hint {
+    display: none;
+    font-size: 0.68rem;
+    color: var(--danger);
+    line-height: 1.2;
+}
+.control-card.offline .control-hint {
+    display: block;
+}
 .app-flow-section {
     margin-top: 1.5rem;
     background: var(--bg-secondary);
@@ -298,111 +327,48 @@
         </div>
     </div>
     <div class="architecture-diagram">
-        <!-- External Layer -->
+        {% for layer in service_layers %}
         <div class="arch-layer">
-            <div class="arch-layer-title">🌐 External Access</div>
+            <div class="arch-layer-title">{{ layer.title }}</div>
             <div class="arch-services">
-                <a href="/traefik/dashboard/" target="_blank" class="arch-service checking" data-service="traefik">
-                    <span class="arch-service-status"></span>
-                    <div class="arch-service-icon">🔀</div>
-                    <div class="arch-service-name">Traefik</div>
-                    <div class="arch-service-port">:80/:443</div>
-                </a>
-                <a href="/chat/" class="arch-service checking" data-service="aria-engine">
-                    <span class="arch-service-status"></span>
-                    <div class="arch-service-icon">💬</div>
-                    <div class="arch-service-name">Aria Chat</div>
-                    <div class="arch-service-port">Native</div>
-                </a>
-                <a href="/models" class="arch-service checking" data-service="litellm">
-                    <span class="arch-service-status"></span>
-                    <div class="arch-service-icon">⚡</div>
-                    <div class="arch-service-name">LiteLLM</div>
-                    <div class="arch-service-port">:{{ litellm_port }}</div>
-                </a>
+                {% for service in layer.services %}
+                    {% set can_click = service.get('clickable', true) and service.get('href') %}
+                    {% if can_click %}
+                    <a
+                        href="{{ service.href }}"
+                        {% if service.get('target') %}target="{{ service.target }}"{% endif %}
+                        class="arch-service {{ 'checking' if service.get('status') != 'info' else '' }}"
+                        data-service="{{ service.id }}"
+                        data-monitor="{{ 'true' if service.get('status') != 'info' else 'false' }}"
+                        {% if service.get('status') == 'info' %}style="cursor: default;"{% endif %}
+                    >
+                    {% else %}
+                    <div
+                        class="arch-service {{ 'checking' if service.get('status') != 'info' else '' }}"
+                        data-service="{{ service.id }}"
+                        data-monitor="{{ 'true' if service.get('status') != 'info' else 'false' }}"
+                        {% if service.get('status') == 'info' %}style="cursor: default;"{% endif %}
+                    >
+                    {% endif %}
+                        <span class="arch-service-status" {% if service.get('status') == 'info' %}style="background: var(--info);"{% endif %}></span>
+                        <div class="arch-service-icon">{{ service.icon }}</div>
+                        <div class="arch-service-name">{{ service.name }}</div>
+                        <div class="arch-service-port">{{ service.port }}</div>
+                        {% if service.get('status') != 'info' %}
+                        <div class="arch-service-hint" data-service-hint="{{ service.id }}"></div>
+                        {% endif %}
+                    {% if can_click %}
+                    </a>
+                    {% else %}
+                    </div>
+                    {% endif %}
+                {% endfor %}
             </div>
         </div>
-        
+        {% if not loop.last %}
         <div class="arch-arrow">▼</div>
-        
-        <!-- Core Services Layer -->
-        <div class="arch-layer">
-            <div class="arch-layer-title">🐳 Docker Core Services</div>
-            <div class="arch-services">
-                <a href="/" class="arch-service checking" data-service="aria-web">
-                    <span class="arch-service-status"></span>
-                    <div class="arch-service-icon">🌐</div>
-                    <div class="arch-service-name">aria-web</div>
-                    <div class="arch-service-port">Flask :5000</div>
-                </a>
-                <a href="/api/docs" target="_blank" class="arch-service checking" data-service="aria-api">
-                    <span class="arch-service-status"></span>
-                    <div class="arch-service-icon">🚀</div>
-                    <div class="arch-service-name">aria-api</div>
-                    <div class="arch-service-port">FastAPI :8000</div>
-                </a>
-            </div>
-        </div>
-        
-        <div class="arch-arrow">▼</div>
-        
-        <!-- LLM Layer -->
-        <div class="arch-layer">
-            <div class="arch-layer-title">🧠 LLM Backends</div>
-            <div class="arch-services">
-                <a href="http://{{ dynamic_host }}:8080/" target="_blank" class="arch-service checking" data-service="mlx">
-                    <span class="arch-service-status"></span>
-                    <div class="arch-service-icon">🍎</div>
-                    <div class="arch-service-name">MLX</div>
-                    <div class="arch-service-port">:8080 (Metal)</div>
-                </a>
-                <a href="/ollama/" target="_blank" class="arch-service checking" data-service="ollama">
-                    <span class="arch-service-status"></span>
-                    <div class="arch-service-icon">🦙</div>
-                    <div class="arch-service-name">Ollama</div>
-                    <div class="arch-service-port">:11434</div>
-                </a>
-                <div class="arch-service" data-service="openrouter" style="cursor: default;">
-                    <span class="arch-service-status" style="background: var(--info);"></span>
-                    <div class="arch-service-icon">🌐</div>
-                    <div class="arch-service-name">OpenRouter</div>
-                    <div class="arch-service-port">Free Models</div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="arch-arrow">▼</div>
-        
-        <!-- Storage & Monitoring Layer -->
-        <div class="arch-layer">
-            <div class="arch-layer-title">💾 Storage & Monitoring</div>
-            <div class="arch-services">
-                <div class="arch-service checking" data-service="postgres">
-                    <span class="arch-service-status"></span>
-                    <div class="arch-service-icon">🐘</div>
-                    <div class="arch-service-name">PostgreSQL</div>
-                    <div class="arch-service-port">:5432</div>
-                </div>
-                <a href="/grafana/" target="_blank" class="arch-service checking" data-service="grafana">
-                    <span class="arch-service-status"></span>
-                    <div class="arch-service-icon">📈</div>
-                    <div class="arch-service-name">Grafana</div>
-                    <div class="arch-service-port">:3001</div>
-                </a>
-                <a href="/prometheus/" target="_blank" class="arch-service checking" data-service="prometheus">
-                    <span class="arch-service-status"></span>
-                    <div class="arch-service-icon">📊</div>
-                    <div class="arch-service-name">Prometheus</div>
-                    <div class="arch-service-port">:9090</div>
-                </a>
-                <a href="/pgadmin/" target="_blank" class="arch-service checking" data-service="pgadmin">
-                    <span class="arch-service-status"></span>
-                    <div class="arch-service-icon">🔧</div>
-                    <div class="arch-service-name">PgAdmin</div>
-                    <div class="arch-service-port">:5050</div>
-                </a>
-            </div>
-        </div>
+        {% endif %}
+        {% endfor %}
         
         <!-- Legend -->
         <div class="arch-legend">
@@ -413,72 +379,24 @@
 
         <!-- Control Panel -->
         <div class="control-panel">
-            <div class="arch-layer-title">🧯 Service Controls (Admin)</div>
-            <div class="control-grid">
-                <div class="control-card checking" data-service="litellm">
-                    <div class="control-header">LiteLLM<span class="control-status"></span></div>
+            <div class="control-panel-header">
+                <div class="arch-layer-title" style="margin: 0; padding-bottom: 0; border-bottom: 0;">🧯 Service Controls (Admin)</div>
+                <button class="admin-token-btn" id="toggle-controls">Show Controls</button>
+            </div>
+            <div class="control-panel-body collapsed" id="controls-body">
+            <div class="control-grid" id="control-grid">
+                {% for service in control_services %}
+                <div class="control-card checking" data-service="{{ service.id }}" data-service-name="{{ service.name|lower }}">
+                    <div class="control-header">{{ service.name }}<span class="control-status"></span></div>
                     <div class="control-actions">
                         <button class="control-btn" data-action="restart">Restart</button>
                         <button class="control-btn danger" data-action="stop">Kill</button>
                     </div>
-                    <div class="control-note">Router</div>
+                    <div class="control-note">{{ service.control_note }}</div>
+                    <div class="control-hint" data-control-hint="{{ service.id }}"></div>
                 </div>
-                <div class="control-card checking" data-service="ollama">
-                    <div class="control-header">Ollama<span class="control-status"></span></div>
-                    <div class="control-actions">
-                        <button class="control-btn" data-action="restart">Restart</button>
-                        <button class="control-btn danger" data-action="stop">Kill</button>
-                    </div>
-                    <div class="control-note">Local LLM</div>
-                </div>
-                <div class="control-card checking" data-service="mlx">
-                    <div class="control-header">MLX<span class="control-status"></span></div>
-                    <div class="control-actions">
-                        <button class="control-btn" data-action="restart">Restart</button>
-                        <button class="control-btn danger" data-action="stop">Kill</button>
-                    </div>
-                    <div class="control-note">Apple Silicon</div>
-                </div>
-                <div class="control-card checking" data-service="aria-api">
-                    <div class="control-header">aria-api<span class="control-status"></span></div>
-                    <div class="control-actions">
-                        <button class="control-btn" data-action="restart">Restart</button>
-                        <button class="control-btn danger" data-action="stop">Kill</button>
-                    </div>
-                    <div class="control-note">FastAPI</div>
-                </div>
-                <div class="control-card checking" data-service="aria-web">
-                    <div class="control-header">aria-web<span class="control-status"></span></div>
-                    <div class="control-actions">
-                        <button class="control-btn" data-action="restart">Restart</button>
-                        <button class="control-btn danger" data-action="stop">Kill</button>
-                    </div>
-                    <div class="control-note">Flask UI</div>
-                </div>
-                <div class="control-card checking" data-service="aria-engine">
-                    <div class="control-header">Aria Engine<span class="control-status"></span></div>
-                    <div class="control-actions">
-                        <button class="control-btn" data-action="restart">Restart</button>
-                        <button class="control-btn danger" data-action="stop">Kill</button>
-                    </div>
-                    <div class="control-note">Chat Engine</div>
-                </div>
-                <div class="control-card checking" data-service="grafana">
-                    <div class="control-header">Grafana<span class="control-status"></span></div>
-                    <div class="control-actions">
-                        <button class="control-btn" data-action="restart">Restart</button>
-                        <button class="control-btn danger" data-action="stop">Kill</button>
-                    </div>
-                    <div class="control-note">Dashboards</div>
-                </div>
-                <div class="control-card checking" data-service="prometheus">
-                    <div class="control-header">Prometheus<span class="control-status"></span></div>
-                    <div class="control-actions">
-                        <button class="control-btn" data-action="restart">Restart</button>
-                        <button class="control-btn danger" data-action="stop">Kill</button>
-                    </div>
-                    <div class="control-note">Metrics</div>
-                </div>
+                {% endfor %}
+            </div>
             </div>
         </div>
     </div>
@@ -505,38 +423,71 @@
 
 {% block extra_js %}
 <script data-page-script>
-const services = [
-    'traefik', 'aria-engine', 'litellm',
-    'aria-web', 'aria-api',
-    'mlx', 'ollama',
-    'postgres', 'grafana', 'prometheus', 'pgadmin'
-];
+const monitoredServices = [...new Set(
+    Array.from(document.querySelectorAll('[data-monitor="true"][data-service]'))
+        .map(el => el.getAttribute('data-service'))
+        .filter(Boolean)
+)];
 
 let onlineCount = 0;
 let offlineCount = 0;
 
-async function checkServiceStatus(serviceId) {
+function statusHint(statusInfo, fallback) {
+    if (!statusInfo) return fallback;
+    if (statusInfo.status === 'up') return '';
+    if (statusInfo.error) return statusInfo.error;
+    if (statusInfo.code) return `HTTP ${statusInfo.code}`;
+    return fallback;
+}
+
+function reorderControlCards() {
+    const grid = document.getElementById('control-grid');
+    if (!grid) return;
+    const cards = Array.from(grid.querySelectorAll('.control-card'));
+    const priority = { offline: 0, checking: 1, online: 2 };
+    cards.sort((a, b) => {
+        const aStatus = a.classList.contains('offline') ? 'offline' : (a.classList.contains('online') ? 'online' : 'checking');
+        const bStatus = b.classList.contains('offline') ? 'offline' : (b.classList.contains('online') ? 'online' : 'checking');
+        const p = (priority[aStatus] ?? 1) - (priority[bStatus] ?? 1);
+        if (p !== 0) return p;
+        const aName = a.getAttribute('data-service-name') || '';
+        const bName = b.getAttribute('data-service-name') || '';
+        return aName.localeCompare(bName);
+    });
+    cards.forEach(card => grid.appendChild(card));
+}
+
+async function fetchAllServiceStatuses() {
     try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
-        const response = await fetch(`${window.ARIA_API_BASE_URL}/status/${serviceId}`, {
+        const response = await fetch(`${window.ARIA_API_BASE_URL}/status`, {
             signal: controller.signal
         });
         clearTimeout(timeoutId);
-        const data = await response.json();
-        return data.status === 'online';
+        if (!response.ok) return null;
+        return await response.json();
     } catch {
-        return false;
+        return null;
     }
 }
 
-function updateServiceStatus(serviceId, online) {
+function updateServiceStatus(serviceId, online, statusInfo = null, statusFetchFailed = false) {
     const elements = document.querySelectorAll(`[data-service="${serviceId}"]`);
     if (!elements.length) return;
     
     elements.forEach(el => {
         el.classList.remove('checking', 'online', 'offline');
         el.classList.add(online ? 'online' : 'offline');
+    });
+
+    const fallbackHint = statusFetchFailed ? 'status API unavailable' : 'no response';
+    const hint = online ? '' : statusHint(statusInfo, fallbackHint);
+    document.querySelectorAll(`[data-service-hint="${serviceId}"]`).forEach(el => {
+        el.textContent = hint;
+    });
+    document.querySelectorAll(`[data-control-hint="${serviceId}"]`).forEach(el => {
+        el.textContent = hint;
     });
     
     if (online) onlineCount++;
@@ -551,7 +502,7 @@ async function refreshAllStatus() {
     offlineCount = 0;
     
     // Reset all to checking
-    services.forEach(id => {
+    monitoredServices.forEach(id => {
         const elements = document.querySelectorAll(`[data-service="${id}"]`);
         elements.forEach(el => {
             el.classList.remove('online', 'offline');
@@ -562,12 +513,17 @@ async function refreshAllStatus() {
     document.getElementById('online-count').textContent = '... checking';
     document.getElementById('offline-count').textContent = '';
     
-    // Check all services
-    for (const serviceId of services) {
-        const online = await checkServiceStatus(serviceId);
-        updateServiceStatus(serviceId, online);
-        await new Promise(r => setTimeout(r, 100)); // Small delay
+    const allStatuses = await fetchAllServiceStatuses();
+    const statusFetchFailed = !allStatuses;
+
+    // Update all services from one batch response
+    for (const serviceId of monitoredServices) {
+        const serviceStatus = allStatuses?.[serviceId] || null;
+        const online = Boolean(serviceStatus?.status === 'up');
+        updateServiceStatus(serviceId, online, serviceStatus, statusFetchFailed);
     }
+
+    reorderControlCards();
 }
 
 function getAdminToken() {
@@ -605,10 +561,9 @@ async function runServiceAction(serviceId, action) {
     }
 }
 
-// Initial load
-document.addEventListener('DOMContentLoaded', () => refreshAllStatus());
-
 document.addEventListener('DOMContentLoaded', () => {
+    refreshAllStatus();
+
     document.querySelectorAll('.control-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const card = btn.closest('[data-service]');
@@ -624,6 +579,17 @@ document.addEventListener('DOMContentLoaded', () => {
         setTokenBtn.addEventListener('click', () => {
             const token = prompt('Enter admin token (stored locally):');
             if (token) localStorage.setItem('ariaAdminToken', token);
+        });
+    }
+
+    const toggleControlsBtn = document.getElementById('toggle-controls');
+    const controlsBody = document.getElementById('controls-body');
+    if (toggleControlsBtn && controlsBody) {
+        toggleControlsBtn.addEventListener('click', () => {
+            controlsBody.classList.toggle('collapsed');
+            toggleControlsBtn.textContent = controlsBody.classList.contains('collapsed')
+                ? 'Show Controls'
+                : 'Hide Controls';
         });
     }
 });

@@ -6,52 +6,64 @@
     <p class="subtitle">2D projection of semantic memory embedding space (PCA / t-SNE)</p>
 </div>
 
-<div class="controls-bar" style="display:flex;gap:1rem;align-items:center;margin-bottom:1.25rem;flex-wrap:wrap;background:var(--card-bg);border:1px solid var(--border-color);border-radius:10px;padding:1rem 1.25rem;">
+<div class="controls-bar">
     <div style="display:flex;gap:0.5rem;align-items:center;">
-        <label style="font-size:0.85rem;color:var(--text-muted);">Method:</label>
-        <label style="font-size:0.85rem;cursor:pointer;"><input type="radio" name="method" value="pca" checked onchange="loadData()"> PCA</label>
-        <label style="font-size:0.85rem;cursor:pointer;"><input type="radio" name="method" value="tsne" onchange="loadData()"> t-SNE</label>
+        <label class="ctrl-label">Method:</label>
+        <label class="method-pill"><input type="radio" name="method" value="pca" checked onchange="loadData()"> PCA</label>
+        <label class="method-pill"><input type="radio" name="method" value="tsne" onchange="loadData()"> t-SNE</label>
     </div>
     <div style="display:flex;gap:0.5rem;align-items:center;">
-        <label style="font-size:0.85rem;color:var(--text-muted);">Points:</label>
+        <label class="ctrl-label">Points:</label>
         <input type="range" id="limitSlider" min="50" max="500" step="50" value="200" oninput="document.getElementById('limitVal').textContent=this.value">
-        <span id="limitVal" style="font-size:0.85rem;min-width:30px;">200</span>
+        <span id="limitVal" class="ctrl-value">200</span>
     </div>
     <div style="display:flex;gap:0.5rem;align-items:center;">
-        <label style="font-size:0.85rem;color:var(--text-muted);">Min importance:</label>
+        <label class="ctrl-label">Min importance:</label>
         <input type="range" id="importanceSlider" min="0" max="0.9" step="0.1" value="0" oninput="document.getElementById('impVal').textContent=parseFloat(this.value).toFixed(1)">
-        <span id="impVal" style="font-size:0.85rem;min-width:25px;">0.0</span>
+        <span id="impVal" class="ctrl-value">0.0</span>
     </div>
     <div style="display:flex;gap:0.5rem;align-items:center;">
-        <label style="font-size:0.85rem;color:var(--text-muted);">Category:</label>
-        <select id="catFilter" class="form-control" style="width:160px;"><option value="">All categories</option></select>
+        <label class="ctrl-label">Category:</label>
+        <select id="catFilter" class="ctrl-select"><option value="">All categories</option></select>
     </div>
     <button class="btn btn-sm btn-primary" onclick="loadData()">Project</button>
+    <div class="preset-actions">
+        <span class="ctrl-label">Quick presets:</span>
+        <button class="btn btn-secondary btn-sm" onclick="applyPreset('outliers')">Find outliers</button>
+        <button class="btn btn-secondary btn-sm" onclick="applyPreset('high')">High importance</button>
+        <button class="btn btn-secondary btn-sm" onclick="applyPreset('reset')">Reset</button>
+    </div>
 </div>
 
 <div style="display:grid;grid-template-columns:1fr 300px;gap:1.25rem;">
-    <div class="card">
-        <div class="card-header">
-            <h3>Memory Space</h3>
-            <span id="pointCount" class="badge badge-secondary">0 points</span>
-        </div>
-        <div class="card-body" style="height:520px;position:relative;">
-            <div id="loadingOverlay" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.4);border-radius:8px;z-index:10;display:none;">
-                <span style="color:#fff;">Computing projection…</span>
+    <div>
+        <div class="card">
+            <div class="card-header">
+                <h3>Memory Space</h3>
+                <span id="pointCount" class="badge badge-secondary">0 points</span>
             </div>
-            <canvas id="scatterChart" style="cursor:crosshair;"></canvas>
+            <div class="card-body" style="height:520px;position:relative;">
+                <div id="loadingOverlay" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.4);border-radius:8px;z-index:10;display:none;">
+                    <span style="color:#fff;">Computing projection…</span>
+                </div>
+                <canvas id="scatterChart" style="cursor:crosshair;"></canvas>
+            </div>
+        </div>
+        <div class="card" style="margin-top:1rem;">
+            <div class="card-header"><h3>Clusters / Categories</h3></div>
+            <div class="card-body" id="legendPanel" style="max-height:260px;overflow:auto;"></div>
         </div>
     </div>
     <div>
+        <div class="card" style="margin-bottom:1rem;">
+            <div class="card-header"><h3>How to read this</h3></div>
+            <div class="card-body" id="projectionGuide" style="font-size:0.82rem;color:var(--text-muted);"></div>
+        </div>
         <div class="card" style="margin-bottom:1rem;">
             <div class="card-header"><h3>Inspector</h3></div>
             <div class="card-body" id="inspector" style="font-size:0.83rem;color:var(--text-muted);">
                 <em>Click a point to inspect</em>
             </div>
-        </div>
-        <div class="card">
-            <div class="card-header"><h3>Categories</h3></div>
-            <div class="card-body" id="legendPanel"></div>
         </div>
     </div>
 </div>
@@ -63,6 +75,33 @@
 .inspector-field { margin-bottom:0.6rem; }
 .inspector-label { font-size:0.72rem; text-transform:uppercase; color:var(--text-muted); margin-bottom:0.1rem; }
 .inspector-value { color:var(--text-primary); }
+.controls-bar { display:flex; gap:1rem; align-items:center; margin-bottom:1.25rem; flex-wrap:wrap; background:var(--card-bg); border:1px solid var(--border-color); border-radius:10px; padding:1rem 1.25rem; }
+.ctrl-label { font-size:0.85rem; color:var(--text-muted); }
+.ctrl-value { font-size:0.85rem; min-width:30px; color:var(--text-secondary); }
+.method-pill { font-size:0.85rem; cursor:pointer; color:var(--text-secondary); }
+.method-pill input { margin-right:0.25rem; }
+.preset-actions { display:flex; align-items:center; gap:0.4rem; margin-left:auto; flex-wrap:wrap; }
+.ctrl-select {
+    width: 170px;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.38rem 2rem 0.38rem 0.5rem;
+    font-size: 0.82rem;
+    background-image:
+        linear-gradient(45deg, transparent 50%, var(--text-secondary) 50%),
+        linear-gradient(135deg, var(--text-secondary) 50%, transparent 50%);
+    background-position:
+        calc(100% - 14px) 50%,
+        calc(100% - 9px) 50%;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+}
+.ctrl-select:focus { outline:none; border-color: var(--accent-primary); box-shadow: 0 0 0 2px rgba(99,102,241,0.15); }
 </style>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
@@ -73,6 +112,54 @@ let scatterChart = null;
 let allPoints = [];
 let catColors = {};
 let hiddenCats = new Set();
+
+function hexToRgba(hex, alpha) {
+    const clean = (hex || '').replace('#', '');
+    if (clean.length !== 6) return `rgba(99,102,241,${alpha})`;
+    const r = parseInt(clean.slice(0, 2), 16);
+    const g = parseInt(clean.slice(2, 4), 16);
+    const b = parseInt(clean.slice(4, 6), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function setMethod(value) {
+    const target = document.querySelector(`input[name="method"][value="${value}"]`);
+    if (target) target.checked = true;
+}
+
+function syncControlLabels() {
+    const limitSlider = document.getElementById('limitSlider');
+    const impSlider = document.getElementById('importanceSlider');
+    document.getElementById('limitVal').textContent = limitSlider.value;
+    document.getElementById('impVal').textContent = parseFloat(impSlider.value).toFixed(1);
+}
+
+function applyPreset(name) {
+    const limitSlider = document.getElementById('limitSlider');
+    const impSlider = document.getElementById('importanceSlider');
+    const catFilter = document.getElementById('catFilter');
+
+    if (name === 'outliers') {
+        setMethod('pca');
+        limitSlider.value = '500';
+        impSlider.value = '0.0';
+        catFilter.value = '';
+    } else if (name === 'high') {
+        setMethod('pca');
+        limitSlider.value = '300';
+        impSlider.value = '0.6';
+        catFilter.value = '';
+    } else {
+        setMethod('pca');
+        limitSlider.value = '200';
+        impSlider.value = '0.0';
+        catFilter.value = '';
+    }
+
+    hiddenCats.clear();
+    syncControlLabels();
+    loadData();
+}
 
 async function loadData() {
     const method = document.querySelector('input[name="method"]:checked').value;
@@ -107,22 +194,53 @@ async function loadData() {
 
         renderChart();
         renderLegend(cats);
+        renderProjectionGuide(method, allPoints, cats);
     } catch(e) {
         ov.style.display = 'none';
         console.error(e);
     }
 }
 
+function renderProjectionGuide(method, points, cats) {
+    const el = document.getElementById('projectionGuide');
+    const n = (points || []).length;
+    const catCount = (cats || []).length;
+    const methodText = method === 'pca'
+        ? 'PCA preserves global structure better. Distances are more meaningful across far-apart clusters.'
+        : 't-SNE preserves local neighborhoods. Nearby points are similar, but far distances are not absolute.';
+    el.innerHTML = `
+        <div style="margin-bottom:0.5rem;color:var(--text-secondary);"><strong>Method:</strong> ${method.toUpperCase()} — ${methodText}</div>
+        <ul style="margin:0;padding-left:1rem;line-height:1.45;">
+            <li><strong>Each dot</strong> = one semantic memory.</li>
+            <li><strong>Dot color</strong> = category, <strong>dot size</strong> = importance.</li>
+            <li><strong>Use this for:</strong> spotting dense themes, outliers, and mixed categories.</li>
+            <li><strong>Current projection:</strong> ${n} points across ${catCount} categories.</li>
+        </ul>
+    `;
+}
+
 function renderChart() {
     const cats = [...new Set(allPoints.map(p => p.category))].filter(c => !hiddenCats.has(c));
+    const catCounts = allPoints.reduce((acc, p) => {
+        acc[p.category] = (acc[p.category] || 0) + 1;
+        return acc;
+    }, {});
+
     const datasets = cats.map(cat => {
         const pts = allPoints.filter(p => p.category === cat && !hiddenCats.has(p.category));
+        const count = catCounts[cat] || 0;
+        const isDense = count >= 40;
+        const baseHex = catColors[cat] || '#6366f1';
+        const fill = isDense ? hexToRgba(baseHex, 0.62) : hexToRgba(baseHex, 0.9);
+        const outline = isDense ? 'rgba(226,232,240,0.65)' : 'rgba(15,23,42,0.65)';
         return {
             label: cat,
             data: pts.map(p => ({ x: p.x, y: p.y, _point: p })),
-            backgroundColor: catColors[cat] || '#6366f1',
-            pointRadius: pts.map(p => 4 + (p.importance || 0) * 12),
-            pointHoverRadius: pts.map(p => 6 + (p.importance || 0) * 14),
+            backgroundColor: fill,
+            pointRadius: pts.map(p => 2 + (p.importance || 0) * 6),
+            pointHoverRadius: pts.map(p => 4 + (p.importance || 0) * 8),
+            pointBorderColor: outline,
+            pointBorderWidth: isDense ? 1.0 : 0.8,
         };
     });
 
@@ -145,8 +263,20 @@ function renderChart() {
                 }
             },
             scales: {
-                x: { min: -1.1, max: 1.1, ticks: { color: '#64748b' }, grid: { color: 'rgba(255,255,255,0.05)' } },
-                y: { min: -1.1, max: 1.1, ticks: { color: '#64748b' }, grid: { color: 'rgba(255,255,255,0.05)' } }
+                x: {
+                    min: -1.1,
+                    max: 1.1,
+                    ticks: { color: '#64748b' },
+                    grid: { color: 'rgba(255,255,255,0.05)' },
+                    title: { display: true, text: document.querySelector('input[name="method"]:checked').value === 'pca' ? 'Component 1' : 't-SNE Dim 1', color: '#94a3b8' }
+                },
+                y: {
+                    min: -1.1,
+                    max: 1.1,
+                    ticks: { color: '#64748b' },
+                    grid: { color: 'rgba(255,255,255,0.05)' },
+                    title: { display: true, text: document.querySelector('input[name="method"]:checked').value === 'pca' ? 'Component 2' : 't-SNE Dim 2', color: '#94a3b8' }
+                }
             },
             onClick: (evt, elements) => {
                 if (elements.length > 0) {
@@ -190,6 +320,7 @@ function toggleCat(cat, el) {
 
 function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+syncControlLabels();
 loadData();
 </script>
 {% endblock %}

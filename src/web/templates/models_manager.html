@@ -13,10 +13,10 @@
     <button class="btn btn-secondary btn-sm" onclick="syncFromYaml()">🔄 Sync from YAML</button>
     <button class="btn btn-secondary btn-sm" onclick="loadModels()">♻️ Refresh</button>
     <div style="flex:1;"></div>
-    <select id="filterProvider" class="form-select form-select-sm" style="width:auto;" onchange="loadModels()">
+    <select id="filterProvider" class="form-input mgmt-filter" onchange="loadModels()">
         <option value="">All Providers</option>
     </select>
-    <select id="filterTier" class="form-select form-select-sm" style="width:auto;" onchange="loadModels()">
+    <select id="filterTier" class="form-input mgmt-filter" onchange="loadModels()">
         <option value="">All Tiers</option>
         <option value="local">🖥️ Local</option>
         <option value="free">🆓 Free</option>
@@ -222,6 +222,12 @@
     font-size: 13px; box-sizing: border-box;
 }
 .form-input:focus { outline: none; border-color: var(--accent, #7c3aed); }
+.mgmt-filter {
+    width: auto;
+    min-width: 140px;
+    padding: 6px 10px;
+    font-size: 13px;
+}
 .toast {
     position: fixed; bottom: 24px; right: 24px; z-index: 9999;
     padding: 12px 20px; border-radius: 8px; font-size: 13px; color: #fff;

@@ -1,158 +1,374 @@
 {% extends "base.html" %}
 {% block title %}Records - Aria{% endblock %}
 
+{% block extra_css %}
+<style>
+    .page-controls { display: flex; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; align-items: center; }
+    .search-box {
+        flex: 1;
+        min-width: 220px;
+        padding: 10px 14px;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        color: var(--text-primary);
+        font-size: 13px;
+    }
+    .search-box:focus { outline: none; border-color: var(--accent-blue); }
+    .filter-select {
+        padding: 10px 14px;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        color: var(--text-primary);
+        cursor: pointer;
+        font-size: 13px;
+        min-width: 140px;
+    }
+    .table-select { min-width: 210px; }
+    .sync-meta { margin-left: auto; font-size: 12px; color: var(--text-muted); }
+
+    .table-wrap { overflow-x: auto; }
+    .data-table {
+        width: 100%;
+        min-width: 860px;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        border-collapse: collapse;
+        overflow: hidden;
+    }
+    .data-table th, .data-table td {
+        padding: 10px 12px;
+        text-align: left;
+        border-bottom: 1px solid var(--border-color);
+        vertical-align: top;
+    }
+    .data-table th {
+        background: rgba(0,0,0,0.2);
+        font-weight: 600;
+        color: var(--text-secondary);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        white-space: nowrap;
+    }
+    .data-table tr:hover { background: rgba(0,212,255,0.04); }
+    .data-table tr:last-child td { border-bottom: none; }
+
+    .sortable-head { cursor: pointer; user-select: none; }
+    .sortable-head .sort-indicator { margin-left: 6px; color: var(--text-muted); }
+    .sort-note { font-size: 11px; color: var(--text-muted); margin-top: 8px; }
+
+    .cell-time { white-space: nowrap; color: var(--text-secondary); font-size: 12px; }
+    .cell-null { color: var(--text-muted); font-style: italic; }
+    .cell-code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: var(--text-secondary);
+    }
+    .cell-text {
+        max-width: 420px;
+        word-break: break-word;
+        white-space: pre-wrap;
+    }
+    .pill { display:inline-flex; align-items:center; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; }
+    .pill-status-ok { background: rgba(34,197,94,0.18); color: var(--success); }
+    .pill-status-err { background: rgba(239,68,68,0.18); color: var(--danger); }
+    .pill-status-unk { background: rgba(148,163,184,0.2); color: var(--text-muted); }
+    .pill-skill { background: rgba(139,92,246,0.18); color: #c4b5fd; border:1px solid rgba(139,92,246,0.35); }
+    .pill-action { background: rgba(34,211,238,0.15); color: #67e8f9; border:1px solid rgba(34,211,238,0.35); }
+    .empty-state { text-align: center; padding: 26px 16px; color: var(--text-secondary); }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="page-header">
     <h1>🗃️ Records</h1>
     <p>Browse all stored records and data entries</p>
 </div>
 
-<div class="filters">
-    <div class="search-box">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-        </svg>
-        <input type="text" class="input" id="searchInput" placeholder="Search records...">
-    </div>
-    <div class="filter-group">
-        <label class="filter-label">Table:</label>
-        <select id="tableFilter" onchange="loadRecords()">
-            <optgroup label="Core Data">
-                <option value="activities">Activities</option>
-                <option value="thoughts">Thoughts</option>
-                <option value="memories">Memories</option>
-            </optgroup>
-            <optgroup label="Goals & Tasks">
-                <option value="goals">Goals</option>
-                <option value="hourly_goals">Hourly Goals</option>
-                <option value="pending_complex_tasks">Complex Tasks</option>
-            </optgroup>
-            <optgroup label="Knowledge & Social">
-                <option value="knowledge_entities">Knowledge Entities</option>
-                <option value="knowledge_relations">Knowledge Relations</option>
-                <option value="social_posts">Social Posts</option>
-            </optgroup>
-            <optgroup label="System">
-                <option value="heartbeat_log">Heartbeat Log</option>
-                <option value="performance_log">Performance Log</option>
-            </optgroup>
-        </select>
-    </div>
-    <div class="filter-group">
-        <label class="filter-label">Limit:</label>
-        <select id="limitFilter" onchange="loadRecords()">
-            <option value="25">25</option>
-            <option value="50">50</option>
-            <option value="100">100</option>
-        </select>
-    </div>
-    <button class="btn btn-secondary" onclick="exportRecords()">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
-        </svg>
-        Export
-    </button>
+<div class="page-controls">
+    <input type="text" class="search-box" id="searchInput" placeholder="Search current page rows...">
+    <select id="tableFilter" class="filter-select table-select">
+        <optgroup label="Core Data">
+            <option value="activities">Activities</option>
+            <option value="thoughts">Thoughts</option>
+            <option value="memories">Memories</option>
+        </optgroup>
+        <optgroup label="Goals & Tasks">
+            <option value="goals">Goals</option>
+            <option value="hourly_goals">Hourly Goals</option>
+            <option value="pending_complex_tasks">Complex Tasks</option>
+        </optgroup>
+        <optgroup label="Knowledge & Social">
+            <option value="knowledge_entities">Knowledge Entities</option>
+            <option value="knowledge_relations">Knowledge Relations</option>
+            <option value="social_posts">Social Posts</option>
+        </optgroup>
+        <optgroup label="System">
+            <option value="heartbeat_log">Heartbeat Log</option>
+            <option value="performance_log">Performance Log</option>
+        </optgroup>
+    </select>
+    <select id="limitFilter" class="filter-select">
+        <option value="25">25 rows</option>
+        <option value="50">50 rows</option>
+        <option value="100">100 rows</option>
+    </select>
+    <span class="sync-meta" id="syncMeta">Data sync: —</span>
+    <button class="btn btn-secondary" onclick="exportRecords()">Export</button>
+    <button class="btn btn-primary" onclick="loadRecords()">Refresh</button>
 </div>
 
-<div class="table-container">
-    <table id="recordsTable">
+<div class="table-wrap">
+    <table class="data-table" id="recordsTable">
         <thead>
             <tr id="tableHeader"></tr>
         </thead>
         <tbody id="tableBody">
-            <tr><td colspan="5" class="loading"><div class="spinner"></div></td></tr>
+            <tr><td colspan="5" class="empty-state">Loading...</td></tr>
         </tbody>
     </table>
 </div>
-
-<div class="pagination" id="pagination" style="margin-top: 1.5rem; display: flex; justify-content: center; gap: 0.5rem;"></div>
+<div class="sort-note" id="sortNote">Sorting applies to current page only.</div>
+<div id="records-pagination"></div>
 {% endblock %}
 
 {% block extra_js %}
 <script data-page-script>
+let recordsPager;
+let allRecords = [];
+let displayColumns = [];
+let activeSortKey = '';
+let activeSortDir = 'asc';
 let currentPage = 1;
-let totalRecords = 0;
+let currentLimit = 25;
 
-async function loadRecords() {
-    const table = document.getElementById('tableFilter').value;
-    const limit = document.getElementById('limitFilter').value;
-    const tbody = document.getElementById('tableBody');
+function esc(v) {
+    return String(v ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+}
+
+function setLoading() {
+    document.getElementById('tableBody').innerHTML = '<tr><td colspan="5" class="empty-state">Loading...</td></tr>';
+}
+
+function isDateLike(value) {
+    return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value);
+}
+
+function isLikelyJson(value) {
+    return typeof value === 'object' && value !== null;
+}
+
+function normalizeValueForSort(v) {
+    if (v === null || v === undefined) return '';
+    if (isDateLike(v)) return new Date(v).getTime();
+    if (typeof v === 'number') return v;
+    if (typeof v === 'boolean') return v ? 1 : 0;
+    if (isLikelyJson(v)) return JSON.stringify(v);
+    return String(v).toLowerCase();
+}
+
+function compareRows(a, b, key) {
+    const av = normalizeValueForSort(a[key]);
+    const bv = normalizeValueForSort(b[key]);
+    if (typeof av === 'number' && typeof bv === 'number') return av - bv;
+    return String(av).localeCompare(String(bv));
+}
+
+function sortRows(rows) {
+    if (!activeSortKey) return [...rows];
+    const sorted = [...rows].sort((a, b) => compareRows(a, b, activeSortKey));
+    return activeSortDir === 'asc' ? sorted : sorted.reverse();
+}
+
+function renderHeader(columns) {
     const thead = document.getElementById('tableHeader');
-    
-    tbody.innerHTML = '<tr><td colspan="5"><div class="loading"><div class="spinner"></div></div></td></tr>';
-    
-    try {
-        const response = await fetch(`${window.ARIA_API_BASE_URL}/records?table=${table}&limit=${limit}&page=${currentPage}`);
-        const data = await response.json();
-        
-        if (data.records && data.records.length > 0) {
-            const columns = Object.keys(data.records[0]);
-            thead.innerHTML = columns.map(col => `<th>${escapeHtml(col)}</th>`).join('');
-            
-            tbody.innerHTML = data.records.map(record => `
-                <tr>
-                    ${columns.map(col => `<td>${formatCell(record[col])}</td>`).join('')}
-                </tr>
-            `).join('');
-            
-            totalRecords = data.total || data.records.length;
-            renderPagination(limit);
-        } else {
-            thead.innerHTML = '<th>No Data</th>';
-            tbody.innerHTML = '<tr><td class="empty-state">No records found</td></tr>';
+    thead.innerHTML = columns.map(col => {
+        const indicator = activeSortKey !== col ? '↕' : (activeSortDir === 'asc' ? '↑' : '↓');
+        return `<th class="sortable-head" data-sort-key="${esc(col)}">${esc(col)}<span class="sort-indicator">${indicator}</span></th>`;
+    }).join('');
+
+    document.querySelectorAll('.sortable-head').forEach(head => {
+        head.addEventListener('click', () => {
+            const key = head.dataset.sortKey;
+            if (activeSortKey === key) {
+                activeSortDir = activeSortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+                activeSortKey = key;
+                activeSortDir = 'asc';
+            }
+            applySearchAndRender();
+        });
+    });
+}
+
+function inferStatus(row) {
+    const raw = (row?.status ?? '').toString().toLowerCase();
+    if (raw === 'ok' || raw === 'success') return { cls: 'pill-status-ok', label: 'OK' };
+    if (raw === 'error' || raw === 'err' || raw === 'failed') return { cls: 'pill-status-err', label: 'Error' };
+    if (typeof row?.success === 'boolean') {
+        return row.success
+            ? { cls: 'pill-status-ok', label: 'Success' }
+            : { cls: 'pill-status-err', label: 'Error' };
+    }
+    return { cls: 'pill-status-unk', label: raw ? raw : 'Unknown' };
+}
+
+function formatCell(key, value, row) {
+    const keyNorm = String(key || '').toLowerCase();
+
+    if (keyNorm === 'status' || keyNorm === 'state') {
+        const s = inferStatus(row);
+        return `<span class="pill ${s.cls}">${esc(s.label)}</span>`;
+    }
+    if (keyNorm === 'success') {
+        if (typeof value === 'boolean') {
+            return value
+                ? '<span class="pill pill-status-ok">Success</span>'
+                : '<span class="pill pill-status-err">Error</span>';
         }
-    } catch (error) {
-        tbody.innerHTML = `<tr><td colspan="5" class="empty-state">Error: ${escapeHtml(error.message)}</td></tr>`;
     }
+    if (keyNorm === 'skill' || keyNorm === 'skill_name') {
+        const text = (value === null || value === undefined || value === '') ? '-' : String(value);
+        return `<span class="pill pill-skill">${esc(text)}</span>`;
+    }
+    if (keyNorm === 'action' || keyNorm === 'type') {
+        const text = (value === null || value === undefined || value === '') ? '-' : String(value);
+        return `<span class="pill pill-action">${esc(text)}</span>`;
+    }
+
+    if (value === null || value === undefined) return '<span class="cell-null">null</span>';
+    if (isDateLike(value)) return `<span class="cell-time">${esc(new Date(value).toLocaleString())}</span>`;
+    if (isLikelyJson(value)) {
+        const text = JSON.stringify(value);
+        const short = text.length > 220 ? `${text.substring(0, 220)}...` : text;
+        return `<span class="cell-code">${esc(short)}</span>`;
+    }
+
+    const text = String(value);
+    const out = text.length > 220 ? `${text.substring(0, 220)}...` : text;
+    return `<span class="cell-text">${esc(out)}</span>`;
 }
 
-function formatCell(value) {
-    if (value === null || value === undefined) return '<span style="color: var(--text-muted)">null</span>';
-    if (typeof value === 'object') return `<code>${JSON.stringify(value).substring(0, 50)}...</code>`;
-    if (typeof value === 'string' && value.match(/^\d{4}-\d{2}-\d{2}/)) {
-        return new Date(value).toLocaleString();
-    }
-    const str = String(value);
-    return str.length > 100 ? str.substring(0, 100) + '...' : str;
-}
-
-function renderPagination(limit) {
-    const totalPages = Math.ceil(totalRecords / limit);
-    const pagination = document.getElementById('pagination');
-    
-    if (totalPages <= 1) {
-        pagination.innerHTML = '';
+function renderRows(rows) {
+    const tbody = document.getElementById('tableBody');
+    if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No records found</td></tr>';
         return;
     }
-    
-    let html = '';
-    if (currentPage > 1) {
-        html += `<button class="btn btn-secondary" onclick="goToPage(${currentPage - 1})">ÔåÉ Prev</button>`;
-    }
-    html += `<span style="padding: 0.6rem 1rem; color: var(--text-secondary);">Page ${currentPage} of ${totalPages}</span>`;
-    if (currentPage < totalPages) {
-        html += `<button class="btn btn-secondary" onclick="goToPage(${currentPage + 1})">Next ÔåÆ</button>`;
-    }
-    pagination.innerHTML = html;
+
+    tbody.innerHTML = rows.map(record => `
+        <tr>
+            ${displayColumns.map(col => `<td>${formatCell(col, record[col], record)}</td>`).join('')}
+        </tr>
+    `).join('');
 }
 
-function goToPage(page) {
+function updatePagination(data) {
+    if (!recordsPager) return;
+    const page = Number(data?.page ?? data?.current_page ?? currentPage);
+    const limit = Number(data?.limit ?? currentLimit);
+    const total = Number(data?.total ?? 0);
+    let pages = Number(data?.pages ?? 0);
+
+    if (!pages && total > 0 && limit > 0) {
+        pages = Math.ceil(total / limit);
+    }
+    if (!pages) pages = 1;
+
+    recordsPager.update({
+        page,
+        limit,
+        total,
+        pages,
+        items: data?.records || []
+    });
+}
+
+function applySearchAndRender() {
+    const search = document.getElementById('searchInput').value.trim().toLowerCase();
+    let filtered = [...allRecords];
+
+    if (search) {
+        filtered = filtered.filter(row => {
+            return displayColumns.some(col => {
+                const value = row[col];
+                if (value === null || value === undefined) return false;
+                const text = typeof value === 'object' ? JSON.stringify(value) : String(value);
+                return text.toLowerCase().includes(search);
+            });
+        });
+    }
+
+    const sorted = sortRows(filtered);
+    renderHeader(displayColumns);
+    renderRows(sorted);
+}
+
+async function loadRecords(page = 1, limit = Number(document.getElementById('limitFilter')?.value || 25)) {
+    const table = document.getElementById('tableFilter').value;
     currentPage = page;
-    loadRecords();
-}
+    currentLimit = limit;
+    setLoading();
+    
+    try {
+        const response = await fetch(`${window.ARIA_API_BASE_URL}/records?table=${table}&limit=${limit}&page=${page}`);
+        const data = await response.json();
+        allRecords = data.records || [];
 
+        if (!allRecords.length) {
+            displayColumns = [];
+            document.getElementById('tableHeader').innerHTML = '<th>No Data</th>';
+            document.getElementById('tableBody').innerHTML = '<tr><td class="empty-state">No records found</td></tr>';
+            updatePagination(data);
+            document.getElementById('syncMeta').textContent = `Data sync: ${new Date().toLocaleTimeString()}`;
+            return;
+        }
+
+        displayColumns = Object.keys(allRecords[0]);
+        if (!activeSortKey || !displayColumns.includes(activeSortKey)) {
+            activeSortKey = displayColumns[0] || '';
+            activeSortDir = 'asc';
+        }
+
+        applySearchAndRender();
+        updatePagination(data);
+        document.getElementById('syncMeta').textContent = `Data sync: ${new Date().toLocaleTimeString()}`;
+    } catch (error) {
+        document.getElementById('tableHeader').innerHTML = '<th>Status</th>';
+        document.getElementById('tableBody').innerHTML = `<tr><td class="empty-state">Could not load records: ${esc(error.message)}</td></tr>`;
+    }
+}
+        
 function exportRecords() {
     const table = document.getElementById('tableFilter').value;
     window.open(`${window.ARIA_API_BASE_URL}/export?table=${table}`, '_blank');
 }
 
-document.getElementById('searchInput').addEventListener('input', function() {
-    const search = this.value.toLowerCase();
-    document.querySelectorAll('#tableBody tr').forEach(row => {
-        row.style.display = row.textContent.toLowerCase().includes(search) ? '' : 'none';
-    });
+document.getElementById('searchInput').addEventListener('input', applySearchAndRender);
+document.getElementById('tableFilter').addEventListener('change', () => {
+    activeSortKey = '';
+    activeSortDir = 'asc';
+    loadRecords(1, Number(document.getElementById('limitFilter').value || 25));
+});
+document.getElementById('limitFilter').addEventListener('change', () => {
+    loadRecords(1, Number(document.getElementById('limitFilter').value || 25));
 });
 
-document.addEventListener('DOMContentLoaded', () => loadRecords());
+recordsPager = new AriaPagination('records-pagination', {
+    onPageChange: (page, limit) => loadRecords(page, limit),
+    limit: 25
+});
+
+document.addEventListener('DOMContentLoaded', () => loadRecords(1, 25));
 </script>
 {% endblock %}

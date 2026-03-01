@@ -4,6 +4,7 @@ Activity log endpoints — CRUD + activity feed + interactions.
 
 import json as json_lib
 import logging
+import ast
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -28,6 +29,17 @@ def _extract_description(details) -> str:
     return str(details) if details else ""
 
 
+def _dt_iso_utc(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    dt = value
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt.isoformat()
+
+
 def _should_mirror_to_social(action: str, details: dict | None) -> bool:
     action_l = (action or "").lower()
     if "commit" in action_l or "comment" in action_l:
@@ -50,6 +62,62 @@ def _social_content_from_activity(action: str, skill: str | None, details: dict 
     if error_message:
         parts.append(f"error={error_message}")
     return " · ".join(parts)
+
+
+def _safe_parse_mapping(raw: object) -> dict:
+    if isinstance(raw, dict):
+        return raw
+    if not isinstance(raw, str):
+        return {}
+
+    text = raw.strip()
+    if not text:
+        return {}
+
+    for parser in (json_lib.loads, ast.literal_eval):
+        try:
+            parsed = parser(text)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            continue
+    return {}
+
+
+def _normalized_creative_context(details: dict | None) -> dict:
+    if not isinstance(details, dict):
+        return {}
+
+    context: dict = {}
+    if isinstance(details.get("creative_context"), dict):
+        context.update(details.get("creative_context") or {})
+
+    direct_keys = (
+        "topic",
+        "session_id",
+        "idea_count",
+        "idea",
+        "experiment_name",
+        "hypothesis",
+        "status",
+        "experiment_id",
+        "claim",
+        "name",
+        "title",
+    )
+    for key in direct_keys:
+        value = details.get(key)
+        if value not in (None, "") and key not in context:
+            context[key] = value
+
+    for preview_key in ("args_preview", "result_preview", "message", "description"):
+        parsed = _safe_parse_mapping(details.get(preview_key))
+        for key in direct_keys:
+            value = parsed.get(key)
+            if value not in (None, "") and key not in context:
+                context[key] = value
+
+    return context
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -81,7 +149,7 @@ async def api_activities(
             "status": "ok" if a.success else "error",
             "description": _extract_description(a.details),
             "details": a.details,
-            "created_at": a.created_at.isoformat() if a.created_at else None,
+            "created_at": _dt_iso_utc(a.created_at),
         }
         for a in rows
     ]
@@ -369,22 +437,35 @@ async def activity_visualization(
     latest_experiment = None
     for item in creative_recent_items:
         details = item.details if isinstance(item.details, dict) else {}
-        context = details.get("creative_context") if isinstance(details.get("creative_context"), dict) else {}
+        context = _normalized_creative_context(details)
         normalized_skill = _normalize_skill_name(item.skill)
         if normalized_skill == "brainstorm" and latest_brainstorm is None:
+            brainstorm_topic = (
+                context.get("topic")
+                or context.get("idea")
+                or context.get("title")
+                or context.get("name")
+                or ("Brainstorm session started" if "start_session" in (item.action or "") else "")
+            )
             latest_brainstorm = {
-                "topic": context.get("topic") or (details.get("args_preview") or ""),
+                "topic": brainstorm_topic,
                 "session_id": context.get("session_id"),
                 "idea_count": context.get("idea_count"),
-                "created_at": item.created_at.isoformat() if item.created_at else None,
+                "created_at": _dt_iso_utc(item.created_at),
             }
         if normalized_skill == "experiment" and latest_experiment is None:
+            experiment_name = (
+                context.get("experiment_name")
+                or context.get("name")
+                or context.get("title")
+                or ("Experiment created" if "create_experiment" in (item.action or "") else "")
+            )
             latest_experiment = {
-                "name": context.get("experiment_name") or (details.get("args_preview") or ""),
+                "name": experiment_name,
                 "hypothesis": context.get("hypothesis"),
-                "status": context.get("status"),
+                "status": context.get("status") or ("success" if item.success else "error"),
                 "experiment_id": context.get("experiment_id"),
-                "created_at": item.created_at.isoformat() if item.created_at else None,
+                "created_at": _dt_iso_utc(item.created_at),
             }
         if latest_brainstorm and latest_experiment:
             break
@@ -398,7 +479,7 @@ async def activity_visualization(
             "fail": int(total_rows.fail or 0),
         },
         "hourly": [
-            {"hour": row.hour.isoformat() if row.hour else None, "count": int(row.count or 0)}
+            {"hour": _dt_iso_utc(row.hour), "count": int(row.count or 0)}
             for row in hourly_rows
         ],
         "actions": [
@@ -415,7 +496,7 @@ async def activity_visualization(
             "total": creative_total,
             "skills": creative_skills,
             "hourly": [
-                {"hour": row.hour.isoformat() if row.hour else None, "count": int(row.count or 0)}
+                {"hour": _dt_iso_utc(row.hour), "count": int(row.count or 0)}
                 for row in creative_hourly_rows
             ],
             "actions": [
@@ -428,7 +509,7 @@ async def activity_visualization(
                     "action": item.action,
                     "skill": item.skill,
                     "success": bool(item.success),
-                    "created_at": item.created_at.isoformat() if item.created_at else None,
+                    "created_at": _dt_iso_utc(item.created_at),
                     "description": _extract_description(item.details),
                     "details": item.details if isinstance(item.details, dict) else {},
                 }
@@ -445,7 +526,7 @@ async def activity_visualization(
                 "action": item.action,
                 "skill": item.skill,
                 "success": bool(item.success),
-                "created_at": item.created_at.isoformat() if item.created_at else None,
+                "created_at": _dt_iso_utc(item.created_at),
                 "description": _extract_description(item.details),
                 "details": item.details if isinstance(item.details, dict) else {},
             }

@@ -24,6 +24,9 @@ from schemas.requests import CreateMemory, CreateSemanticMemory, SearchByVector,
 # LiteLLM connection for embeddings
 LITELLM_URL = os.environ.get("LITELLM_URL", "http://litellm:4000")
 LITELLM_KEY = os.environ.get("LITELLM_MASTER_KEY", "")
+EMBED_REMOTE_TIMEOUT_SECONDS = float(os.environ.get("EMBED_REMOTE_TIMEOUT_SECONDS", "2.5"))
+EMBED_REMOTE_RETRY_AFTER_SECONDS = int(os.environ.get("EMBED_REMOTE_RETRY_AFTER_SECONDS", "120"))
+_EMBED_REMOTE_DISABLED_UNTIL: datetime | None = None
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +114,17 @@ def _is_noise_memory_payload(
     return False
 
 
+def _dt_iso_utc(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    dt = value
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt.isoformat()
+
+
 @router.get("/memories")
 async def get_memories(
     page: int = 1,
@@ -164,17 +178,48 @@ async def create_or_update_memory(
 # ===========================================================================
 
 async def generate_embedding(text: str) -> list[float]:
-    """Generate embedding via LiteLLM embedding endpoint."""
+    """Generate embedding via LiteLLM endpoint with local fallback."""
     import httpx
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{LITELLM_URL}/v1/embeddings",
-            json={"model": "nomic-embed-text", "input": text},
-            headers={"Authorization": f"Bearer {LITELLM_KEY}"},
-            timeout=30,
-        )
-        resp.raise_for_status()
-        return resp.json()["data"][0]["embedding"]
+    global _EMBED_REMOTE_DISABLED_UNTIL
+
+    def _local_embedding_fallback(value: str, dims: int = 768) -> list[float]:
+        tokens = re.findall(r"[a-z0-9_]+", (value or "").lower())
+        vector = [0.0] * dims
+        if not tokens:
+            return vector
+
+        for token in tokens:
+            bucket = hash(token) % dims
+            sign = -1.0 if (hash(token + "_s") % 2) else 1.0
+            vector[bucket] += sign
+
+        norm = math.sqrt(sum(component * component for component in vector))
+        if norm > 0:
+            vector = [component / norm for component in vector]
+        return vector
+
+    now_utc = datetime.now(timezone.utc)
+    if _EMBED_REMOTE_DISABLED_UNTIL and now_utc < _EMBED_REMOTE_DISABLED_UNTIL:
+        return _local_embedding_fallback(text)
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{LITELLM_URL}/v1/embeddings",
+                json={"model": "nomic-embed-text", "input": text},
+                headers={"Authorization": f"Bearer {LITELLM_KEY}"},
+                timeout=httpx.Timeout(EMBED_REMOTE_TIMEOUT_SECONDS),
+            )
+            resp.raise_for_status()
+            embedding = resp.json().get("data", [{}])[0].get("embedding")
+            if isinstance(embedding, list) and embedding:
+                _EMBED_REMOTE_DISABLED_UNTIL = None
+                return embedding
+            raise ValueError("empty embedding from LiteLLM response")
+    except Exception as exc:
+        _EMBED_REMOTE_DISABLED_UNTIL = datetime.now(timezone.utc) + timedelta(seconds=EMBED_REMOTE_RETRY_AFTER_SECONDS)
+        logger.warning("LiteLLM embedding failed, using local fallback: %s", exc)
+        return _local_embedding_fallback(text)
 
 
 @router.get("/memories/semantic/stats")
@@ -228,8 +273,8 @@ async def semantic_memory_stats(db: AsyncSession = Depends(get_db)):
         "by_category": by_category,
         "by_source": by_source,
         "avg_importance": round(avg_imp or 0, 3),
-        "newest": newest.isoformat() if newest else None,
-        "oldest": oldest.isoformat() if oldest else None,
+        "newest": _dt_iso_utc(newest),
+        "oldest": _dt_iso_utc(oldest),
         "top_accessed": [
             {"summary": r[0], "category": r[1], "access_count": r[2]}
             for r in top_accessed
@@ -325,8 +370,8 @@ async def search_memories(
     result = await db.execute(stmt)
     memories = []
     for mem, dist in result.all():
-        mem.accessed_at = func.now()
-        mem.access_count += 1
+        mem.accessed_at = datetime.now(timezone.utc)
+        mem.access_count = int(mem.access_count or 0) + 1
         d = mem.to_dict()
         d["similarity"] = round(1 - dist, 4)
         memories.append(d)
@@ -556,7 +601,7 @@ async def get_embedding_projection(
             "importance": m.importance,
             "source": m.source,
             "access_count": m.access_count,
-            "created_at": m.created_at.isoformat() if m.created_at else None,
+            "created_at": _dt_iso_utc(m.created_at),
         })
 
     categories: dict = {}
@@ -654,7 +699,7 @@ async def get_memory_graph(
                 "importance": float(mem.importance or 0),
                 "source": mem.source,
                 "access_count": mem.access_count,
-                "created_at": mem.created_at.isoformat() if mem.created_at else None,
+                "created_at": _dt_iso_utc(mem.created_at),
             })
             category_index.setdefault(mem.category or "general", []).append(nid)
             if mem.source:
@@ -678,7 +723,7 @@ async def get_memory_graph(
                 "importance": float(wm.importance or 0),
                 "source": wm.source,
                 "ttl_hours": wm.ttl_hours,
-                "created_at": wm.created_at.isoformat() if wm.created_at else None,
+                "created_at": _dt_iso_utc(wm.created_at),
             })
             category_index.setdefault(wm.category or "general", []).append(nid)
             if wm.source:
@@ -695,7 +740,7 @@ async def get_memory_graph(
                 "label": (m.key or "")[:60],
                 "type": "kv_memory",
                 "category": m.category,
-                "created_at": m.created_at.isoformat() if m.created_at else None,
+                "created_at": _dt_iso_utc(m.created_at),
             })
             category_index.setdefault(m.category or "general", []).append(nid)
 
@@ -714,7 +759,7 @@ async def get_memory_graph(
                 "label": (t.content or "")[:60],
                 "type": "thought",
                 "category": t.category,
-                "created_at": t.created_at.isoformat() if t.created_at else None,
+                "created_at": _dt_iso_utc(t.created_at),
             })
             category_index.setdefault(t.category or "general", []).append(nid)
 
@@ -735,7 +780,7 @@ async def get_memory_graph(
                 "category": ll.skill_name or "general",
                 "occurrences": ll.occurrences,
                 "effectiveness": float(ll.effectiveness or 0),
-                "created_at": ll.created_at.isoformat() if ll.created_at else None,
+                "created_at": _dt_iso_utc(ll.created_at),
             })
             if ll.skill_name:
                 category_index.setdefault(ll.skill_name, []).append(nid)
@@ -835,7 +880,7 @@ async def unified_memory_search(
                         "relevance": round(similarity, 4),
                         "importance": mem.importance,
                         "source": mem.source,
-                        "created_at": mem.created_at.isoformat() if mem.created_at else None,
+                        "created_at": _dt_iso_utc(mem.created_at),
                     })
         except Exception:
             pass
@@ -858,7 +903,7 @@ async def unified_memory_search(
                 "content": str(m.value)[:300] if m.value else "",
                 "category": m.category,
                 "relevance": 0.5,
-                "created_at": m.created_at.isoformat() if m.created_at else None,
+                "created_at": _dt_iso_utc(m.created_at),
             })
 
     # 3. Working Memory text search
@@ -883,7 +928,7 @@ async def unified_memory_search(
                 "category": wm.category,
                 "relevance": 0.45,
                 "importance": wm.importance,
-                "created_at": wm.created_at.isoformat() if wm.created_at else None,
+                "created_at": _dt_iso_utc(wm.created_at),
             })
 
     # 4. Thoughts text search
@@ -903,7 +948,7 @@ async def unified_memory_search(
                 "content": (t.content or "")[:300],
                 "category": t.category,
                 "relevance": 0.4,
-                "created_at": t.created_at.isoformat() if t.created_at else None,
+                "created_at": _dt_iso_utc(t.created_at),
             })
 
     # 5. Lessons text search
@@ -927,7 +972,7 @@ async def unified_memory_search(
                 "category": ll.skill_name or "general",
                 "relevance": 0.35,
                 "occurrences": ll.occurrences,
-                "created_at": ll.created_at.isoformat() if ll.created_at else None,
+                "created_at": _dt_iso_utc(ll.created_at),
             })
 
     results.sort(key=lambda r: r.get("relevance", 0), reverse=True)
@@ -969,7 +1014,7 @@ async def get_memory_timeline(
     )
     sem_result = await db.execute(sem_stmt)
     sem_buckets = [
-        {"t": r.bucket.isoformat(), "count": r.count, "avg_imp": round(float(r.avg_importance or 0), 3)}
+        {"t": _dt_iso_utc(r.bucket), "count": r.count, "avg_imp": round(float(r.avg_importance or 0), 3)}
         for r in sem_result.all()
     ]
 
@@ -983,7 +1028,7 @@ async def get_memory_timeline(
         .order_by("bucket")
     )
     wm_result = await db.execute(wm_stmt)
-    wm_buckets = [{"t": r.bucket.isoformat(), "count": r.count} for r in wm_result.all()]
+    wm_buckets = [{"t": _dt_iso_utc(r.bucket), "count": r.count} for r in wm_result.all()]
 
     th_stmt = (
         select(
@@ -995,7 +1040,7 @@ async def get_memory_timeline(
         .order_by("bucket")
     )
     th_result = await db.execute(th_stmt)
-    th_buckets = [{"t": r.bucket.isoformat(), "count": r.count} for r in th_result.all()]
+    th_buckets = [{"t": _dt_iso_utc(r.bucket), "count": r.count} for r in th_result.all()]
 
     ttl_stmt = (
         select(WorkingMemory)
@@ -1024,7 +1069,7 @@ async def get_memory_timeline(
             "ttl_hours": wm.ttl_hours,
             "remaining_hours": round(remaining_hours, 1),
             "expired": remaining_hours <= 0,
-            "created_at": wm.created_at.isoformat() if wm.created_at else None,
+            "created_at": _dt_iso_utc(wm.created_at),
         })
 
     heatmap_stmt = (
@@ -1068,7 +1113,7 @@ async def get_memory_consolidation_dashboard(
     def _scan_tier(tier_path: Path) -> dict:
         if not tier_path.exists():
             return {"count": 0, "total_bytes": 0, "newest": 0, "oldest": 0}
-        files = [f for f in tier_path.glob("*") if f.is_file()]
+        files = [f for f in tier_path.rglob("*") if f.is_file()]
         file_stats = [f.stat() for f in files]
         return {
             "count": len(file_stats),
@@ -1078,9 +1123,18 @@ async def get_memory_consolidation_dashboard(
         }
 
     base = Path(os.environ.get("ARIA_MEMORIES_PATH", "/aria_memories"))
+    tier_names = ["surface", "medium", "deep"]
+    candidate_roots = [base, base / "memory"]
+
+    def _tier_dir_score(root: Path) -> int:
+        return sum(1 for tier in tier_names if (root / tier).exists())
+
+    tier_root = max(candidate_roots, key=_tier_dir_score)
+    if _tier_dir_score(tier_root) == 0:
+        tier_root = base / "memory" if (base / "memory").exists() else base
     tiers = {}
-    for tier in ["surface", "medium", "deep"]:
-        tiers[tier] = await asyncio.to_thread(_scan_tier, base / "memory" / tier)
+    for tier in tier_names:
+        tiers[tier] = await asyncio.to_thread(_scan_tier, tier_root / tier)
 
     source_stmt = select(
         SemanticMemory.source,
@@ -1111,7 +1165,7 @@ async def get_memory_consolidation_dashboard(
             "category": m.category,
             "source": m.source,
             "importance": m.importance,
-            "created_at": m.created_at.isoformat() if m.created_at else None,
+            "created_at": _dt_iso_utc(m.created_at),
         }
         for m in recent_result.scalars().all()
     ]
@@ -1129,7 +1183,7 @@ async def get_memory_consolidation_dashboard(
             "key": f"{wm.category}/{wm.key}",
             "importance": wm.importance,
             "access_count": wm.access_count,
-            "created_at": wm.created_at.isoformat() if wm.created_at else None,
+            "created_at": _dt_iso_utc(wm.created_at),
         }
         for wm in promo_result.scalars().all()
     ]
@@ -1153,8 +1207,12 @@ async def get_memory_consolidation_dashboard(
             "compression_ratio": ratio,
         }
 
+    semantic_total = (await db.execute(select(func.count()).select_from(SemanticMemory))).scalar() or 0
+
     return {
         "file_tiers": tiers,
+        "file_tier_root": str(tier_root),
+        "semantic_total": int(semantic_total),
         "source_distribution": sources,
         "recent_consolidations": recent_memories,
         "promotion_candidates": promotion_candidates,

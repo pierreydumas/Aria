@@ -472,6 +472,19 @@
         });
     }
 
+    function toLocalTimeText(value) {
+        if (!value) return '-';
+        if (value instanceof Date) return value.toLocaleString();
+        let raw = String(value).trim();
+        if (!raw) return '-';
+        if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(raw)) {
+            raw += 'Z';
+        }
+        const dt = new Date(raw);
+        if (Number.isNaN(dt.getTime())) return raw;
+        return dt.toLocaleString();
+    }
+
     async function loadHomeOverview() {
         const base = window.ARIA_API_BASE_URL;
         const [timelineRes, activitiesRes, thoughtsRes, memoriesRes] = await Promise.allSettled([
@@ -488,12 +501,12 @@
             const items = activitiesRes.value.items || activitiesRes.value.activities || activitiesRes.value || [];
             renderMiniList('home-recent-activities', items, 'action', (i) => {
                 const subtitle = i.description || i.type || i.skill || i.action || 'activity';
-                return `${subtitle} • ${new Date(i.created_at || Date.now()).toLocaleString()}`;
+                return `${subtitle} • ${toLocalTimeText(i.created_at || Date.now())}`;
             });
         }
         if (thoughtsRes.status === 'fulfilled') {
             const items = thoughtsRes.value.items || thoughtsRes.value.thoughts || thoughtsRes.value || [];
-            renderMiniList('home-recent-thoughts', items, 'content', (i) => `${i.category || 'general'} • ${new Date(i.created_at || Date.now()).toLocaleString()}`);
+            renderMiniList('home-recent-thoughts', items, 'content', (i) => `${i.category || 'general'} • ${toLocalTimeText(i.created_at || Date.now())}`);
 
             const byCategory = {};
             items.forEach(item => {
@@ -512,7 +525,7 @@
         }
         if (memoriesRes.status === 'fulfilled') {
             const items = memoriesRes.value.items || memoriesRes.value.memories || memoriesRes.value || [];
-            renderMiniList('home-recent-memories', items, 'key', (i) => `${i.category || 'general'} • ${new Date(i.updated_at || i.created_at || Date.now()).toLocaleString()}`);
+            renderMiniList('home-recent-memories', items, 'key', (i) => `${i.category || 'general'} • ${toLocalTimeText(i.updated_at || i.created_at || Date.now())}`);
 
             const byCategory = {};
             items.forEach(item => {

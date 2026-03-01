@@ -1,187 +1,482 @@
 {% extends "base.html" %}
 {% block title %}Focus Profiles — Aria Engine{% endblock %}
 
-{% block head %}
+{% block extra_css %}
 <style>
+  .focus-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .focus-btn {
+    font-size: 12px;
+  }
+
+  .focus-count {
+    margin-left: auto;
+    font-size: 13px;
+    color: var(--text-tertiary, #777);
+  }
+
+  .focus-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+  }
+
+  .focus-empty {
+    text-align: center;
+    padding: 48px;
+    color: var(--text-tertiary, #777);
+    grid-column: 1 / -1;
+  }
+
+  /* ── Cards ────────────────────────────────────────────────── */
   .focus-card {
-    background: #fff; border: 1px solid #dee2e6; border-radius: 10px;
-    padding: 16px; margin-bottom: 14px; transition: box-shadow 0.15s;
+    background: var(--card-bg, #1e1e2e);
+    border: 1px solid var(--border, #333);
+    border-radius: 10px;
+    padding: 16px;
+    transition: border-color .2s;
+    cursor: pointer;
+    height: 100%;
+    position: relative;
   }
-  .focus-card:hover { box-shadow: 0 2px 10px rgba(0,0,0,0.08); }
-  .focus-card.disabled-card { opacity: 0.55; }
-  .badge-l1 { background: #8b5cf6; }
-  .badge-l2 { background: #0d6efd; }
-  .badge-l3 { background: #6c757d; }
+
+  .focus-card:hover {
+    border-color: var(--accent, #7c3aed);
+  }
+  .focus-card.disabled-card { opacity: .55; }
+
+  .card-header-row {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    gap: 8px; margin-bottom: 8px;
+  }
+  .card-title { font-size: 14px; font-weight: 600; color: var(--text-primary, #fff); }
+  .card-badges { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+  .focus-id {
+    font-size: 11px;
+    font-family: var(--font-mono, monospace);
+    color: var(--text-secondary, #9aa9bf);
+    margin-bottom: 6px;
+    text-transform: lowercase;
+  }
+
+  /* ── Level badges ────────────────────────────────────────── */
   .level-badge {
-    display: inline-block; font-size: 0.7rem; font-weight: 700;
-    padding: 2px 8px; border-radius: 20px; color: #fff; letter-spacing: 0.5px;
+    font-size: 10px; padding: 2px 7px; border-radius: 6px;
+    font-weight: 600; color: #fff; letter-spacing: 0.3px;
   }
-  .budget-bar-wrap { background: #e9ecef; border-radius: 4px; height: 6px; margin-top: 4px; }
-  .budget-bar { height: 6px; border-radius: 4px; background: linear-gradient(to right, #28a745, #ffc107, #dc3545); }
-  .keyword-chip {
-    display: inline-block; background: #e9f2ff; color: #0d6efd;
-    border-radius: 20px; padding: 1px 9px; font-size: 0.75rem; margin: 2px;
+  .badge-l1 { background: #4c1d95; color: #ddd6fe; }
+  .badge-l2 { background: #1e3a5f; color: #93c5fd; }
+  .badge-l3 { background: #292524; color: #a8a29e; }
+
+  .badge-model {
+    font-size: 10px; padding: 2px 7px; border-radius: 6px;
+    background: #713f12; color: #fde047; font-family: monospace; font-weight: 600;
   }
+  .badge-off {
+    font-size: 10px; padding: 2px 7px; border-radius: 6px;
+    background: #292524; color: #78716c; font-weight: 600;
+  }
+
+  /* ── Meta row ─────────────────────────────────────────────── */
+  .card-meta {
+    font-size: 12px;
+    color: var(--text-secondary, #b3bfd2);
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  .card-meta span { display: flex; align-items: center; gap: 2px; }
+  .card-meta strong { color: var(--text-primary, #e8eefc); font-weight: 600; }
+  .temp-hot { color: #f87171 !important; }
+  .temp-cold { color: #60a5fa !important; }
+
+  /* ── Description ──────────────────────────────────────────── */
+  .card-desc {
+    font-size: 12px;
+    color: var(--text-secondary, #b3bfd2);
+    margin-bottom: 6px;
+    line-height: 1.45;
+    white-space: normal;
+  }
+
+  /* ── Budget bar ───────────────────────────────────────────── */
+  .bar-wrap {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border, #333);
+    margin-top: 4px;
+    margin-bottom: 6px;
+    overflow: hidden;
+  }
+  .bar-fill { height: 100%; border-radius: 2px;
+    background: linear-gradient(to right, #16a34a, #eab308, #dc2626); transition: width .3s; }
+
+  /* ── Keyword chips ────────────────────────────────────────── */
+  .kw-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+    margin-bottom: 6px;
+  }
+  .kw-tag {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(108,92,231,0.15);
+    color: var(--accent, #7c3aed);
+    white-space: nowrap; margin: 0;
+  }
+
+  /* ── Addon preview ────────────────────────────────────────── */
   .addon-preview {
-    font-family: monospace; font-size: 0.8rem; background: #f8f9fa;
-    border: 1px solid #dee2e6; border-radius: 6px; padding: 8px 12px;
-    max-height: 60px; overflow: hidden; white-space: pre-wrap;
-    cursor: pointer; color: #495057;
+    font-size: 12px; font-family: monospace;
+    background: var(--input-bg, #111);
+    border: 1px solid var(--border, #333);
+    border-radius: 6px; padding: 8px 10px;
+    max-height: 62px;
+    overflow: hidden;
+    white-space: pre-wrap;
+    color: var(--text-secondary, #b3bfd2);
+    line-height: 1.45;
+    margin-top: 4px;
+  }
+
+  .card-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+    border-top: 1px solid var(--border, #333);
+    padding-top: 10px;
+  }
+
+  .card-actions .btn {
+    font-size: 12px;
+  }
+
+  .focus-modal .modal-content {
+    background: var(--bg-secondary, #1a1a2e);
+    border: 1px solid var(--border-color, #2a2a3e);
+    border-radius: 12px;
+  }
+
+  .focus-modal .modal-header,
+  .focus-modal .modal-footer {
+    border-color: var(--border-color, #2a2a3e);
+  }
+
+  .focus-modal .modal-title,
+  .focus-modal .form-label,
+  .focus-modal .form-check-label {
+    color: var(--text-primary, #e0e0e0);
+  }
+
+  .focus-modal .form-control,
+  .focus-modal .form-select {
+    background: var(--bg-tertiary, #1f1f2e);
+    border: 1px solid var(--border-color, #2a2a3e);
+    color: var(--text-primary, #e0e0e0);
+  }
+
+  .focus-modal .form-control:focus,
+  .focus-modal .form-select:focus {
+    border-color: var(--accent-primary, #6c5ce7);
+    box-shadow: 0 0 0 0.15rem rgba(99, 102, 241, 0.2);
+    background: var(--bg-tertiary, #1f1f2e);
+    color: var(--text-primary, #e0e0e0);
+  }
+
+  .focus-modal .btn-close {
+    filter: invert(1) opacity(.8);
+  }
+
+  .focus-modal .form-control::placeholder {
+    color: var(--text-muted, #64748b);
+  }
+
+  .focus-modal .form-text {
+    color: var(--text-muted, #64748b);
+  }
+
+  .focus-modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: rgba(0,0,0,.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+
+  .focus-modal-card {
+    background: var(--card-bg, #1e1e2e);
+    border: 1px solid var(--border, #333);
+    border-radius: 12px;
+    padding: 24px;
+    width: 100%;
+    max-width: 760px;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+
+  .focus-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+
+  .focus-modal-header h3 {
+    margin: 0;
+    font-size: 18px;
+    color: var(--text-primary, #fff);
+  }
+
+  .focus-btn-icon {
+    background: none;
+    border: none;
+    font-size: 22px;
+    cursor: pointer;
+    color: var(--text-secondary);
+  }
+
+  .focus-btn-icon:hover {
+    color: var(--text-primary);
+  }
+
+  .focus-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .focus-form-group label {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+  }
+
+  .focus-form-input {
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid var(--border, #444);
+    border-radius: 6px;
+    background: var(--input-bg, #111);
+    color: var(--text-primary, #fff);
+    font-size: 13px;
+    box-sizing: border-box;
+  }
+
+  .focus-form-input:focus {
+    outline: none;
+    border-color: var(--accent, #7c3aed);
+  }
+
+  .focus-form-help {
+    color: var(--text-tertiary, #777);
+    font-size: 12px;
+    margin-top: 4px;
+  }
+
+  .focus-modal-footer {
+    margin-top: 16px;
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+
+  @media (max-width: 768px) {
+    .focus-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .focus-actions {
+      gap: 8px;
+    }
+
+    .focus-count {
+      margin-left: 0;
+      width: 100%;
+    }
   }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid py-3">
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <div>
-      <h4 class="mb-0">🎭 Focus Profiles</h4>
-      <small class="text-muted">
-        <span id="totalCount">0</span> profiles |
-        <span id="enabledCount">0</span> enabled
-      </small>
-    </div>
-    <div class="d-flex gap-2">
-      <button class="btn btn-sm btn-outline-secondary" onclick="loadProfiles()">🔄 Refresh</button>
-      <button class="btn btn-sm btn-success" onclick="openNew()">+ New Profile</button>
-      <button class="btn btn-sm btn-outline-primary" onclick="seedProfiles()">🌱 Seed Defaults</button>
-    </div>
-  </div>
-  <div id="profileGrid" class="row g-3">
-    <div class="col-12 text-muted p-3">Loading...</div>
-  </div>
+<div class="hero hero-compact">
+  <h1 class="hero-title">🎭 Focus Profiles</h1>
+  <p class="hero-subtitle">Configure focus behaviors, routing keywords, and token budgets.</p>
+</div>
+
+<div class="section-card focus-actions">
+  <button class="btn btn-primary btn-sm focus-btn" onclick="openNew()">+ New Profile</button>
+  <button class="btn btn-secondary btn-sm focus-btn" onclick="seedProfiles()">🌱 Seed Defaults</button>
+  <button class="btn btn-secondary btn-sm focus-btn" onclick="loadProfiles()">🔄 Refresh</button>
+  <span class="focus-count"><span id="totalCount">0</span> profiles | <span id="enabledCount">0</span> enabled</span>
+</div>
+
+<div id="profileGrid" class="focus-grid">
+  <div class="focus-empty">Loading profiles…</div>
 </div>
 
 <!-- Edit Modal -->
-<div class="modal fade" id="editModal" tabindex="-1">
-<div class="modal-dialog modal-lg modal-dialog-scrollable">
-<div class="modal-content">
-  <div class="modal-header">
-    <h5 class="modal-title" id="editModalTitle">Focus Profile</h5>
-    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+<div id="editModal" class="focus-modal-overlay" style="display:none" onclick="if(event.target===this)closeModal()">
+<div class="focus-modal-card">
+  <div class="focus-modal-header">
+    <h3 id="editModalTitle">Focus Profile</h3>
+    <button class="focus-btn-icon" onclick="closeModal()">&times;</button>
   </div>
-  <div class="modal-body">
-  <form id="editForm">
+  <form id="editForm" onsubmit="return saveProfile(event)">
     <input type="hidden" id="fld_mode"><!-- "new" or "edit" -->
-    <div class="row g-3">
-      <div class="col-md-5">
-        <label class="form-label fw-semibold">Focus ID <span class="text-danger">*</span></label>
-        <input type="text" class="form-control form-control-sm" id="fld_focus_id" placeholder="e.g. devsecops">
+    <div class="focus-form-grid">
+      <div class="focus-form-group">
+        <label>Focus ID *</label>
+        <input type="text" class="focus-form-input" id="fld_focus_id" placeholder="e.g. devsecops" required>
       </div>
-      <div class="col-md-5">
-        <label class="form-label fw-semibold">Display Name</label>
-        <input type="text" class="form-control form-control-sm" id="fld_display_name">
+      <div class="focus-form-group">
+        <label>Display Name</label>
+        <input type="text" class="focus-form-input" id="fld_display_name">
       </div>
-      <div class="col-md-2">
-        <label class="form-label fw-semibold">Emoji</label>
-        <input type="text" class="form-control form-control-sm" id="fld_emoji" value="🎯">
+      <div class="focus-form-group">
+        <label>Emoji</label>
+        <input type="text" class="focus-form-input" id="fld_emoji" value="🎯">
       </div>
-      <div class="col-md-4">
-        <label class="form-label fw-semibold">Delegation Level</label>
-        <select class="form-select form-select-sm" id="fld_delegation_level">
+      <div class="focus-form-group">
+        <label>Delegation Level</label>
+        <select class="focus-form-input" id="fld_delegation_level">
           <option value="1">L1 — Orchestrator</option>
           <option value="2" selected>L2 — Specialist</option>
           <option value="3">L3 — Ephemeral</option>
         </select>
       </div>
-      <div class="col-md-4">
-        <label class="form-label fw-semibold">Token Budget</label>
-        <input type="number" class="form-control form-control-sm" id="fld_token_budget_hint"
+      <div class="focus-form-group">
+        <label>Token Budget</label>
+        <input type="number" class="focus-form-input" id="fld_token_budget_hint"
                min="100" max="8000" step="100" value="2000">
       </div>
-      <div class="col-md-4">
-        <label class="form-label fw-semibold">Temp Delta</label>
-        <input type="number" class="form-control form-control-sm" id="fld_temperature_delta"
+      <div class="focus-form-group">
+        <label>Temp Delta</label>
+        <input type="number" class="focus-form-input" id="fld_temperature_delta"
                min="-0.5" max="0.5" step="0.05" value="0">
-        <div class="form-text">Additive to agent base temp (clamped 0–1)</div>
+        <div class="focus-form-help">Additive to agent base temp (clamped 0–1)</div>
       </div>
-      <div class="col-md-4">
-        <label class="form-label fw-semibold">Tone</label>
-        <input type="text" class="form-control form-control-sm" id="fld_tone" placeholder="precise">
+      <div class="focus-form-group">
+        <label>Tone</label>
+        <input type="text" class="focus-form-input" id="fld_tone" placeholder="precise">
       </div>
-      <div class="col-md-4">
-        <label class="form-label fw-semibold">Style</label>
-        <input type="text" class="form-control form-control-sm" id="fld_style" placeholder="directive">
+      <div class="focus-form-group">
+        <label>Style</label>
+        <input type="text" class="focus-form-input" id="fld_style" placeholder="directive">
       </div>
-      <div class="col-md-4">
-        <label class="form-label fw-semibold">Model Override</label>
-        <input type="text" class="form-control form-control-sm" id="fld_model_override"
+      <div class="focus-form-group">
+        <label>Model Override</label>
+        <input type="text" class="focus-form-input" id="fld_model_override"
                placeholder="(slug from models.yaml or blank)">
       </div>
-      <div class="col-12">
-        <label class="form-label fw-semibold">Expertise Keywords <span class="text-muted">(comma-separated)</span></label>
-        <input type="text" class="form-control form-control-sm" id="fld_keywords"
+      <div class="focus-form-group" style="grid-column:1/-1;">
+        <label>Expertise Keywords (comma-separated)</label>
+        <input type="text" class="focus-form-input" id="fld_keywords"
                placeholder="deploy, docker, security, ci, cd">
-        <div class="form-text">Used for DB-driven routing (S-72). Each term becomes a regex fragment.</div>
+        <div class="focus-form-help">Used for DB-driven routing (S-72). Each term becomes a regex fragment.</div>
       </div>
-      <div class="col-12">
-        <label class="form-label fw-semibold">Auto Skills <span class="text-muted">(comma-separated skill IDs)</span></label>
-        <input type="text" class="form-control form-control-sm" id="fld_auto_skills"
+      <div class="focus-form-group" style="grid-column:1/-1;">
+        <label>Auto Skills (comma-separated skill IDs)</label>
+        <input type="text" class="focus-form-input" id="fld_auto_skills"
                placeholder="ci_cd, database, pytest_runner">
       </div>
-      <div class="col-12">
-        <label class="form-label fw-semibold">System Prompt Addon</label>
-        <textarea class="form-control form-control-sm font-monospace"
+      <div class="focus-form-group" style="grid-column:1/-1;">
+        <label>System Prompt Addon</label>
+        <textarea class="focus-form-input"
                   id="fld_system_prompt_addon" rows="5"
                   placeholder="Appended to agent system_prompt when this focus is active. Additive only — never replaces."></textarea>
       </div>
-      <div class="col-12">
-        <div class="form-check">
-          <input class="form-check-input" type="checkbox" id="fld_enabled" checked>
-          <label class="form-check-label" for="fld_enabled">Enabled</label>
-        </div>
+      <div class="focus-form-group" style="grid-column:1/-1;">
+        <label style="display:flex;align-items:center;gap:4px;">
+          <input type="checkbox" id="fld_enabled" checked> ✅ Enabled
+        </label>
       </div>
     </div>
   </form>
+  <div class="focus-modal-footer">
+    <button class="btn btn-secondary btn-sm" id="btnDelete" onclick="deleteProfile()" style="display:none;color:#ef4444">🗑 Delete</button>
+    <button class="btn btn-secondary btn-sm" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-primary btn-sm" onclick="saveProfile(event)">💾 Save</button>
   </div>
-  <div class="modal-footer">
-    <button class="btn btn-sm btn-outline-danger" id="btnDelete" onclick="deleteProfile()" style="display:none">🗑 Delete</button>
-    <button class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
-    <button class="btn btn-sm btn-primary" onclick="saveProfile()">💾 Save</button>
-  </div>
-</div></div></div>
+</div></div>
 
 <script>
 const API = '/api/engine/focus';
-const KEY = document.cookie.match(/aria_api_key=([^;]+)/)?.[1] || '';
-const H = {'Content-Type':'application/json', 'Authorization':'Bearer ' + KEY};
-const LEVEL_BADGE = {1:'<span class="level-badge badge-l1">L1</span>',
-                     2:'<span class="level-badge badge-l2">L2</span>',
-                     3:'<span class="level-badge badge-l3">L3</span>'};
+const JSON_H = {'Content-Type':'application/json'};
+const LEVEL_BADGE = {
+  1: '<span class="level-badge badge-l1">L1</span>',
+  2: '<span class="level-badge badge-l2">L2</span>',
+  3: '<span class="level-badge badge-l3">L3</span>'
+};
 const MAX_BUDGET = 4096;
 
 async function loadProfiles() {
   const r = document.getElementById('profileGrid');
-  r.innerHTML = '<div class="col-12 text-muted">Loading...</div>';
-  const res = await fetch(API, {headers:H});
+  r.innerHTML = '<div class="focus-empty">Loading profiles…</div>';
+  const res = await fetch(API);
   const profiles = await res.json();
   document.getElementById('totalCount').textContent = profiles.length;
   document.getElementById('enabledCount').textContent = profiles.filter(p=>p.enabled).length;
-  if (!profiles.length) { r.innerHTML = '<div class="col-12 text-muted p-3">No profiles. Click Seed Defaults.</div>'; return; }
+  if (!profiles.length) { r.innerHTML = '<div class="focus-empty">No profiles. Click Seed Defaults.</div>'; return; }
   r.innerHTML = profiles.map(p => {
-    const pct = Math.round((p.token_budget_hint / MAX_BUDGET) * 100);
-    const kws = (p.expertise_keywords||[]).slice(0,6).map(k=>`<span class="keyword-chip">${k}</span>`).join('');
+    const pct = Math.min(100, Math.round((p.token_budget_hint / MAX_BUDGET) * 100));
+    const levelClass = `lvl-${p.delegation_level || 2}`;
+    const kws = (p.expertise_keywords||[]).slice(0,8)
+      .map(k=>`<span class="kw-tag">${k}</span>`).join(' ');
+    const td = p.temperature_delta;
+    const tSign = td > 0 ? '+' : '';
+    const tClass = td > 0 ? 'temp-hot' : td < 0 ? 'temp-cold' : '';
+    const levelBadge = LEVEL_BADGE[p.delegation_level]||'';
+    const modelBadge = p.model_override
+      ? ` <span class="badge-model">${p.model_override}</span>` : '';
+    const offBadge = p.enabled ? '' :
+      ` <span class="badge-off">off</span>`;
     return `
-    <div class="col-md-6 col-xl-4">
-      <div class="focus-card ${p.enabled?'':'disabled-card'}" onclick="openEdit('${p.focus_id}')">
-        <div class="d-flex justify-content-between align-items-start mb-1">
-          <div>
-            <span style="font-size:1.3rem">${p.emoji||'🎯'}</span>
-            <strong class="ms-1">${p.display_name}</strong>
-            ${LEVEL_BADGE[p.delegation_level]||''}
-            ${p.enabled?'':'<span class="badge bg-secondary ms-1">disabled</span>'}
-          </div>
-          <small class="text-muted">${p.focus_id}</small>
+      <div class="focus-card ${levelClass} ${p.enabled?'':'disabled-card'}" onclick="openEdit('${p.focus_id}')">
+
+        <div class="card-header-row">
+          <span class="card-title">${p.emoji||'🎯'} ${p.display_name}</span>
+          <div class="card-badges">${levelBadge}${modelBadge}${offBadge}</div>
         </div>
-        <div class="text-muted" style="font-size:0.8rem">${p.description||''}</div>
-        <div class="mt-2">
-          <small class="text-muted">Budget: <strong>${p.token_budget_hint}</strong> tok</small>
-          <div class="budget-bar-wrap"><div class="budget-bar" style="width:${pct}%"></div></div>
+
+        <div class="focus-id">${p.focus_id}</div>
+
+        <div class="card-desc">${p.description||''}</div>
+
+        <div class="card-meta">
+          <span>💰 <strong>${p.token_budget_hint}</strong> tok</span>
+          <span>🌡️ <strong class="${tClass}">${tSign}${td}</strong></span>
+          <span>🔧 <strong>${(p.auto_skills||[]).length}</strong> skills</span>
         </div>
-        <div class="mt-1">${kws}</div>
-        ${p.system_prompt_addon ? `<div class="addon-preview mt-2">${p.system_prompt_addon.substring(0,200)}</div>` : ''}
-      </div>
-    </div>`;
+
+        <div class="bar-wrap"><div class="bar-fill" style="width:${pct}%"></div></div>
+
+        ${kws ? `<div class="kw-row">${kws}</div>` : ''}
+
+        ${p.system_prompt_addon ? `<div class="addon-preview">${p.system_prompt_addon.substring(0,260)}</div>` : ''}
+
+        <div class="card-actions">
+          <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); openEdit('${p.focus_id}')">✏️ Edit</button>
+          <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); toggleEnabled('${p.focus_id}', ${!p.enabled})">
+            ${p.enabled ? '🚫 Disable' : '✅ Enable'}
+          </button>
+          <button class="btn btn-secondary btn-sm" style="color:#ef4444" onclick="event.stopPropagation(); deleteProfileById('${p.focus_id}')">🗑️ Delete</button>
+        </div>
+      </div>`;
   }).join('');
 }
 
@@ -189,16 +484,21 @@ function openNew() {
   document.getElementById('fld_mode').value = 'new';
   document.getElementById('editModalTitle').textContent = 'New Focus Profile';
   document.getElementById('editForm').reset();
+  document.getElementById('fld_focus_id').disabled = false;
   document.getElementById('fld_emoji').value = '🎯';
   document.getElementById('fld_delegation_level').value = '2';
   document.getElementById('fld_token_budget_hint').value = '2000';
   document.getElementById('fld_temperature_delta').value = '0';
   document.getElementById('btnDelete').style.display = 'none';
-  new bootstrap.Modal(document.getElementById('editModal')).show();
+  document.getElementById('editModal').style.display = 'flex';
+}
+
+function closeModal() {
+  document.getElementById('editModal').style.display = 'none';
 }
 
 async function openEdit(focus_id) {
-  const res = await fetch(`${API}/${focus_id}`, {headers:H});
+  const res = await fetch(`${API}/${focus_id}`);
   const p = await res.json();
   document.getElementById('fld_mode').value = 'edit';
   document.getElementById('editModalTitle').textContent = `Edit — ${p.display_name}`;
@@ -217,10 +517,11 @@ async function openEdit(focus_id) {
   document.getElementById('fld_system_prompt_addon').value = p.system_prompt_addon||'';
   document.getElementById('fld_enabled').checked = p.enabled;
   document.getElementById('btnDelete').style.display = '';
-  new bootstrap.Modal(document.getElementById('editModal')).show();
+  document.getElementById('editModal').style.display = 'flex';
 }
 
-async function saveProfile() {
+async function saveProfile(e) {
+  if (e) e.preventDefault();
   const mode = document.getElementById('fld_mode').value;
   const focus_id = document.getElementById('fld_focus_id').value.trim();
   if (!focus_id) { alert('Focus ID is required'); return; }
@@ -243,9 +544,9 @@ async function saveProfile() {
   };
   const url = mode === 'new' ? API : `${API}/${focus_id}`;
   const method = mode === 'new' ? 'POST' : 'PUT';
-  const res = await fetch(url, {method, headers:H, body: JSON.stringify(body)});
+  const res = await fetch(url, {method, headers:JSON_H, body: JSON.stringify(body)});
   if (res.ok) {
-    bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+    closeModal();
     loadProfiles();
   } else {
     const err = await res.json().catch(()=>({detail:'Unknown error'}));
@@ -256,13 +557,49 @@ async function saveProfile() {
 async function deleteProfile() {
   const focus_id = document.getElementById('fld_focus_id').value;
   if (!confirm(`Delete focus profile "${focus_id}"?`)) return;
-  await fetch(`${API}/${focus_id}`, {method:'DELETE', headers:H});
-  bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+  await fetch(`${API}/${focus_id}`, {method:'DELETE'});
+  closeModal();
+  loadProfiles();
+}
+
+async function deleteProfileById(focus_id) {
+  if (!confirm(`Delete focus profile "${focus_id}"?`)) return;
+  await fetch(`${API}/${focus_id}`, {method:'DELETE'});
+  loadProfiles();
+}
+
+async function toggleEnabled(focus_id, enabled) {
+  const current = await fetch(`${API}/${focus_id}`).then(r => r.json());
+  const body = {
+    focus_id: current.focus_id,
+    display_name: current.display_name,
+    emoji: current.emoji || '🎯',
+    delegation_level: current.delegation_level,
+    token_budget_hint: current.token_budget_hint,
+    temperature_delta: current.temperature_delta,
+    tone: current.tone,
+    style: current.style,
+    model_override: current.model_override || null,
+    expertise_keywords: current.expertise_keywords || [],
+    auto_skills: current.auto_skills || [],
+    system_prompt_addon: current.system_prompt_addon || null,
+    enabled,
+  };
+  const res = await fetch(`${API}/${focus_id}`, {
+    method: 'PUT',
+    headers: JSON_H,
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(()=>({detail:'Unknown error'}));
+    alert('Toggle failed: ' + (err.detail||JSON.stringify(err)));
+    return;
+  }
   loadProfiles();
 }
 
 async function seedProfiles() {
-  const res = await fetch(`${API}/seed`, {method:'POST', headers:H});
+  const res = await fetch(`${API}/seed`, {method:'POST'});
   const d = await res.json();
   alert(`Seeded: ${d.inserted} new profiles (${d.total} total)`);
   loadProfiles();

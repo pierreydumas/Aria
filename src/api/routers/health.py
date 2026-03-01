@@ -3,6 +3,8 @@ Health, status, and stats endpoints.
 """
 
 from datetime import datetime, timezone
+import shutil
+import socket
 
 import asyncio
 import logging
@@ -19,6 +21,82 @@ from deps import get_db
 
 logger = logging.getLogger("aria.api.health")
 router = APIRouter(tags=["Health"])
+
+
+def _dt_iso_utc(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    dt = value
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt.isoformat()
+
+
+def _container_stats_fallback() -> dict:
+    ram = {"used_gb": 0.0, "total_gb": 0.0, "percent": 0.0}
+    swap = {"used_gb": 0.0, "total_gb": 0.0, "percent": 0.0}
+    disk = {"used_gb": 0, "total_gb": 0, "percent": 0.0}
+
+    try:
+        meminfo: dict[str, int] = {}
+        with open("/proc/meminfo", encoding="utf-8") as handle:
+            for raw in handle:
+                key, value = raw.split(":", 1)
+                meminfo[key.strip()] = int(value.strip().split()[0])  # kB
+
+        mem_total_kb = meminfo.get("MemTotal", 0)
+        mem_avail_kb = meminfo.get("MemAvailable", 0)
+        mem_used_kb = max(0, mem_total_kb - mem_avail_kb)
+
+        swap_total_kb = meminfo.get("SwapTotal", 0)
+        swap_free_kb = meminfo.get("SwapFree", 0)
+        swap_used_kb = max(0, swap_total_kb - swap_free_kb)
+
+        ram_total_gb = mem_total_kb / (1024 * 1024)
+        ram_used_gb = mem_used_kb / (1024 * 1024)
+        ram_percent = (mem_used_kb / mem_total_kb * 100.0) if mem_total_kb else 0.0
+
+        swap_total_gb = swap_total_kb / (1024 * 1024)
+        swap_used_gb = swap_used_kb / (1024 * 1024)
+        swap_percent = (swap_used_kb / swap_total_kb * 100.0) if swap_total_kb else 0.0
+
+        ram = {
+            "used_gb": round(ram_used_gb, 2),
+            "total_gb": round(ram_total_gb, 2),
+            "percent": round(ram_percent, 2),
+        }
+        swap = {
+            "used_gb": round(swap_used_gb, 2),
+            "total_gb": round(swap_total_gb, 2),
+            "percent": round(swap_percent, 2),
+        }
+    except Exception as e:
+        logger.debug("Container meminfo fallback failed: %s", e)
+
+    try:
+        usage = shutil.disk_usage("/")
+        disk_total_gb = usage.total / (1024**3)
+        disk_used_gb = (usage.total - usage.free) / (1024**3)
+        disk_percent = (disk_used_gb / disk_total_gb * 100.0) if disk_total_gb else 0.0
+        disk = {
+            "used_gb": round(disk_used_gb, 0),
+            "total_gb": round(disk_total_gb, 0),
+            "percent": round(disk_percent, 2),
+        }
+    except Exception as e:
+        logger.debug("Container disk fallback failed: %s", e)
+
+    return {
+        "hostname": socket.gethostname(),
+        "ram": ram,
+        "swap": swap,
+        "disk": disk,
+        "smart": {"status": "unknown", "healthy": True},
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "source": "container",
+    }
 
 
 # ── Response models ──────────────────────────────────────────────────────────
@@ -66,14 +144,7 @@ async def health_check():
 
 @router.get("/host-stats")
 async def host_stats():
-    stats = {
-        "ram": {"used_gb": 0, "total_gb": 16, "percent": 0},
-        "swap": {"used_gb": 0, "total_gb": 0, "percent": 0},
-        "disk": {"used_gb": 0, "total_gb": 500, "percent": 0},
-        "smart": {"status": "unknown", "healthy": True},
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "source": "unavailable",
-    }
+    stats = _container_stats_fallback()
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
             resp = await client.get(f"http://{DOCKER_HOST_IP}:8888/stats")
@@ -202,7 +273,7 @@ async def api_stats(db: AsyncSession = Depends(get_db)):
         activities_count=activities,
         thoughts_count=thoughts,
         memories_count=memories,
-        last_activity=last.isoformat() if last else None,
+        last_activity=_dt_iso_utc(last),
     )
 
 

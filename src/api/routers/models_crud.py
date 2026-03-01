@@ -110,6 +110,17 @@ async def _get_db():
         yield db
 
 
+def _dt_iso_utc(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    dt = value
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt.isoformat()
+
+
 def _row_to_response(row) -> ModelResponse:
     return ModelResponse(
         id=row.id,
@@ -134,8 +145,8 @@ def _row_to_response(row) -> ModelResponse:
         sort_order=row.sort_order,
         app_managed=getattr(row, "app_managed", False) or False,
         extra=row.extra or {},
-        created_at=row.created_at.isoformat() if row.created_at else None,
-        updated_at=row.updated_at.isoformat() if row.updated_at else None,
+        created_at=_dt_iso_utc(row.created_at),
+        updated_at=_dt_iso_utc(row.updated_at),
     )
 
 

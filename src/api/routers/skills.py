@@ -4,15 +4,25 @@ Skill Invocation stats (S5-07) — observability dashboard data.
 """
 
 import logging
+import uuid as uuid_lib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, func, case, text
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select, func, case, text, or_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import SkillStatusRecord, SkillInvocation, KnowledgeQueryLog
+from db.models import (
+    SkillStatusRecord,
+    SkillInvocation,
+    KnowledgeQueryLog,
+    KnowledgeEntity,
+    ModelUsage,
+    EngineChatSession,
+    EngineChatSessionArchive,
+    SkillGraphEntity,
+)
 from deps import get_db
 from schemas.requests import CreateSkillInvocation
 
@@ -283,6 +293,24 @@ async def skill_stats(hours: int = 24, db: AsyncSession = Depends(get_db)):
     """Skill performance stats for the last N hours."""
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
 
+    skill_expr = func.split_part(ModelUsage.model, ":", 2)
+    usage_token_rows = (
+        await db.execute(
+            select(
+                skill_expr.label("skill_name"),
+                func.coalesce(func.sum(func.coalesce(ModelUsage.input_tokens, 0) + func.coalesce(ModelUsage.output_tokens, 0)), 0).label("total_tokens"),
+            )
+            .where(ModelUsage.created_at >= cutoff)
+            .where(ModelUsage.model.like("skill:%:%"))
+            .group_by(text("1"))
+        )
+    ).all()
+    usage_tokens_by_skill = {
+        str(row.skill_name or ""): int(row.total_tokens or 0)
+        for row in usage_token_rows
+        if row.skill_name
+    }
+
     stmt = (
         select(
             SkillInvocation.skill_name,
@@ -300,6 +328,9 @@ async def skill_stats(hours: int = 24, db: AsyncSession = Depends(get_db)):
     stats = []
     for row in result.all():
         total = row.total or 1
+        invocation_tokens = int(row.total_tokens or 0)
+        usage_tokens = usage_tokens_by_skill.get(str(row.skill_name or ""), 0)
+        total_tokens = invocation_tokens if invocation_tokens > 0 else usage_tokens
         stats.append({
             "skill_name": row.skill_name,
             "total": row.total,
@@ -307,7 +338,7 @@ async def skill_stats(hours: int = 24, db: AsyncSession = Depends(get_db)):
             "successes": row.successes or 0,
             "failures": row.failures or 0,
             "error_rate": round((row.failures or 0) / total, 3),
-            "total_tokens": row.total_tokens or 0,
+            "total_tokens": total_tokens,
         })
     return {"stats": stats, "hours": hours}
 
@@ -416,6 +447,24 @@ async def skills_insights(
     successes = int(totals_row.successes or 0)
     success_rate = round((successes / max(total_invocations, 1)) * 100, 1)
 
+    skill_expr = func.split_part(ModelUsage.model, ":", 2)
+    usage_token_rows = (
+        await db.execute(
+            select(
+                skill_expr.label("skill_name"),
+                func.coalesce(func.sum(func.coalesce(ModelUsage.input_tokens, 0) + func.coalesce(ModelUsage.output_tokens, 0)), 0).label("total_tokens"),
+            )
+            .where(ModelUsage.created_at >= cutoff)
+            .where(ModelUsage.model.like("skill:%:%"))
+            .group_by(text("1"))
+        )
+    ).all()
+    usage_tokens_by_skill = {
+        str(row.skill_name or ""): int(row.total_tokens or 0)
+        for row in usage_token_rows
+        if row.skill_name
+    }
+
     # Skill-level breakdown
     skill_rows = (
         await db.execute(
@@ -437,6 +486,9 @@ async def skills_insights(
     for row in skill_rows:
         invocations = int(row.invocations or 0)
         row_failures = int(row.failures or 0)
+        invocation_tokens = int(row.tokens or 0)
+        usage_tokens = usage_tokens_by_skill.get(str(row.skill_name or ""), 0)
+        total_tokens = invocation_tokens if invocation_tokens > 0 else usage_tokens
         by_skill.append({
             "skill_name": row.skill_name,
             "invocations": invocations,
@@ -444,8 +496,10 @@ async def skills_insights(
             "successes": int(row.successes or 0),
             "failures": row_failures,
             "error_rate": round((row_failures / max(invocations, 1)) * 100, 1),
-            "total_tokens": int(row.tokens or 0),
+            "total_tokens": total_tokens,
         })
+
+    summary_total_tokens = sum(int(item.get("total_tokens") or 0) for item in by_skill)
 
     # Tool-level breakdown
     tool_rows = (
@@ -534,12 +588,49 @@ async def skills_insights(
         )
     ).scalars().all()
 
+    graph_start_ids: set[str] = set()
+    for log in query_rows:
+        params = log.params or {}
+        start = params.get("start") if isinstance(params, dict) else None
+        if isinstance(start, str) and start.strip():
+            graph_start_ids.add(start.strip())
+
+    start_name_by_id: dict[str, str] = {}
+    start_uuid_ids: list[uuid_lib.UUID] = []
+    for raw in graph_start_ids:
+        try:
+            start_uuid_ids.append(uuid_lib.UUID(raw))
+        except ValueError:
+            continue
+
+    if start_uuid_ids:
+        entities = (
+            await db.execute(
+                select(SkillGraphEntity.id, SkillGraphEntity.name)
+                .where(SkillGraphEntity.id.in_(start_uuid_ids))
+            )
+        ).all()
+        for row in entities:
+            start_name_by_id[str(row.id)] = row.name
+
+        missing_ids = [entity_id for entity_id in start_uuid_ids if str(entity_id) not in start_name_by_id]
+        if missing_ids:
+            knowledge_entities = (
+                await db.execute(
+                    select(KnowledgeEntity.id, KnowledgeEntity.name)
+                    .where(KnowledgeEntity.id.in_(missing_ids))
+                )
+            ).all()
+            for row in knowledge_entities:
+                start_name_by_id[str(row.id)] = row.name
+
     recent_graph_queries = [
         {
             "id": str(log.id),
             "query_type": log.query_type,
             "source": log.source,
             "params": log.params or {},
+            "start_name": start_name_by_id.get(str((log.params or {}).get("start") or "")),
             "result_count": log.result_count,
             "created_at": log.created_at.isoformat() if log.created_at else None,
         }
@@ -552,7 +643,7 @@ async def skills_insights(
             "total_invocations": total_invocations,
             "success_rate": success_rate,
             "avg_duration_ms": round(float(totals_row.avg_duration_ms or 0), 1),
-            "total_tokens": int(totals_row.total_tokens or 0),
+            "total_tokens": summary_total_tokens,
             "unique_skills": int(totals_row.unique_skills or 0),
             "unique_tools": int(totals_row.unique_tools or 0),
             "failures": failures,
@@ -562,6 +653,521 @@ async def skills_insights(
         "timeline": timeline,
         "recent_invocations": recent_invocations,
         "recent_graph_queries": recent_graph_queries,
+    }
+
+
+@router.get("/skills/session-trace/latest")
+async def latest_session_trace(
+    hours: int = 24,
+    session_id: str | None = Query(default=None, description="Optional explicit session id from active or archive tables"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return latest inferred graph-query trace across active + archived engine sessions."""
+    safe_hours = max(1, min(hours, 24 * 30))
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=safe_hours)
+
+    active_rows = (
+        await db.execute(
+            select(
+                EngineChatSession.id,
+                EngineChatSession.session_type,
+                EngineChatSession.title,
+                EngineChatSession.status,
+                EngineChatSession.created_at,
+                EngineChatSession.updated_at,
+                EngineChatSession.ended_at,
+            )
+            .where(
+                or_(
+                    EngineChatSession.created_at >= cutoff,
+                    EngineChatSession.updated_at >= cutoff,
+                    EngineChatSession.ended_at.is_(None),
+                )
+            )
+            .order_by(func.coalesce(EngineChatSession.updated_at, EngineChatSession.created_at).desc())
+            .limit(200)
+        )
+    ).all()
+
+    archived_rows = (
+        await db.execute(
+            select(
+                EngineChatSessionArchive.id,
+                EngineChatSessionArchive.session_type,
+                EngineChatSessionArchive.title,
+                EngineChatSessionArchive.status,
+                EngineChatSessionArchive.created_at,
+                EngineChatSessionArchive.updated_at,
+                EngineChatSessionArchive.ended_at,
+                EngineChatSessionArchive.archived_at,
+            )
+            .where(
+                or_(
+                    EngineChatSessionArchive.created_at >= cutoff,
+                    EngineChatSessionArchive.updated_at >= cutoff,
+                    EngineChatSessionArchive.archived_at >= cutoff,
+                )
+            )
+            .order_by(
+                func.coalesce(
+                    EngineChatSessionArchive.updated_at,
+                    EngineChatSessionArchive.archived_at,
+                    EngineChatSessionArchive.created_at,
+                ).desc()
+            )
+            .limit(200)
+        )
+    ).all()
+
+    sessions: list[dict] = []
+    for row in active_rows:
+        sort_at = row.updated_at or row.ended_at or row.created_at
+        sessions.append({
+            "session_id": str(row.id),
+            "source_table": "active",
+            "session_type": row.session_type,
+            "title": row.title,
+            "status": row.status,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+            "ended_at": row.ended_at,
+            "archived_at": None,
+            "sort_at": sort_at,
+        })
+
+    for row in archived_rows:
+        sort_at = row.updated_at or row.ended_at or row.created_at
+        sessions.append({
+            "session_id": str(row.id),
+            "source_table": "archive",
+            "session_type": row.session_type,
+            "title": row.title,
+            "status": row.status,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+            "ended_at": row.ended_at,
+            "archived_at": row.archived_at,
+            "sort_at": sort_at,
+        })
+
+    if not sessions:
+        return {
+            "hours": safe_hours,
+            "session": None,
+            "query_count": 0,
+            "trace_nodes": [],
+            "trace_edges": [],
+            "queries": [],
+            "notes": "No sessions found in selected window.",
+        }
+
+    sessions.sort(key=lambda item: item.get("sort_at") or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+
+    def _prefer_non_ui_inferred_logs(rows: list[KnowledgeQueryLog]) -> tuple[list[KnowledgeQueryLog], int]:
+        if not rows:
+            return rows, 0
+
+        preferred: list[KnowledgeQueryLog] = []
+        ui_rows: list[KnowledgeQueryLog] = []
+        for row in rows:
+            params = row.params if isinstance(row.params, dict) else {}
+            trace = params.get("__trace") if isinstance(params.get("__trace"), dict) else {}
+            origin = str(trace.get("origin") or "").strip().lower()
+            trace_session_id = str(trace.get("session_id") or "").strip().lower()
+            is_skill_stats_ui_trace = origin == "skill-stats" or trace_session_id.startswith("web-skill-stats-")
+            if is_skill_stats_ui_trace:
+                ui_rows.append(row)
+            else:
+                preferred.append(row)
+
+        if preferred:
+            return preferred, len(ui_rows)
+        return rows, 0
+
+    async def _collect_logs_for_session(
+        candidate: dict,
+        *,
+        allow_broad_fallback: bool,
+    ) -> tuple[list[KnowledgeQueryLog], bool, datetime, datetime, int]:
+        now_utc = datetime.now(timezone.utc)
+        candidate_window_start = candidate.get("created_at") or cutoff
+        if candidate_window_start < cutoff:
+            candidate_window_start = cutoff
+
+        status_text = str(candidate.get("status") or "").strip().lower()
+        is_active_like = status_text not in {"ended", "closed", "archived", "completed"}
+        candidate_window_end_anchor = (
+            now_utc
+            if is_active_like and not candidate.get("ended_at")
+            else (
+                candidate.get("ended_at")
+                or candidate.get("updated_at")
+                or candidate.get("sort_at")
+            )
+        )
+        candidate_window_end = (candidate_window_end_anchor or datetime.now(timezone.utc)) + timedelta(minutes=5)
+        if candidate_window_end < candidate_window_start:
+            candidate_window_end = candidate_window_start + timedelta(minutes=5)
+
+        candidate_logs = (
+            await db.execute(
+                select(KnowledgeQueryLog)
+                .where(KnowledgeQueryLog.created_at >= candidate_window_start)
+                .where(KnowledgeQueryLog.created_at <= candidate_window_end)
+                .where(KnowledgeQueryLog.params["__trace"]["session_id"].astext == candidate["session_id"])
+                .order_by(KnowledgeQueryLog.created_at.asc())
+                .limit(400)
+            )
+        ).scalars().all()
+
+        matched = bool(candidate_logs)
+
+        if not candidate_logs:
+            candidate_logs = (
+                await db.execute(
+                    select(KnowledgeQueryLog)
+                    .where(KnowledgeQueryLog.created_at >= candidate_window_start)
+                    .where(KnowledgeQueryLog.created_at <= candidate_window_end)
+                    .order_by(KnowledgeQueryLog.created_at.asc())
+                    .limit(400)
+                )
+            ).scalars().all()
+
+        if not candidate_logs and allow_broad_fallback:
+            anchor = candidate.get("sort_at") or datetime.now(timezone.utc)
+            candidate_logs = (
+                await db.execute(
+                    select(KnowledgeQueryLog)
+                    .where(KnowledgeQueryLog.created_at >= anchor - timedelta(minutes=30))
+                    .where(KnowledgeQueryLog.created_at <= anchor + timedelta(minutes=30))
+                    .order_by(KnowledgeQueryLog.created_at.asc())
+                    .limit(200)
+                )
+            ).scalars().all()
+
+        filtered_ui_noise_count = 0
+        if candidate_logs and not matched:
+            candidate_logs, filtered_ui_noise_count = _prefer_non_ui_inferred_logs(candidate_logs)
+
+        return candidate_logs, matched, candidate_window_start, candidate_window_end, filtered_ui_noise_count
+
+    selected_session_id = (session_id or "").strip()
+
+    if selected_session_id:
+        latest = next((item for item in sessions if item["session_id"] == selected_session_id), None)
+        if latest is None:
+            return {
+                "hours": safe_hours,
+                "session": None,
+                "query_count": 0,
+                "trace_nodes": [],
+                "trace_edges": [],
+                "queries": [],
+                "notes": f"Requested session not found in selected window: {selected_session_id}",
+                "matched_by_session": False,
+            }
+        logs, matched_by_session, window_start, window_end, filtered_ui_noise_count = await _collect_logs_for_session(
+            latest,
+            allow_broad_fallback=False,
+        )
+    else:
+        non_terminal_status = {"ended", "closed", "archived", "completed"}
+        active_live_candidates = [
+            item for item in sessions
+            if item.get("source_table") == "active"
+            and str(item.get("status") or "").strip().lower() not in non_terminal_status
+        ]
+        non_terminal_candidates = [
+            item for item in sessions
+            if str(item.get("status") or "").strip().lower() not in non_terminal_status
+        ]
+        active_any_candidates = [item for item in sessions if item.get("source_table") == "active"]
+        ranked_candidates = (
+            active_live_candidates
+            or non_terminal_candidates
+            or active_any_candidates
+            or sessions
+        )
+
+        latest = ranked_candidates[0]
+        logs, matched_by_session, window_start, window_end, filtered_ui_noise_count = await _collect_logs_for_session(
+            latest,
+            allow_broad_fallback=False,
+        )
+
+        # Prefer the newest session that actually has query activity in trace metadata
+        # or inferred time window, so the default dashboard action is actionable.
+        if not logs:
+            scan_budget = min(len(ranked_candidates), 50)
+            for candidate in ranked_candidates[1:scan_budget]:
+                candidate_logs, candidate_matched, candidate_window_start, candidate_window_end, candidate_filtered = await _collect_logs_for_session(
+                    candidate,
+                    allow_broad_fallback=False,
+                )
+                if candidate_logs:
+                    latest = candidate
+                    logs = candidate_logs
+                    matched_by_session = candidate_matched
+                    window_start = candidate_window_start
+                    window_end = candidate_window_end
+                    filtered_ui_noise_count = candidate_filtered
+                    break
+
+    def _signature(query_type: str, params: dict) -> str:
+        start = str((params or {}).get("start") or "")
+        task = str((params or {}).get("task") or "")
+        depth = str((params or {}).get("max_depth") or "")
+        relation = str((params or {}).get("relation_type") or "")
+        direction = str((params or {}).get("direction") or "")
+        return "|".join([query_type or "", start, task, depth, relation, direction])
+
+    trace_start_ids: set[str] = set()
+    for log in logs:
+        params = log.params or {}
+        start = params.get("start") if isinstance(params, dict) else None
+        if isinstance(start, str) and start.strip():
+            trace_start_ids.add(start.strip())
+
+    trace_start_name_by_id: dict[str, str] = {}
+    trace_uuid_ids: list[uuid_lib.UUID] = []
+    for raw in trace_start_ids:
+        try:
+            trace_uuid_ids.append(uuid_lib.UUID(raw))
+        except ValueError:
+            continue
+
+    if trace_uuid_ids:
+        trace_entities = (
+            await db.execute(
+                select(SkillGraphEntity.id, SkillGraphEntity.name)
+                .where(SkillGraphEntity.id.in_(trace_uuid_ids))
+            )
+        ).all()
+        for row in trace_entities:
+            trace_start_name_by_id[str(row.id)] = row.name
+
+        trace_missing_ids = [entity_id for entity_id in trace_uuid_ids if str(entity_id) not in trace_start_name_by_id]
+        if trace_missing_ids:
+            knowledge_trace_entities = (
+                await db.execute(
+                    select(KnowledgeEntity.id, KnowledgeEntity.name)
+                    .where(KnowledgeEntity.id.in_(trace_missing_ids))
+                )
+            ).all()
+            for row in knowledge_trace_entities:
+                trace_start_name_by_id[str(row.id)] = row.name
+
+    trace_nodes: list[dict] = []
+    trace_edges: list[dict] = []
+    queries: list[dict] = []
+    trace_nodes.append({"id": "session", "label": "Session Start", "kind": "session"})
+
+    prev_node_id = "session"
+    seen_signature_to_node: dict[str, str] = {}
+    span_to_node: dict[str, str] = {}
+    for index, log in enumerate(logs):
+        params = log.params or {}
+        trace_ctx = params.get("__trace") if isinstance(params.get("__trace"), dict) else {}
+        query_type = str(log.query_type or "query")
+        span_id = str(trace_ctx.get("span_id") or "").strip()
+        parent_span_id = str(trace_ctx.get("parent_span_id") or "").strip()
+        node_id = span_id if span_id else f"q-{index}"
+        if node_id in span_to_node.values() and not span_id:
+            node_id = f"q-{index}-dup"
+        start_id = str(params.get("start") or "")
+        start_name = trace_start_name_by_id.get(start_id, "")
+        primary = str(params.get("task") or start_name or start_id or params.get("q") or "")
+        label_suffix = primary if primary else str(log.result_count or 0)
+        trace_nodes.append({
+            "id": node_id,
+            "label": f"{query_type}\\n{label_suffix}",
+            "kind": "query",
+            "query_type": query_type,
+            "query_target": label_suffix,
+            "created_at": log.created_at.isoformat() if log.created_at else None,
+        })
+        parent_node_id = span_to_node.get(parent_span_id) if parent_span_id else None
+        trace_edges.append({
+            "from": parent_node_id or prev_node_id,
+            "to": node_id,
+            "kind": "parent" if parent_node_id else "sequence",
+        })
+
+        sig = _signature(query_type, params)
+        if sig in seen_signature_to_node:
+            trace_edges.append({
+                "from": seen_signature_to_node[sig],
+                "to": node_id,
+                "kind": "loop",
+            })
+        seen_signature_to_node[sig] = node_id
+        if span_id:
+            span_to_node[span_id] = node_id
+        prev_node_id = node_id
+
+        queries.append({
+            "id": str(log.id),
+            "query_type": query_type,
+            "params": params,
+            "query_target": label_suffix,
+            "start_name": start_name or None,
+            "result_count": int(log.result_count or 0),
+            "source": log.source,
+            "trace": trace_ctx,
+            "created_at": log.created_at.isoformat() if log.created_at else None,
+        })
+
+    return {
+        "hours": safe_hours,
+        "session": {
+            "session_id": latest["session_id"],
+            "source_table": latest["source_table"],
+            "session_type": latest.get("session_type"),
+            "title": latest.get("title"),
+            "status": latest.get("status"),
+            "created_at": latest.get("created_at").isoformat() if latest.get("created_at") else None,
+            "updated_at": latest.get("updated_at").isoformat() if latest.get("updated_at") else None,
+            "ended_at": latest.get("ended_at").isoformat() if latest.get("ended_at") else None,
+            "archived_at": latest.get("archived_at").isoformat() if latest.get("archived_at") else None,
+        },
+        "window": {
+            "start": window_start.isoformat() if window_start else None,
+            "end": window_end.isoformat() if window_end else None,
+        },
+        "query_count": len(queries),
+        "trace_nodes": trace_nodes,
+        "trace_edges": trace_edges,
+        "queries": queries,
+        "notes": "Trace uses exact session_id matching when trace metadata exists, otherwise falls back to inferred session time window with UI-origin noise de-prioritized.",
+        "matched_by_session": matched_by_session,
+        "filtered_ui_noise_count": int(filtered_ui_noise_count),
+    }
+
+
+@router.get("/skills/session-trace/sessions")
+async def list_session_trace_candidates(
+    hours: int = 24,
+    limit: int = Query(default=20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    """List latest active+archived engine sessions for Session Trace picker."""
+    safe_hours = max(1, min(hours, 24 * 30))
+    safe_limit = max(1, min(limit, 100))
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=safe_hours)
+
+    active_rows = (
+        await db.execute(
+            select(
+                EngineChatSession.id,
+                EngineChatSession.session_type,
+                EngineChatSession.title,
+                EngineChatSession.status,
+                EngineChatSession.created_at,
+                EngineChatSession.updated_at,
+                EngineChatSession.ended_at,
+            )
+            .where(
+                or_(
+                    EngineChatSession.created_at >= cutoff,
+                    EngineChatSession.updated_at >= cutoff,
+                    EngineChatSession.ended_at.is_(None),
+                )
+            )
+            .order_by(func.coalesce(EngineChatSession.updated_at, EngineChatSession.created_at).desc())
+            .limit(300)
+        )
+    ).all()
+
+    archived_rows = (
+        await db.execute(
+            select(
+                EngineChatSessionArchive.id,
+                EngineChatSessionArchive.session_type,
+                EngineChatSessionArchive.title,
+                EngineChatSessionArchive.status,
+                EngineChatSessionArchive.created_at,
+                EngineChatSessionArchive.updated_at,
+                EngineChatSessionArchive.ended_at,
+                EngineChatSessionArchive.archived_at,
+            )
+            .where(
+                or_(
+                    EngineChatSessionArchive.created_at >= cutoff,
+                    EngineChatSessionArchive.updated_at >= cutoff,
+                    EngineChatSessionArchive.archived_at >= cutoff,
+                )
+            )
+            .order_by(
+                func.coalesce(
+                    EngineChatSessionArchive.updated_at,
+                    EngineChatSessionArchive.archived_at,
+                    EngineChatSessionArchive.created_at,
+                ).desc()
+            )
+            .limit(300)
+        )
+    ).all()
+
+    sessions: list[dict] = []
+    for row in active_rows:
+        sort_at = row.updated_at or row.ended_at or row.created_at
+        sessions.append({
+            "session_id": str(row.id),
+            "source_table": "active",
+            "session_type": row.session_type,
+            "title": row.title,
+            "status": row.status,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+            "ended_at": row.ended_at.isoformat() if row.ended_at else None,
+            "archived_at": None,
+            "sort_at": sort_at,
+        })
+
+    for row in archived_rows:
+        sort_at = row.updated_at or row.ended_at or row.created_at
+        sessions.append({
+            "session_id": str(row.id),
+            "source_table": "archive",
+            "session_type": row.session_type,
+            "title": row.title,
+            "status": row.status,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+            "ended_at": row.ended_at.isoformat() if row.ended_at else None,
+            "archived_at": row.archived_at.isoformat() if row.archived_at else None,
+            "sort_at": sort_at,
+        })
+
+    non_terminal_status = {"ended", "closed", "archived", "completed"}
+    sessions.sort(
+        key=lambda item: (
+            item.get("source_table") == "active",
+            str(item.get("status") or "").strip().lower() not in non_terminal_status,
+            item.get("sort_at") or datetime.min.replace(tzinfo=timezone.utc),
+        ),
+        reverse=True,
+    )
+    top = sessions[:safe_limit]
+
+    return {
+        "hours": safe_hours,
+        "sessions": [
+            {
+                "session_id": row["session_id"],
+                "source_table": row["source_table"],
+                "session_type": row.get("session_type"),
+                "title": row.get("title"),
+                "status": row.get("status"),
+                "created_at": row.get("created_at"),
+                "updated_at": row.get("updated_at"),
+                "ended_at": row.get("ended_at"),
+                "archived_at": row.get("archived_at"),
+            }
+            for row in top
+        ],
+        "count": len(top),
+        "total_candidates": len(sessions),
     }
 
 
