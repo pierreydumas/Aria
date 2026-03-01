@@ -21,6 +21,8 @@ from db.models import (
     ModelUsage,
     EngineChatSession,
     EngineChatSessionArchive,
+    EngineChatMessage,
+    EngineChatMessageArchive,
     SkillGraphEntity,
 )
 from deps import get_db
@@ -670,6 +672,7 @@ async def latest_session_trace(
         await db.execute(
             select(
                 EngineChatSession.id,
+                EngineChatSession.agent_id,
                 EngineChatSession.session_type,
                 EngineChatSession.title,
                 EngineChatSession.status,
@@ -693,6 +696,7 @@ async def latest_session_trace(
         await db.execute(
             select(
                 EngineChatSessionArchive.id,
+                EngineChatSessionArchive.agent_id,
                 EngineChatSessionArchive.session_type,
                 EngineChatSessionArchive.title,
                 EngineChatSessionArchive.status,
@@ -724,6 +728,7 @@ async def latest_session_trace(
         sort_at = row.updated_at or row.ended_at or row.created_at
         sessions.append({
             "session_id": str(row.id),
+            "agent_id": row.agent_id,
             "source_table": "active",
             "session_type": row.session_type,
             "title": row.title,
@@ -739,6 +744,7 @@ async def latest_session_trace(
         sort_at = row.updated_at or row.ended_at or row.created_at
         sessions.append({
             "session_id": str(row.id),
+            "agent_id": row.agent_id,
             "source_table": "archive",
             "session_type": row.session_type,
             "title": row.title,
@@ -1017,10 +1023,135 @@ async def latest_session_trace(
             "created_at": log.created_at.isoformat() if log.created_at else None,
         })
 
+    # ── Session execution events (chat loop / tools / sub-agents) ───────────
+    execution_events: list[dict] = []
+    if latest.get("source_table") == "archive":
+        msg_stmt = (
+            select(EngineChatMessageArchive)
+            .where(EngineChatMessageArchive.session_id == uuid_lib.UUID(latest["session_id"]))
+            .order_by(EngineChatMessageArchive.created_at.asc())
+            .limit(800)
+        )
+    else:
+        msg_stmt = (
+            select(EngineChatMessage)
+            .where(EngineChatMessage.session_id == uuid_lib.UUID(latest["session_id"]))
+            .order_by(EngineChatMessage.created_at.asc())
+            .limit(800)
+        )
+
+    session_messages = (await db.execute(msg_stmt)).scalars().all()
+    root_agent = str(latest.get("agent_id") or "aria").strip() or "aria"
+    previous_speaker_agent = root_agent
+
+    for msg in session_messages:
+        created_at_iso = msg.created_at.isoformat() if msg.created_at else None
+        role = str(msg.role or "")
+        msg_agent = str(msg.agent_id or "").strip()
+        content_text = str(msg.content or "").strip()
+
+        if role == "user":
+            execution_events.append({
+                "kind": "ask",
+                "created_at": created_at_iso,
+                "label": content_text[:160] if content_text else "User ask",
+                "message_id": str(msg.id),
+            })
+            continue
+
+        if role == "assistant":
+            speaker_agent = msg_agent or previous_speaker_agent or root_agent
+            if speaker_agent and previous_speaker_agent and speaker_agent != previous_speaker_agent:
+                execution_events.append({
+                    "kind": "agent_handoff",
+                    "created_at": created_at_iso,
+                    "label": f"Handoff: {previous_speaker_agent} → {speaker_agent}",
+                    "from_agent": previous_speaker_agent,
+                    "to_agent": speaker_agent,
+                    "message_id": str(msg.id),
+                })
+
+            meta = msg.metadata_json if isinstance(msg.metadata_json, dict) else {}
+            exec_trace = meta.get("exec_trace") if isinstance(meta, dict) else None
+            if isinstance(exec_trace, dict):
+                tools = exec_trace.get("tools") or []
+                execution_events.append({
+                    "kind": "llm_loop",
+                    "created_at": created_at_iso,
+                    "label": f"LLM loop: {int(exec_trace.get('iterations') or 0)} iterations · {len(tools)} tools",
+                    "iterations": int(exec_trace.get("iterations") or 0),
+                    "tool_count": len(tools),
+                    "latency_ms": int(exec_trace.get("latency_ms") or 0),
+                    "message_id": str(msg.id),
+                })
+                for tool_idx, tool in enumerate(tools):
+                    if not isinstance(tool, dict):
+                        continue
+                    t_name = str(tool.get("name") or "tool")
+                    t_ok = bool(tool.get("success", False))
+                    t_dur = int(tool.get("duration_ms") or 0)
+                    execution_events.append({
+                        "kind": "tool_call",
+                        "created_at": created_at_iso,
+                        "label": f"{t_name} · {'ok' if t_ok else 'fail'} · {t_dur}ms",
+                        "success": t_ok,
+                        "duration_ms": t_dur,
+                        "message_id": str(msg.id),
+                        "order": tool_idx,
+                    })
+
+            if msg_agent and msg_agent not in {"", "main", "aria"}:
+                execution_events.append({
+                    "kind": "sub_agent",
+                    "created_at": created_at_iso,
+                    "label": f"Sub-agent response: {msg_agent}",
+                    "agent_id": msg_agent,
+                    "message_id": str(msg.id),
+                })
+
+            if content_text:
+                execution_events.append({
+                    "kind": "assistant",
+                    "created_at": created_at_iso,
+                    "label": f"{speaker_agent}: {content_text[:160]}",
+                    "agent_id": speaker_agent,
+                    "message_id": str(msg.id),
+                })
+            previous_speaker_agent = speaker_agent
+            continue
+
+        if role == "tool":
+            tool_name = "tool"
+            if isinstance(msg.tool_results, dict):
+                tool_name = str(msg.tool_results.get("name") or tool_name)
+            execution_events.append({
+                "kind": "tool_result",
+                "created_at": created_at_iso,
+                "label": f"Tool result: {tool_name}",
+                "message_id": str(msg.id),
+            })
+
+    execution_events.sort(key=lambda item: item.get("created_at") or "")
+    sub_agents = sorted(
+        {
+            str(item.get("agent_id"))
+            for item in execution_events
+            if item.get("kind") == "sub_agent" and item.get("agent_id")
+        }
+    )
+    execution_summary = {
+        "events": len(execution_events),
+        "llm_loops": sum(1 for item in execution_events if item.get("kind") == "llm_loop"),
+        "tool_calls": sum(1 for item in execution_events if item.get("kind") == "tool_call"),
+        "handoffs": sum(1 for item in execution_events if item.get("kind") == "agent_handoff"),
+        "sub_agents": sub_agents,
+    }
+
     return {
         "hours": safe_hours,
         "session": {
             "session_id": latest["session_id"],
+            "agent_id": latest.get("agent_id"),
             "source_table": latest["source_table"],
             "session_type": latest.get("session_type"),
             "title": latest.get("title"),
@@ -1038,6 +1169,8 @@ async def latest_session_trace(
         "trace_nodes": trace_nodes,
         "trace_edges": trace_edges,
         "queries": queries,
+        "execution_events": execution_events,
+        "execution_summary": execution_summary,
         "notes": "Trace uses exact session_id matching when trace metadata exists, otherwise falls back to inferred session time window with UI-origin noise de-prioritized.",
         "matched_by_session": matched_by_session,
         "filtered_ui_noise_count": int(filtered_ui_noise_count),

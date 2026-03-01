@@ -217,6 +217,34 @@
         background: rgba(59,130,246,0.2);
         color: #60a5fa;
     }
+    .certainty-pill.high {
+        background: rgba(34,197,94,0.2);
+        color: #86efac;
+    }
+    .certainty-pill.medium {
+        background: rgba(245,158,11,0.22);
+        color: #fcd34d;
+    }
+    .certainty-pill.low {
+        background: rgba(239,68,68,0.22);
+        color: #fca5a5;
+        animation: confidenceLowPulse 1.8s ease-in-out infinite;
+    }
+
+    @keyframes confidenceLowPulse {
+        0%, 100% {
+            box-shadow: 0 0 0 0 rgba(239,68,68,0.18);
+        }
+        50% {
+            box-shadow: 0 0 0 6px rgba(239,68,68,0.0);
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .certainty-pill.low {
+            animation: none;
+        }
+    }
     #path-decision-graph {
         height: 360px;
         border: 1px solid var(--border-color);
@@ -224,7 +252,7 @@
         background: rgba(255,255,255,0.01);
     }
     #session-trace-graph {
-        height: 560px;
+        height: 680px;
         border: 1px solid var(--border-color);
         border-radius: 10px;
         background: rgba(255,255,255,0.01);
@@ -234,6 +262,154 @@
         color: var(--text-secondary);
         margin-bottom: 10px;
         line-height: 1.5;
+    }
+
+    .trace-flow {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+    }
+    .trace-block {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 14px;
+    }
+    .trace-block h4 {
+        font-size: 13px;
+        color: var(--text-secondary);
+        margin-bottom: 10px;
+    }
+    .trace-guide {
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        background: rgba(34,197,94,0.08);
+        padding: 12px;
+        font-size: 12px;
+        color: var(--text-secondary);
+        line-height: 1.5;
+    }
+    .trace-guide strong {
+        color: var(--text-primary);
+    }
+
+    .trace-exec-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 10px;
+        margin-bottom: 10px;
+    }
+    .trace-exec-item {
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        background: rgba(255,255,255,0.02);
+        padding: 10px 12px;
+    }
+    .trace-exec-item .label {
+        font-size: 11px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        margin-bottom: 4px;
+    }
+    .trace-exec-item .value {
+        font-size: 18px;
+        color: var(--text-primary);
+        font-weight: 700;
+    }
+
+    .attempt-block {
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        background: rgba(255,255,255,0.02);
+        padding: 10px 12px;
+        margin-bottom: 10px;
+    }
+    .attempt-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-bottom: 8px;
+    }
+    .attempt-title {
+        font-size: 13px;
+        color: var(--text-primary);
+        font-weight: 700;
+    }
+    .attempt-delta {
+        font-size: 11px;
+        color: var(--text-secondary);
+    }
+    .attempt-events {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .attempt-event {
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        background: rgba(15,23,42,0.7);
+        padding: 7px 9px;
+        font-size: 12px;
+        color: var(--text-primary);
+    }
+    .attempt-event small {
+        color: var(--text-muted);
+    }
+
+    .trace-pathfinder {
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        background: rgba(59,130,246,0.08);
+        padding: 10px 12px;
+        margin-bottom: 10px;
+    }
+    .trace-pathfinder-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 8px;
+    }
+    .trace-pathfinder-title {
+        font-size: 13px;
+        font-weight: 700;
+        color: #bfdbfe;
+    }
+    .trace-pathfinder-meta {
+        font-size: 11px;
+        color: var(--text-secondary);
+    }
+    .trace-pathfinder-choice {
+        font-size: 12px;
+        color: var(--text-primary);
+        margin-bottom: 8px;
+    }
+    .trace-pathfinder-steps {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+    .trace-step {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--border-color);
+        background: rgba(15,23,42,0.8);
+        font-size: 11px;
+        color: var(--text-secondary);
+        max-width: 100%;
+    }
+    .trace-step-kind {
+        font-weight: 700;
+        color: #93c5fd;
+    }
+    .trace-step-target {
+        color: var(--text-primary);
     }
 
     .empty-state {
@@ -252,7 +428,7 @@
 {% block content %}
 <div class="page-header">
     <h1>⚡ Skill Stats</h1>
-    <p>Beautiful observability for Aria skill usage, execution timing, path finding, and graph interrogation flow.</p>
+    <p>Understand what Aria did, why it chose that path, and what happened next.</p>
 </div>
 
 <div class="page-controls">
@@ -267,41 +443,40 @@
 
 <div class="tabs">
     <button class="tab-btn active" data-tab="overview">📊 Overview</button>
-    <button class="tab-btn" data-tab="usage">⏱️ Usage Time</button>
-    <button class="tab-btn" data-tab="pathfind">🧭 Path Find</button>
-    <button class="tab-btn" data-tab="story">🧠 Interrogation Story</button>
+    <button class="tab-btn" data-tab="usage">⏱️ Execution Timeline</button>
+    <button class="tab-btn" data-tab="pathfind">🧭 Path Explorer</button>
     <button class="tab-btn" data-tab="trace">🕸️ Session Trace</button>
     <button class="tab-btn" data-tab="advanced">📈 Advanced</button>
 </div>
 
 <div class="tab-panel active" id="panel-overview">
     <div class="stats-grid">
-        <div class="stat-card blue"><h4>Total Invocations</h4><div class="value" id="stat-total">-</div></div>
+        <div class="stat-card blue"><h4>Total Runs</h4><div class="value" id="stat-total">-</div></div>
         <div class="stat-card green"><h4>Success Rate</h4><div class="value" id="stat-success">-</div></div>
-        <div class="stat-card orange"><h4>Avg Latency</h4><div class="value" id="stat-latency">-</div></div>
-        <div class="stat-card purple"><h4>Total Tokens</h4><div class="value" id="stat-tokens">-</div></div>
-        <div class="stat-card"><h4>Unique Skills</h4><div class="value" id="stat-skills">-</div></div>
-        <div class="stat-card"><h4>Unique Tools</h4><div class="value" id="stat-tools">-</div></div>
+        <div class="stat-card orange"><h4>Average Time</h4><div class="value" id="stat-latency">-</div></div>
+        <div class="stat-card purple"><h4>Tokens Used</h4><div class="value" id="stat-tokens">-</div></div>
+        <div class="stat-card"><h4>Skills Used</h4><div class="value" id="stat-skills">-</div></div>
+        <div class="stat-card"><h4>Tools Used</h4><div class="value" id="stat-tools">-</div></div>
     </div>
 
     <div class="charts-row">
         <div class="chart-card">
-            <h4>📈 Calls per Skill</h4>
+            <h4>📈 Runs by Skill</h4>
             <canvas id="chart-skill-calls"></canvas>
         </div>
         <div class="chart-card">
-            <h4>🔧 Calls per Tool</h4>
+            <h4>🔧 Runs by Tool</h4>
             <canvas id="chart-tool-calls"></canvas>
         </div>
     </div>
 
-    <h4 style="margin:0 0 10px 0;">Top Skill Performance</h4>
+    <h4 style="margin:0 0 10px 0;">Top Skills in This Time Range</h4>
     <table class="data-table">
         <thead>
             <tr><th>Skill</th><th>Calls</th><th>Avg Latency</th><th>Error Rate</th><th>Tokens</th></tr>
         </thead>
         <tbody id="top-skills-body">
-            <tr><td colspan="5" class="empty-state">Loading...</td></tr>
+            <tr><td colspan="5" class="empty-state">Loading dashboard data...</td></tr>
         </tbody>
     </table>
 </div>
@@ -309,55 +484,46 @@
 <div class="tab-panel" id="panel-usage">
     <div class="charts-row">
         <div class="chart-card">
-            <h4>📉 Invocation Volume Over Time</h4>
+            <h4>📉 Run Volume Over Time</h4>
             <canvas id="chart-volume-time"></canvas>
         </div>
         <div class="chart-card">
-            <h4>⚡ Average Latency Over Time</h4>
+            <h4>⚡ Average Time Over Time</h4>
             <canvas id="chart-latency-time"></canvas>
         </div>
     </div>
 
-    <h4 style="margin:0 0 10px 0;">Recent Skill Executions</h4>
+    <h4 style="margin:0 0 10px 0;">Recent Runs</h4>
     <table class="data-table">
         <thead>
             <tr><th>Skill</th><th>Tool</th><th>Model</th><th>Duration</th><th>Status</th><th>Time</th></tr>
         </thead>
         <tbody id="recent-invocations-body">
-            <tr><td colspan="6" class="empty-state">Loading...</td></tr>
+            <tr><td colspan="6" class="empty-state">Loading recent runs...</td></tr>
         </tbody>
     </table>
 </div>
 
 <div class="tab-panel" id="panel-pathfind">
     <div class="page-controls" style="margin-bottom: 14px;">
-        <input id="task-query" class="task-input" placeholder="Describe the task you want Aria to solve, e.g. 'analyze market sentiment and summarize risks'">
-        <button class="btn btn-primary" onclick="runPathFind()">Find Skill Path</button>
+        <input id="task-query" class="task-input" placeholder="Describe the task, for example: 'summarize market sentiment and key risks'">
+        <button class="btn btn-primary" onclick="runPathFind()">Find Best Path</button>
     </div>
 
     <div class="charts-row">
         <div class="content-card">
-            <h4>🎯 Best Skills for Task</h4>
-            <div id="path-candidates" class="empty-state">Run path find to see candidate skills.</div>
+            <h4>🎯 Suggested Skills for This Task</h4>
+            <div id="path-candidates" class="empty-state">Run path explorer to see suggested skills.</div>
         </div>
         <div class="content-card">
-            <h4>🕸️ Graph Traversal Around Top Match</h4>
-            <div id="path-graph-summary" class="empty-state">Traversal summary appears here after path find.</div>
+            <h4>🕸️ Graph Context Around Top Match</h4>
+            <div id="path-graph-summary" class="empty-state">Graph context appears here after path exploration.</div>
         </div>
     </div>
 
     <div class="content-card">
-        <h4>🧩 Aria Decision Path (Ask → Propositions → Graph Pattern → Choice)</h4>
+        <h4>🧩 Decision Path (Question → Options → Graph Pattern → Choice)</h4>
         <div id="path-decision-graph"></div>
-    </div>
-</div>
-
-<div class="tab-panel" id="panel-story">
-    <div class="content-card">
-        <h4>🧩 How Aria Interrogated Skills, Tools, and Graph</h4>
-        <div id="story-list" class="story-list">
-            <div class="empty-state">Loading interrogation story...</div>
-        </div>
     </div>
 </div>
 
@@ -370,51 +536,76 @@
             <input type="checkbox" id="trace-show-raw-ids" onchange="toggleRawIds()">
             Show raw IDs
         </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);">
+            <input type="checkbox" id="trace-graph-first" onchange="applyTraceFlowOrder()">
+            Graph first (advanced)
+        </label>
     </div>
-    <div class="content-card" style="margin-bottom: 14px;">
-        <h4>
-            🧾 Latest Session Match (Active + Archive)
-            <span id="trace-noise-badge" style="display:none;margin-left:8px;font-size:12px;color:var(--text-secondary);font-weight:500;"></span>
-        </h4>
-        <div id="trace-meta" class="trace-meta">Click "Load Latest Session Trace" to analyze latest session path.</div>
-        <div id="trace-list" class="story-list">
-            <div class="empty-state">No session trace loaded yet.</div>
+    <div class="trace-guide" style="margin-bottom: 14px;">
+        <strong>What this page is for:</strong> quickly understand the decision path, retries, and execution outcome for one session.
+        <br><strong>How to read it:</strong> start with Summary, then Attempts Timeline, then use Graph for deeper structure checks.
+    </div>
+    <div id="trace-flow" class="trace-flow">
+        <div id="trace-block-summary" class="trace-block" style="order:1;">
+            <h4>
+                🧾 Session Summary (Start Here)
+                <span id="trace-noise-badge" style="display:none;margin-left:8px;font-size:12px;color:var(--text-secondary);font-weight:500;"></span>
+            </h4>
+            <div id="trace-meta" class="trace-meta">Click "Load Latest Session Trace" to analyze latest session path.</div>
+            <div id="trace-execution-summary" class="trace-exec-grid">
+                <div class="trace-exec-item"><div class="label">Attempts</div><div class="value">-</div></div>
+                <div class="trace-exec-item"><div class="label">LLM Loops</div><div class="value">-</div></div>
+                <div class="trace-exec-item"><div class="label">Tool Calls</div><div class="value">-</div></div>
+                <div class="trace-exec-item"><div class="label">Handoffs</div><div class="value">-</div></div>
+                <div class="trace-exec-item"><div class="label">Outcome</div><div class="value">-</div></div>
+            </div>
+            <div id="trace-pathfinder" class="trace-pathfinder">
+                <div class="empty-state" style="padding:8px 0;">Decision summary appears here after loading a session trace.</div>
+            </div>
         </div>
-    </div>
-    <div class="content-card">
-        <h4>🧠 Aria Query Path Graph</h4>
-        <div id="session-trace-graph"></div>
+
+        <div id="trace-block-timeline" class="trace-block" style="order:2;">
+            <h4>🧠 Attempts Timeline (What Changed Per Retry)</h4>
+            <div id="trace-list" class="story-list">
+                <div class="empty-state">No session trace loaded yet.</div>
+            </div>
+        </div>
+
+        <div id="trace-block-graph" class="trace-block" style="order:3;">
+            <h4>🕸️ Evidence Graph (Decision + Execution Topology)</h4>
+            <div id="session-trace-graph"></div>
+        </div>
     </div>
 </div>
 
 <div class="tab-panel" id="panel-advanced">
     <div class="stats-grid">
-        <div class="stat-card blue"><h4>P95 Latency</h4><div class="value" id="adv-p95">-</div></div>
-        <div class="stat-card orange"><h4>P99 Latency</h4><div class="value" id="adv-p99">-</div></div>
-        <div class="stat-card green"><h4>Latency ≤ 500ms</h4><div class="value" id="adv-fast-rate">-</div></div>
+        <div class="stat-card blue"><h4>P95 Time</h4><div class="value" id="adv-p95">-</div></div>
+        <div class="stat-card orange"><h4>P99 Time</h4><div class="value" id="adv-p99">-</div></div>
+        <div class="stat-card green"><h4>Runs ≤ 500ms</h4><div class="value" id="adv-fast-rate">-</div></div>
         <div class="stat-card purple"><h4>Most Used Skill</h4><div class="value" id="adv-top-skill">-</div></div>
     </div>
 
     <div class="charts-row">
         <div class="chart-card">
-            <h4>⚖️ Usage vs Avg Latency (Top Skills)</h4>
+            <h4>⚖️ Usage vs Average Time (Top Skills)</h4>
             <canvas id="chart-usage-vs-latency"></canvas>
         </div>
         <div class="chart-card">
-            <h4>📦 Latency Distribution</h4>
+            <h4>📦 Time Distribution</h4>
             <canvas id="chart-latency-distribution"></canvas>
         </div>
     </div>
 
     <div class="charts-row">
         <div class="chart-card">
-            <h4>🎯 Reliability vs Load</h4>
+            <h4>🎯 Reliability vs Workload</h4>
             <canvas id="chart-reliability-load"></canvas>
         </div>
         <div class="content-card">
-            <h4>🔎 Advanced Notes</h4>
+            <h4>🔎 Key Notes</h4>
             <div id="advanced-notes" class="story-list">
-                <div class="empty-state">Loading advanced analytics...</div>
+                <div class="empty-state">Loading key notes...</div>
             </div>
         </div>
     </div>
@@ -515,7 +706,32 @@ function toggleRawIds() {
     const checkbox = document.getElementById('trace-show-raw-ids');
     showRawIds = Boolean(checkbox?.checked);
     if (latestSessionTracePayload) renderSessionTrace(latestSessionTracePayload);
-    renderStory();
+}
+
+function applyTraceFlowOrder() {
+    const graphFirst = Boolean(document.getElementById('trace-graph-first')?.checked);
+    const summaryBlock = document.getElementById('trace-block-summary');
+    const timelineBlock = document.getElementById('trace-block-timeline');
+    const graphBlock = document.getElementById('trace-block-graph');
+    if (!summaryBlock || !timelineBlock || !graphBlock) return;
+
+    if (graphFirst) {
+        graphBlock.style.order = '1';
+        summaryBlock.style.order = '2';
+        timelineBlock.style.order = '3';
+    } else {
+        summaryBlock.style.order = '1';
+        timelineBlock.style.order = '2';
+        graphBlock.style.order = '3';
+    }
+
+    if (traceNetwork) {
+        setTimeout(() => {
+            if (!traceNetwork) return;
+            traceNetwork.redraw();
+            traceNetwork.fit({ animation: { duration: 240, easingFunction: 'easeInOutQuad' } });
+        }, 80);
+    }
 }
 
 function shortSessionId(value) {
@@ -539,59 +755,333 @@ function traceHeaders({ traceId, spanId, parentSpanId = '' } = {}) {
     };
 }
 
-function renderGraphStoryText(event) {
-    const parts = [`Graph ${esc(event.queryType || 'query')}`];
-
-    if (event.task) {
-        parts.push(`Task ${esc(event.task)}`);
-    }
-    if (event.startId || event.startName) {
-        const label = event.startName
-            ? event.startName
-            : (looksLikeUuid(event.startId)
-                ? (showRawIds ? event.startId : 'Unknown graph node')
-                : (event.startShort || shortNodeId(event.startId)));
-        const title = event.startId || event.startName || '—';
-        parts.push(`Start <span title="${esc(title)}">${esc(label)}</span>`);
-    }
-    if (event.direction) {
-        parts.push(`Direction ${esc(event.direction)}`);
-    }
-    if (event.maxDepth) {
-        parts.push(`Depth ${esc(event.maxDepth)}`);
-    }
-    if (event.showRelation) {
-        parts.push(`Relation ${esc(event.relationType || 'all')}`);
-    }
-    parts.push(`Results ${esc(event.resultCount || 0)}`);
-
-    return parts.join(' · ');
+function isNoiseIdentifier(value) {
+    const text = String(value || '').trim();
+    if (!text) return false;
+    const lower = text.toLowerCase();
+    return looksLikeUuid(text) || lower.startsWith('web-skill-stats-') || lower.startsWith('web-');
 }
 
-async function viewGraphLoop(startId) {
-    if (!startId) return;
+function isUnknownHumanTarget(value) {
+    const text = String(value || '').trim();
+    return !text || text === '—' || text === 'Unknown graph node';
+}
 
-    activateTab('pathfind');
-    const taskInput = document.getElementById('task-query');
-    if (!taskInput) return;
+function normalizeQueryKind(item) {
+    return String(item?.query_type || item?.queryType || 'query').toLowerCase();
+}
 
-    let taskSeed = String(startId);
-    try {
-        const traceId = newTraceId();
-        const traversal = await fetchAriaData(`${API_BASE_URL}/knowledge-graph/traverse?start=${encodeURIComponent(startId)}&max_depth=1&direction=both`, {
-            headers: traceHeaders({ traceId }),
-        });
-        const firstNode = Array.isArray(traversal?.nodes) && traversal.nodes.length ? traversal.nodes[0] : null;
-        const nodeName = firstNode?.name || firstNode?.label || null;
-        if (nodeName) {
-            taskSeed = String(nodeName);
+function queryTimestampMs(item) {
+    const raw = item?.created_at || item?.createdAt || '';
+    const ts = new Date(String(raw)).getTime();
+    return Number.isFinite(ts) ? ts : null;
+}
+
+function eventTimestampMs(item) {
+    const raw = item?.created_at || '';
+    const ts = new Date(String(raw)).getTime();
+    return Number.isFinite(ts) ? ts : null;
+}
+
+function groupQueriesByAttempt(queries) {
+    const ordered = [...(queries || [])].sort((a, b) => (String(a?.created_at || a?.createdAt || '')).localeCompare(String(b?.created_at || b?.createdAt || '')));
+    const attempts = [];
+    let current = null;
+
+    ordered.forEach((item) => {
+        const kind = normalizeQueryKind(item);
+        const trace = item?.trace || item?.params?.__trace || {};
+        const traceId = String(trace?.trace_id || '').trim();
+        const ts = queryTimestampMs(item);
+        const startsDecision = kind === 'skill_for_task' || kind === 'search';
+
+        let split = false;
+        if (!current) {
+            split = true;
+        } else if (traceId && current.traceId && traceId !== current.traceId) {
+            split = true;
+        } else if (startsDecision && current.hasDecisionSeed) {
+            split = true;
+        } else if (ts && current.lastTs && (ts - current.lastTs) > 45000) {
+            split = true;
         }
-    } catch {
-        // keep startId fallback
+
+        if (split) {
+            current = {
+                index: attempts.length + 1,
+                traceId,
+                hasDecisionSeed: startsDecision,
+                lastTs: ts,
+                queries: [],
+            };
+            attempts.push(current);
+        }
+
+        if (startsDecision) current.hasDecisionSeed = true;
+        if (ts) current.lastTs = ts;
+        current.queries.push(item);
+    });
+
+    return attempts;
+}
+
+function attachEventsToAttempts(attempts, executionEvents) {
+    const events = [...(executionEvents || [])]
+        .filter((event) => event && event.created_at)
+        .sort((a, b) => (String(a.created_at || '')).localeCompare(String(b.created_at || '')));
+
+    if (!attempts.length) {
+        return events.length
+            ? [{ index: 1, traceId: '', hasDecisionSeed: false, lastTs: null, queries: [], executionEvents: events }]
+            : [];
     }
 
-    taskInput.value = taskSeed;
-    await runPathFind();
+    const enriched = attempts.map((attempt) => ({ ...attempt, executionEvents: [] }));
+    const ranges = enriched.map((attempt) => {
+        const ts = (attempt.queries || []).map(queryTimestampMs).filter((value) => Number.isFinite(value));
+        if (!ts.length) {
+            return { start: null, end: null };
+        }
+        return { start: Math.min(...ts), end: Math.max(...ts) };
+    });
+
+    events.forEach((event) => {
+        const eventTs = eventTimestampMs(event);
+        if (!Number.isFinite(eventTs)) {
+            enriched[enriched.length - 1].executionEvents.push(event);
+            return;
+        }
+
+        let matched = -1;
+        for (let idx = 0; idx < ranges.length; idx += 1) {
+            const range = ranges[idx];
+            if (!Number.isFinite(range.start) || !Number.isFinite(range.end)) continue;
+            if (eventTs >= (range.start - 15000) && eventTs <= (range.end + 15000)) {
+                matched = idx;
+                break;
+            }
+        }
+
+        if (matched < 0) {
+            matched = enriched.length - 1;
+        }
+        enriched[matched].executionEvents.push(event);
+    });
+
+    return enriched;
+}
+
+function pickBestAskLabel(queries, fallbackLabel) {
+    const ordered = queries || [];
+    const taskCandidates = ordered
+        .filter((item) => String(item?.query_type || item?.queryType || '').toLowerCase() === 'skill_for_task')
+        .map((item) => String(item?.params?.task || '').trim())
+        .filter(Boolean);
+
+    const cleanTask = taskCandidates.find((task) => !isNoiseIdentifier(task));
+    if (cleanTask) return cleanTask;
+
+    const searchCandidates = ordered
+        .filter((item) => String(item?.query_type || item?.queryType || '').toLowerCase() === 'search')
+        .map((item) => String(item?.params?.q || '').trim())
+        .filter(Boolean);
+    const cleanSearch = searchCandidates.find((query) => !isNoiseIdentifier(query));
+    if (cleanSearch) return cleanSearch;
+
+    return fallbackLabel || 'General graph interrogation';
+}
+
+function pickBestChoiceLabel(queries) {
+    const ordered = [...(queries || [])];
+    if (!ordered.length) return '—';
+
+    const preferred = ordered
+        .filter((item) => {
+            const kind = String(item?.query_type || item?.queryType || '').toLowerCase();
+            return kind === 'traverse' || kind === 'search' || kind === 'skill_for_task';
+        })
+        .reverse();
+
+    const cleanChoice = preferred.find((item) => {
+        const target = humanizeQueryTarget(item);
+        return !isUnknownHumanTarget(target) && !isNoiseIdentifier(target);
+    });
+    if (cleanChoice) return humanizeQueryTarget(cleanChoice);
+
+    const nonUnknown = preferred.find((item) => !isUnknownHumanTarget(humanizeQueryTarget(item)));
+    if (nonUnknown) return humanizeQueryTarget(nonUnknown);
+
+    return humanizeQueryTarget(preferred[0] || ordered[ordered.length - 1]);
+}
+
+function buildDecisionRationale(queries, inferredChoice) {
+    const ordered = [...(queries || [])];
+    if (!ordered.length) return 'No query chain recorded for this window.';
+
+    const skillForTask = ordered.filter((item) => String(item?.query_type || item?.queryType || '').toLowerCase() === 'skill_for_task');
+    const traversals = ordered.filter((item) => String(item?.query_type || item?.queryType || '').toLowerCase() === 'traverse');
+    const searches = ordered.filter((item) => String(item?.query_type || item?.queryType || '').toLowerCase() === 'search');
+
+    const bestTraversal = traversals
+        .map((item) => ({ item, count: Number(item?.result_count || item?.resultCount || 0) }))
+        .sort((a, b) => b.count - a.count)[0];
+    const bestTraversalCount = bestTraversal?.count || 0;
+    const bestTraversalTarget = bestTraversal ? humanizeQueryTarget(bestTraversal.item) : null;
+
+    if (skillForTask.length && traversals.length) {
+        const pivot = !isUnknownHumanTarget(bestTraversalTarget) ? bestTraversalTarget : inferredChoice;
+        return `Skill-match first, then graph validation (${fmtNumber(traversals.length)} traversals). Final choice: ${pivot} (${fmtNumber(bestTraversalCount)} strongest results).`;
+    }
+    if (traversals.length) {
+        const pivot = !isUnknownHumanTarget(bestTraversalTarget) ? bestTraversalTarget : inferredChoice;
+        return `Graph-first flow with ${fmtNumber(traversals.length)} traversals. Final choice: ${pivot}.`;
+    }
+    if (searches.length) {
+        return `Search-first flow with ${fmtNumber(searches.length)} query hits. Final choice: ${inferredChoice}.`;
+    }
+    return `Selected ${inferredChoice} from the recorded query sequence.`;
+}
+
+function scorePathConfidence(queries, inferredChoice) {
+    const ordered = [...(queries || [])];
+    if (!ordered.length || isUnknownHumanTarget(inferredChoice)) {
+        return { label: 'Low', score: 0.35, level: 'low' };
+    }
+
+    const traversals = ordered.filter((item) => String(item?.query_type || item?.queryType || '').toLowerCase() === 'traverse');
+    const skillForTask = ordered.filter((item) => String(item?.query_type || item?.queryType || '').toLowerCase() === 'skill_for_task');
+    const bestTraversalCount = traversals
+        .map((item) => Number(item?.result_count || item?.resultCount || 0))
+        .sort((a, b) => b - a)[0] || 0;
+
+    let score = 0.4;
+    if (skillForTask.length) score += 0.2;
+    if (traversals.length >= 2) score += 0.2;
+    else if (traversals.length === 1) score += 0.1;
+    if (bestTraversalCount >= 20) score += 0.15;
+    else if (bestTraversalCount >= 8) score += 0.1;
+
+    score = Math.max(0, Math.min(1, score));
+    if (score >= 0.75) return { label: 'High', score, level: 'high' };
+    if (score >= 0.55) return { label: 'Medium', score, level: 'medium' };
+    return { label: 'Low', score, level: 'low' };
+}
+
+function querySignature(item) {
+    const params = item?.params || {};
+    const queryType = String(item?.query_type || item?.queryType || 'query');
+    const start = String(params.start || '');
+    const task = String(params.task || '');
+    const q = String(params.q || '');
+    const depth = String(params.max_depth || '');
+    const relation = String(params.relation_type || '');
+    const direction = String(params.direction || '');
+    return [queryType, start, task, q, depth, relation, direction].join('|');
+}
+
+function estimateLoopCount(queries) {
+    const seen = new Set();
+    let loops = 0;
+    (queries || []).forEach((item) => {
+        const sig = querySignature(item);
+        if (!sig) return;
+        if (seen.has(sig)) loops += 1;
+        seen.add(sig);
+    });
+    return loops;
+}
+
+function humanizeQueryTarget(item) {
+    const params = item?.params || {};
+    const kind = String(item?.query_type || item?.queryType || 'query').toLowerCase();
+    const rawTarget = kind === 'skill_for_task'
+        ? (params.task || item?.query_target || item?.queryTarget || '—')
+        : (item?.start_name || item?.startName || params.start || params.q || item?.query_target || item?.queryTarget || '—');
+    const unresolvedTraverseId = kind.includes('traverse')
+        && !item?.start_name
+        && !item?.startName
+        && looksLikeUuid(rawTarget);
+
+    if (unresolvedTraverseId) {
+        return showRawIds ? String(rawTarget) : 'Unknown graph node';
+    }
+    return displayTarget(rawTarget, { raw: showRawIds });
+}
+
+function renderPathFinderSummary(containerId, queries, options = {}) {
+    const wrap = document.getElementById(containerId);
+    if (!wrap) return;
+
+    const ordered = [...(queries || [])].sort((a, b) => (String(a?.created_at || a?.createdAt || '')).localeCompare(String(b?.created_at || b?.createdAt || '')));
+    if (!ordered.length) {
+        wrap.innerHTML = `<div class="empty-state" style="padding:8px 0;">${esc(options.emptyText || 'No path finder summary available.')}</div>`;
+        return;
+    }
+
+    const attempts = groupQueriesByAttempt(ordered);
+    const selectedAttempt = (() => {
+        if (!attempts.length) return null;
+        const withMeaningfulChoice = [...attempts].reverse().find((attempt) => {
+            const choice = pickBestChoiceLabel(attempt.queries || []);
+            return !isUnknownHumanTarget(choice) && !isNoiseIdentifier(choice);
+        });
+        return withMeaningfulChoice || attempts[attempts.length - 1];
+    })();
+
+    const selectedQueries = selectedAttempt?.queries || ordered;
+    const inferredChoice = pickBestChoiceLabel(selectedQueries);
+    const taskLabel = pickBestAskLabel(selectedQueries, options.fallbackTask || 'General graph interrogation');
+    const loopCount = Number.isFinite(options.loopCount)
+        ? Number(options.loopCount)
+        : estimateLoopCount(selectedQueries);
+    const rationale = buildDecisionRationale(selectedQueries, inferredChoice);
+    const confidence = scorePathConfidence(selectedQueries, inferredChoice);
+
+    const attemptSummary = attempts.slice(-3).map((attempt) => {
+        const ask = pickBestAskLabel(attempt.queries || [], 'interrogation');
+        const choice = pickBestChoiceLabel(attempt.queries || []);
+        return `#${attempt.index} ${ask} → ${choice}`;
+    }).join(' · ');
+
+    const filteredSteps = selectedQueries.filter((item) => {
+        const kind = String(item?.query_type || item?.queryType || 'query').toLowerCase();
+        if (kind === 'skill_for_task' && isNoiseIdentifier(item?.params?.task || '')) {
+            return false;
+        }
+        const target = humanizeQueryTarget(item);
+        return !isUnknownHumanTarget(target);
+    });
+
+    const dedupedSteps = [];
+    const seen = new Set();
+    filteredSteps.forEach((item) => {
+        const sig = `${querySignature(item)}::${humanizeQueryTarget(item)}`;
+        if (seen.has(sig)) return;
+        seen.add(sig);
+        dedupedSteps.push(item);
+    });
+
+    const stepHtml = dedupedSteps.slice(0, 10).map((item) => {
+        const kind = String(item?.query_type || item?.queryType || 'query').toLowerCase();
+        const target = humanizeQueryTarget(item);
+        return `
+            <span class="trace-step">
+                <span class="trace-step-kind">${esc(kind)}</span>
+                <span class="trace-step-target" title="${esc(String(target))}">${esc(String(target))}</span>
+            </span>
+        `;
+    }).join('');
+
+    wrap.innerHTML = `
+        <div class="trace-pathfinder-head">
+            <div class="trace-pathfinder-title">🧭 Path Finder Summary</div>
+            <div class="trace-pathfinder-meta">${fmtNumber(selectedQueries.length)} steps · ${fmtNumber(loopCount)} loops · attempt ${fmtNumber(selectedAttempt?.index || attempts.length || 1)}/${fmtNumber(attempts.length || 1)}</div>
+        </div>
+        <div class="trace-pathfinder-choice"><strong>Ask:</strong> ${esc(String(taskLabel))} · <strong>Choice:</strong> ${esc(String(inferredChoice))}</div>
+        <div class="trace-pathfinder-choice" style="color:var(--text-secondary);"><strong>Why:</strong> ${esc(String(rationale))} <span class="certainty-pill ${esc(confidence.level || 'low')}" style="margin-left:6px;">${esc(confidence.label)} confidence</span></div>
+        ${attemptSummary ? `<div class="trace-pathfinder-choice" style="color:var(--text-secondary);"><strong>Attempts:</strong> ${esc(String(attemptSummary))}</div>` : ''}
+        <div class="trace-pathfinder-steps">${stepHtml || '<span class="trace-step">No query steps captured.</span>'}</div>
+    `;
 }
 
 async function loadSkillStatsDashboard() {
@@ -599,7 +1089,6 @@ async function loadSkillStatsDashboard() {
     insights = await fetchAriaData(`${API_BASE_URL}/skills/insights?hours=${hours}&limit=150`);
     renderOverview();
     renderUsageTime();
-    renderStory();
     renderAdvanced();
     await loadSessionTraceSessions();
     if (pinnedTraceSessionId) {
@@ -621,7 +1110,7 @@ function certitudePercent(value, idx = 0) {
 function renderDecisionGraph(task, candidates, traversalByCandidate) {
     const container = document.getElementById('path-decision-graph');
     if (!container || !window.vis) {
-        if (container) container.innerHTML = '<div class="empty-state">Graph library unavailable.</div>';
+        if (container) container.innerHTML = '<div class="empty-state">Graph view is unavailable in this browser.</div>';
         return;
     }
 
@@ -727,7 +1216,7 @@ function renderOverview() {
 
     const body = document.getElementById('top-skills-body');
     if (!bySkill.length) {
-        body.innerHTML = '<tr><td colspan="5" class="empty-state">No skill usage in this period</td></tr>';
+        body.innerHTML = '<tr><td colspan="5" class="empty-state">No skill activity in this time range.</td></tr>';
         return;
     }
 
@@ -772,7 +1261,7 @@ function renderUsageTime() {
 
     const body = document.getElementById('recent-invocations-body');
     if (!recent.length) {
-        body.innerHTML = '<tr><td colspan="6" class="empty-state">No recent skill executions</td></tr>';
+        body.innerHTML = '<tr><td colspan="6" class="empty-state">No recent runs in this time range.</td></tr>';
         return;
     }
 
@@ -791,14 +1280,14 @@ function renderUsageTime() {
 async function runPathFind() {
     const task = document.getElementById('task-query').value.trim();
     if (!task) {
-        alert('Please describe a task first.');
+        alert('Please describe a task to continue.');
         return;
     }
 
     const candidatesWrap = document.getElementById('path-candidates');
     const graphWrap = document.getElementById('path-graph-summary');
-    candidatesWrap.innerHTML = 'Searching...';
-    graphWrap.innerHTML = 'Traversing...';
+    candidatesWrap.innerHTML = 'Finding the best skill options...';
+    graphWrap.innerHTML = 'Building graph context...';
     const traceId = newTraceId();
     const rootSpanId = newTraceId();
 
@@ -809,14 +1298,14 @@ async function runPathFind() {
         const candidates = result?.candidates || [];
 
         if (!candidates.length) {
-            candidatesWrap.innerHTML = '<div class="empty-state">No matching skills found for that task.</div>';
-            graphWrap.innerHTML = '<div class="empty-state">No traversal available.</div>';
+            candidatesWrap.innerHTML = '<div class="empty-state">No matching skills found for this task yet.</div>';
+            graphWrap.innerHTML = '<div class="empty-state">No graph context available for this task.</div>';
             return;
         }
 
         candidatesWrap.innerHTML = `
             <table class="candidate-table">
-                <thead><tr><th>#</th><th>Proposition (Vectorized)</th><th>Certitude</th><th>Match Type</th></tr></thead>
+                <thead><tr><th>#</th><th>Suggested Skill</th><th>Match Score</th><th>Match Type</th></tr></thead>
                 <tbody>
                     ${candidates.map((c, idx) => `
                         <tr>
@@ -851,17 +1340,17 @@ async function runPathFind() {
             <div style="margin-top:8px;"><strong>Connected Nodes:</strong> ${fmtNumber(nodes.length)}</div>
             <div><strong>Relations:</strong> ${fmtNumber(edges.length)}</div>
             <div style="margin-top:10px;color:var(--text-secondary);font-size:12px;">
-                Aria can use this subgraph to reason from skill → tools → related entities before execution.
+                This graph context shows what Aria can reference before execution.
             </div>
         `;
 
         renderDecisionGraph(task, graphCandidates, traversals);
     } catch (err) {
-        candidatesWrap.innerHTML = `<div class="empty-state">Path find failed: ${esc(err.message || err)}</div>`;
-        graphWrap.innerHTML = '<div class="empty-state">Traversal unavailable.</div>';
+        candidatesWrap.innerHTML = `<div class="empty-state">Path exploration failed: ${esc(err.message || err)}</div>`;
+        graphWrap.innerHTML = '<div class="empty-state">Graph context is unavailable right now.</div>';
         const graphContainer = document.getElementById('path-decision-graph');
         if (graphContainer) {
-            graphContainer.innerHTML = '<div class="empty-state">Decision graph unavailable.</div>';
+            graphContainer.innerHTML = '<div class="empty-state">Decision graph is unavailable right now.</div>';
         }
     }
 }
@@ -869,7 +1358,7 @@ async function runPathFind() {
 function renderSessionTraceGraph(trace) {
     const container = document.getElementById('session-trace-graph');
     if (!container || !window.vis) {
-        if (container) container.innerHTML = '<div class="empty-state">Graph library unavailable.</div>';
+        if (container) container.innerHTML = '<div class="empty-state">Graph view is unavailable in this browser.</div>';
         return;
     }
 
@@ -923,6 +1412,60 @@ function renderSessionTraceGraph(trace) {
         smooth: { type: edge.kind === 'loop' ? 'curvedCW' : 'dynamic', roundness: edge.kind === 'loop' ? 0.25 : 0.0 },
     }));
 
+    const executionEvents = Array.isArray(trace?.execution_events) ? [...trace.execution_events] : [];
+    executionEvents.sort((a, b) => (String(a?.created_at || '')).localeCompare(String(b?.created_at || '')));
+
+    let previousExecNodeId = null;
+    const kindStyle = {
+        ask: { shape: 'box', background: '#1e293b', border: '#93c5fd', color: '#dbeafe' },
+        llm_loop: { shape: 'ellipse', background: '#1f2937', border: '#a78bfa', color: '#e9d5ff' },
+        tool_call: { shape: 'diamond', background: '#102a1f', border: '#34d399', color: '#d1fae5' },
+        tool_result: { shape: 'dot', background: '#13231a', border: '#22c55e', color: '#bbf7d0' },
+        assistant: { shape: 'box', background: '#1f2937', border: '#64748b', color: '#e2e8f0' },
+        sub_agent: { shape: 'box', background: '#231942', border: '#c084fc', color: '#f3e8ff' },
+        agent_handoff: { shape: 'hexagon', background: '#3f1d1d', border: '#fb7185', color: '#ffe4e6' },
+    };
+
+    executionEvents.slice(0, 220).forEach((event, idx) => {
+        const kind = String(event?.kind || 'assistant').toLowerCase();
+        const style = kindStyle[kind] || kindStyle.assistant;
+        const nodeId = `exec-${idx}`;
+        const labelText = String(event?.label || kind).slice(0, 88);
+
+        nodes.push({
+            id: nodeId,
+            label: `${kind}\n${labelText}`,
+            shape: style.shape,
+            color: { background: style.background, border: style.border },
+            font: { color: style.color, size: 11 },
+            margin: { top: 7, right: 9, bottom: 7, left: 9 },
+        });
+
+        if (!previousExecNodeId) {
+            edges.push({
+                from: 'session',
+                to: nodeId,
+                arrows: 'to',
+                color: '#64748b',
+                width: 1,
+                smooth: { type: 'dynamic' },
+            });
+        } else {
+            const isHandoff = kind === 'agent_handoff';
+            edges.push({
+                from: previousExecNodeId,
+                to: nodeId,
+                arrows: 'to',
+                color: isHandoff ? '#fb7185' : '#64748b',
+                dashes: isHandoff,
+                width: isHandoff ? 2 : 1,
+                smooth: { type: isHandoff ? 'curvedCW' : 'dynamic', roundness: isHandoff ? 0.2 : 0.0 },
+            });
+        }
+
+        previousExecNodeId = nodeId;
+    });
+
     const data = { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(edges) };
     const options = {
         physics: {
@@ -953,11 +1496,35 @@ function renderSessionTraceGraph(trace) {
     });
 }
 
+function inferSessionOutcome(session, executionEvents) {
+    const events = Array.isArray(executionEvents) ? executionEvents : [];
+    const hasToolFailure = events.some((event) => String(event?.kind || '') === 'tool_call' && event?.success === false);
+    const hasAssistantErrorSignal = events.some((event) => {
+        if (String(event?.kind || '') !== 'assistant') return false;
+        const text = String(event?.label || '').toLowerCase();
+        return text.includes('error') || text.includes('failed') || text.includes('exception');
+    });
+    const hasCompletionSignal = events.some((event) => {
+        if (String(event?.kind || '') !== 'assistant') return false;
+        const text = String(event?.label || '').toLowerCase();
+        return text.includes('done') || text.includes('completed') || text.includes('finished') || text.includes('result');
+    });
+
+    if (hasToolFailure || hasAssistantErrorSignal) {
+        return { label: 'Needs Attention' };
+    }
+    if (hasCompletionSignal || String(session?.status || '').toLowerCase() === 'completed') {
+        return { label: 'Completed' };
+    }
+    return { label: 'In Progress' };
+}
+
 function renderSessionTrace(trace) {
     latestSessionTracePayload = trace || null;
     const metaEl = document.getElementById('trace-meta');
     const listEl = document.getElementById('trace-list');
     const noiseBadgeEl = document.getElementById('trace-noise-badge');
+    const pathFinderEl = document.getElementById('trace-pathfinder');
 
     if (noiseBadgeEl) {
         noiseBadgeEl.style.display = 'none';
@@ -965,16 +1532,25 @@ function renderSessionTrace(trace) {
     }
 
     if (!trace?.session) {
-        metaEl.textContent = trace?.notes || 'No matching session found.';
-        listEl.innerHTML = '<div class="empty-state">No query flow found for latest session.</div>';
+        if (pathFinderEl) {
+            pathFinderEl.innerHTML = '<div class="empty-state" style="padding:8px 0;">No decision summary is available for this session.</div>';
+        }
+        metaEl.textContent = trace?.notes || 'No session matched the selected time range.';
+        listEl.innerHTML = '<div class="empty-state">No decision or query flow found for this session.</div>';
         const graphContainer = document.getElementById('session-trace-graph');
-        if (graphContainer) graphContainer.innerHTML = '<div class="empty-state">No trace graph available.</div>';
+        if (graphContainer) graphContainer.innerHTML = '<div class="empty-state">No trace graph is available for this session.</div>';
         return;
     }
 
     const session = trace.session;
     const source = session.source_table === 'archive' ? 'archive' : 'active';
     const notes = String(trace?.notes || '').trim();
+    const queries = trace.queries || [];
+    const executionEvents = trace.execution_events || [];
+    const attemptsAsc = groupQueriesByAttempt(queries);
+    const attemptsWithEvents = attachEventsToAttempts(attemptsAsc, executionEvents);
+    const executionSummary = trace.execution_summary || {};
+    const outcome = inferSessionOutcome(session, executionEvents);
     const filteredUiNoiseCount = Number(trace?.filtered_ui_noise_count || 0);
     if (noiseBadgeEl && filteredUiNoiseCount > 0) {
         noiseBadgeEl.textContent = `Filtered UI noise: ${fmtNumber(filteredUiNoiseCount)}`;
@@ -988,28 +1564,88 @@ function renderSessionTrace(trace) {
         (filteredUiNoiseCount > 0 ? ` · <strong>Filtered UI noise:</strong> ${fmtNumber(filteredUiNoiseCount)}` : '') +
         (notes ? `<div style="margin-top:6px;color:var(--text-muted);">${esc(notes)}</div>` : '');
 
-    const queries = trace.queries || [];
+    const summaryWrap = document.getElementById('trace-execution-summary');
+    if (summaryWrap) {
+        const attemptsCount = attemptsWithEvents.length || 1;
+        summaryWrap.innerHTML = `
+            <div class="trace-exec-item"><div class="label">Attempts</div><div class="value">${fmtNumber(attemptsCount)}</div></div>
+            <div class="trace-exec-item"><div class="label">LLM Loops</div><div class="value">${fmtNumber(executionSummary.llm_loops || 0)}</div></div>
+            <div class="trace-exec-item"><div class="label">Tool Calls</div><div class="value">${fmtNumber(executionSummary.tool_calls || 0)}</div></div>
+            <div class="trace-exec-item"><div class="label">Handoffs</div><div class="value">${fmtNumber(executionSummary.handoffs || 0)}</div></div>
+            <div class="trace-exec-item"><div class="label">Outcome</div><div class="value">${esc(outcome.label)}</div></div>
+        `;
+    }
+
+    if (pathFinderEl) {
+        const loopCount = Array.isArray(trace?.trace_edges)
+            ? trace.trace_edges.filter((edge) => edge?.kind === 'loop').length
+            : 0;
+        renderPathFinderSummary('trace-pathfinder', queries, {
+            loopCount,
+            emptyText: 'No decision summary is available for this session.',
+        });
+    }
+
     if (!queries.length) {
-        listEl.innerHTML = '<div class="empty-state">Latest session found but no graph query activity in inferred window.</div>';
-    } else {
-        const orderedQueries = [...queries].sort((a, b) => (String(b.created_at || '')).localeCompare(String(a.created_at || '')));
-        listEl.innerHTML = orderedQueries.slice(0, 120).map((item, idx) => {
-            const params = item.params || {};
-            const rawTarget = params.task || item.start_name || item.query_target || params.start || params.q || '—';
-            const unresolvedTraverseId = String(item.query_type || '').toLowerCase().includes('traverse') && !item.start_name && looksLikeUuid(rawTarget);
-            const p = unresolvedTraverseId
-                ? (showRawIds ? String(rawTarget) : 'Unknown graph node')
-                : displayTarget(rawTarget, { raw: showRawIds });
-            return `
+        if (executionEvents.length) {
+            listEl.innerHTML = executionEvents.slice().reverse().slice(0, 120).map((event, idx) => `
                 <div class="story-item">
-                    <div class="story-time">#${idx + 1} · ${fmtDate(item.created_at)}</div>
-                    <div class="story-text">${esc(item.query_type)} · ${esc(String(p))} · Results ${fmtNumber(item.result_count || 0)}</div>
+                    <div class="story-time">Execution · #${idx + 1} · ${fmtDate(event.created_at)}</div>
+                    <div class="story-text">${esc(event.kind || 'event')} · ${esc(event.label || '—')}</div>
                 </div>
-            `;
+            `).join('');
+        } else {
+            listEl.innerHTML = '<div class="empty-state">No graph queries were captured for this session window. You can still inspect execution events in the graph.</div>';
+        }
+    } else {
+        listEl.innerHTML = attemptsWithEvents.slice().reverse().map((attempt, reverseIdx, reverseList) => {
+            const previous = reverseList[reverseIdx + 1] || null;
+            const ask = pickBestAskLabel(attempt.queries || [], 'General graph interrogation');
+            const choice = pickBestChoiceLabel(attempt.queries || []);
+            const previousChoice = previous ? pickBestChoiceLabel(previous.queries || []) : '';
+            const changedChoice = previous && previousChoice !== choice;
+            const deltaLabel = previous
+                ? (changedChoice ? `Choice changed from ${previousChoice} → ${choice}` : `Choice held: ${choice}`)
+                : `First observed choice: ${choice}`;
+
+            const localEvents = [];
+            (attempt.queries || []).forEach((q) => {
+                localEvents.push({
+                    type: 'query',
+                    at: q.created_at,
+                    text: `${q.query_type} · ${humanizeQueryTarget(q)} · Results ${fmtNumber(q.result_count || 0)}`,
+                });
+            });
+            (attempt.executionEvents || []).forEach((event) => {
+                localEvents.push({
+                    type: 'execution',
+                    at: event.created_at,
+                    text: `${event.kind || 'event'} · ${event.label || '—'}`,
+                });
+            });
+            localEvents.sort((a, b) => (String(a.at || '')).localeCompare(String(b.at || '')));
+
+            return `
+            <div class="attempt-block">
+                <div class="attempt-head">
+                    <div class="attempt-title">Attempt ${fmtNumber(attempt.index)} · Ask: ${esc(String(ask))}</div>
+                    <div class="attempt-delta">${esc(deltaLabel)}</div>
+                </div>
+                <div class="attempt-events">
+                    ${localEvents.slice(-8).map((event) => `
+                        <div class="attempt-event">
+                            <small>${event.type === 'execution' ? 'Execution' : 'Query'} · ${fmtDate(event.at)}</small><br>
+                            ${esc(event.text)}
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
         }).join('');
     }
 
     renderSessionTraceGraph(trace);
+    applyTraceFlowOrder();
 }
 
 function renderSessionOptions(payload) {
@@ -1018,7 +1654,7 @@ function renderSessionOptions(payload) {
     const sessions = payload?.sessions || [];
     if (!sessions.length) {
         pinnedTraceSessionId = '';
-        select.innerHTML = '<option value="">No sessions found</option>';
+        select.innerHTML = '<option value="">No sessions found in this time range</option>';
         return;
     }
 
@@ -1044,7 +1680,7 @@ async function loadSessionTraceSessions() {
         renderSessionOptions(payload || {});
     } catch {
         const select = document.getElementById('trace-session-select');
-        if (select) select.innerHTML = '<option value="">Failed to load sessions</option>';
+        if (select) select.innerHTML = '<option value="">Unable to load sessions</option>';
     }
 }
 
@@ -1059,12 +1695,12 @@ async function loadSelectedSessionTrace() {
     }
     pinnedTraceSessionId = selected;
     const metaEl = document.getElementById('trace-meta');
-    if (metaEl) metaEl.textContent = `Loading selected session trace ${shortSessionId(selected)}...`;
+    if (metaEl) metaEl.textContent = `Loading selected session ${shortSessionId(selected)}...`;
     try {
         const trace = await fetchAriaData(`${API_BASE_URL}/skills/session-trace/latest?hours=${encodeURIComponent(hours)}&session_id=${encodeURIComponent(selected)}`);
         renderSessionTrace(trace || {});
     } catch (err) {
-        if (metaEl) metaEl.textContent = `Selected session trace unavailable: ${err?.message || err}`;
+        if (metaEl) metaEl.textContent = `Selected session is unavailable: ${err?.message || err}`;
     }
 }
 
@@ -1072,74 +1708,17 @@ async function loadLatestSessionTrace() {
     const hours = document.getElementById('hours-filter')?.value || '24';
     const metaEl = document.getElementById('trace-meta');
     pinnedTraceSessionId = '';
-    if (metaEl) metaEl.textContent = 'Analyzing latest session across active + archived tables...';
+    if (metaEl) metaEl.textContent = 'Loading latest session from active and archive tables...';
     try {
         const trace = await fetchAriaData(`${API_BASE_URL}/skills/session-trace/latest?hours=${encodeURIComponent(hours)}`);
         renderSessionTrace(trace || {});
     } catch (err) {
         const listEl = document.getElementById('trace-list');
-        if (metaEl) metaEl.textContent = `Session trace unavailable: ${err?.message || err}`;
-        if (listEl) listEl.innerHTML = '<div class="empty-state">Failed to load session trace.</div>';
+        if (metaEl) metaEl.textContent = `Session trace is unavailable: ${err?.message || err}`;
+        if (listEl) listEl.innerHTML = '<div class="empty-state">Unable to load session trace.</div>';
         const graphContainer = document.getElementById('session-trace-graph');
-        if (graphContainer) graphContainer.innerHTML = '<div class="empty-state">Trace graph unavailable.</div>';
+        if (graphContainer) graphContainer.innerHTML = '<div class="empty-state">Trace graph is unavailable.</div>';
     }
-}
-
-function renderStory() {
-    const wrap = document.getElementById('story-list');
-    const invocations = insights?.recent_invocations || [];
-    const graphQueries = insights?.recent_graph_queries || [];
-
-    const events = [
-        ...invocations.map(i => ({
-            type: 'skill',
-            ts: i.created_at || '',
-            text: `Aria executed skill "${i.skill_name}" with tool "${i.tool_name || 'unknown'}" (${i.duration_ms || 0}ms) and got ${i.success ? 'success' : 'failure'}.`
-        })),
-        ...graphQueries.map(q => {
-            const params = q.params || {};
-            const queryType = String(q.query_type || 'query');
-            const startId = String(params.start || '');
-            const startName = String(q.start_name || '');
-            const task = String(params.task || '');
-            const direction = params.direction != null ? String(params.direction) : '';
-            const maxDepth = params.max_depth != null ? String(params.max_depth) : '';
-            const relationType = params.relation_type ? String(params.relation_type) : '';
-            const resultCount = Number(q.result_count || 0);
-            return {
-                type: 'graph',
-                ts: q.created_at || '',
-                queryType,
-                startId,
-                startName,
-                task,
-                startShort: shortNodeId(startId),
-                direction,
-                maxDepth,
-                relationType,
-                showRelation: queryType === 'traverse' || Boolean(relationType),
-                resultCount,
-            };
-        })
-    ].sort((a, b) => (b.ts || '').localeCompare(a.ts || ''));
-
-    if (!events.length) {
-        wrap.innerHTML = '<div class="empty-state">No interrogation activity in this time window.</div>';
-        return;
-    }
-
-    wrap.innerHTML = events.slice(0, 120).map(e => `
-        <div class="story-item">
-            <div class="story-time">${fmtDate(e.ts)} · ${e.type === 'graph' ? 'Graph' : 'Skill'}</div>
-            <div class="story-row">
-                <div class="story-text">${e.type === 'graph'
-                    ? renderGraphStoryText(e)
-                    : esc(e.text)
-                }</div>
-                ${e.type === 'graph' && e.startId ? `<div class="story-actions"><button class="story-link-btn" onclick="viewGraphLoop('${esc(e.startId)}')">View in Path Find</button></div>` : ''}
-            </div>
-        </div>
-    `).join('');
 }
 
 function percentile(values, p) {
@@ -1257,7 +1836,7 @@ function renderAdvanced() {
     const notes = document.getElementById('advanced-notes');
     const hot = bySkill.slice(0, 5);
     if (!hot.length) {
-        notes.innerHTML = '<div class="empty-state">No advanced analytics available in this range.</div>';
+        notes.innerHTML = '<div class="empty-state">No advanced metrics are available in this time range.</div>';
         return;
     }
 
@@ -1282,6 +1861,7 @@ async function autoRefreshDashboard() {
 }
 
 document.getElementById('hours-filter').addEventListener('change', loadSkillStatsDashboard);
+applyTraceFlowOrder();
 loadSkillStatsDashboard();
 setInterval(() => {
     autoRefreshDashboard().catch(() => {
