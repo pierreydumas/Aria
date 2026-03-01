@@ -302,7 +302,7 @@ footer p {
         padding: var(--space-lg);
         gap: var(--space-sm);
         overflow-y: auto;
-        z-index: 999;
+        z-index: 9999;
         border-top: 1px solid var(--border-subtle);
         align-items: stretch;
     }
@@ -314,7 +314,9 @@ footer p {
     .nav-links > a,
     .nav-links .nav-dropdown-toggle {
         width: 100%;
-        justify-content: space-between;
+        justify-content: flex-start;
+        padding: 0.75rem 1rem;
+        font-size: 1rem;
     }
     
     /* Stack dropdowns vertically on mobile */
@@ -331,14 +333,16 @@ footer p {
         margin-top: var(--space-xs);
         display: none;
     }
+    /* On mobile: only use .open class (no hover) */
     .nav-links .nav-dropdown.open .nav-dropdown-menu {
         display: block;
     }
-    .nav-links .nav-dropdown:hover .nav-dropdown-menu {
-        display: none;
-    }
-    .nav-links .nav-dropdown.open:hover .nav-dropdown-menu {
-        display: block;
+    .nav-links .nav-dropdown:hover .nav-dropdown-menu,
+    .nav-links .nav-dropdown:focus-within .nav-dropdown-menu {
+        opacity: 1;
+        visibility: visible;
+        transform: none;
+        /* Keep display:none — only .open toggles it */
     }
     
     .menu-toggle {

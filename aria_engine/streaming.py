@@ -286,6 +286,13 @@ class StreamManager:
             max_tool_iterations = 20
             max_per_tool_failures = 3
             tool_failure_counts: dict[str, int] = {}
+            # Execution trace for UI graph reconstruction
+            _exec_trace: dict[str, Any] = {
+                "iterations": 0,
+                "tools": [],   # [{name, id, success, duration_ms}]
+                "nodes": [],   # vis.js compatible node list
+                "edges": [],   # vis.js compatible edge list
+            }
             for iteration in range(max_tool_iterations):
                 # Notify frontend: iteration starting
                 await self._send_json(websocket, {
@@ -369,6 +376,26 @@ class StreamManager:
 
                     # Execute tool calls
                     accumulator.tool_calls.extend(llm_response.tool_calls)
+
+                    # Track LLM iteration node in exec trace
+                    _exec_trace["iterations"] += 1
+                    _llm_node_id = f"llm_{_exec_trace['iterations']}"
+                    _exec_trace["nodes"].append({
+                        "id": _llm_node_id,
+                        "label": f"LLM #{_exec_trace['iterations']}",
+                        "shape": "box",
+                        "level": iteration + 1,
+                        "color": {"background": "#1e2d3a", "border": "#4a9eed"},
+                        "font": {"color": "#4a9eed", "size": 12},
+                    })
+                    # Connect from previous iteration's tools (if any) or from start
+                    if _exec_trace["iterations"] > 1:
+                        # Link previous tool nodes → this LLM node
+                        prev_iter = _exec_trace["iterations"] - 1
+                        prev_tools = [n["id"] for n in _exec_trace["nodes"] if n["id"].startswith("tool_") and n.get("_iter") == prev_iter]
+                        for pt in prev_tools:
+                            _exec_trace["edges"].append({"from": pt, "to": _llm_node_id, "label": "result", "arrows": "to", "font": {"size": 10, "color": "#888"}})
+
                     assistant_entry: dict[str, Any] = {
                         "role": "assistant",
                         "content": llm_response.content or "",
@@ -449,6 +476,24 @@ class StreamManager:
                             "duration_ms": tool_result.duration_ms,
                         })
 
+                        # Track tool in exec trace
+                        tool_node_id = f"tool_{tc['id']}"
+                        _exec_trace["tools"].append({
+                            "name": fn_name, "id": tc["id"],
+                            "success": tool_result.success,
+                            "duration_ms": tool_result.duration_ms,
+                        })
+                        _color = {"background": "#1e3a2f", "border": "#2ea86f"} if tool_result.success else {"background": "#3a1e1e", "border": "#d44a4a"}
+                        _label = fn_name.replace("_", "\n")
+                        _exec_trace["nodes"].append({
+                            "id": tool_node_id, "label": _label,
+                            "shape": "diamond", "level": iteration + 1.5,
+                            "color": _color,
+                            "font": {"color": _color["border"], "size": 11},
+                            "_iter": _exec_trace["iterations"],
+                        })
+                        _exec_trace["edges"].append({"from": f"llm_{_exec_trace['iterations']}", "to": tool_node_id, "label": "call", "arrows": "to", "font": {"size": 10, "color": "#888"}})
+
                         # Telemetry → aria_data.skill_invocations
                         asyncio.ensure_future(log_skill_invocation(
                             self._db_factory,
@@ -499,6 +544,33 @@ class StreamManager:
                 break
 
             # ── Persist assistant message ─────────────────────────────────
+            # Finalize exec trace
+            _trace_meta: dict[str, Any] = {}
+            if _exec_trace["tools"]:
+                _total_ms = accumulator.latency_ms or 0
+                # Add response node
+                _resp_label = f"Response\n{(_total_ms / 1000):.1f}s" if _total_ms else "Response"
+                _exec_trace["nodes"].append({
+                    "id": "response", "label": _resp_label,
+                    "shape": "star", "level": _exec_trace["iterations"] + 1,
+                    "color": {"background": "#2a1a3e", "border": "#9b59d4"},
+                    "font": {"color": "#9b59d4", "size": 12},
+                })
+                # Connect last iteration's tool nodes → response
+                last_tools = [n["id"] for n in _exec_trace["nodes"] if n["id"].startswith("tool_") and n.get("_iter") == _exec_trace["iterations"]]
+                if last_tools:
+                    for lt in last_tools:
+                        _exec_trace["edges"].append({"from": lt, "to": "response", "arrows": "to"})
+                else:
+                    _from_node = f"llm_{_exec_trace['iterations']}" if _exec_trace["iterations"] else "llm_1"
+                    _exec_trace["edges"].append({"from": _from_node, "to": "response", "arrows": "to"})
+                _exec_trace["latency_ms"] = _total_ms
+                _exec_trace["total_tools"] = len(_exec_trace["tools"])
+                # Strip internal _iter tag from nodes before serializing
+                for n in _exec_trace["nodes"]:
+                    n.pop("_iter", None)
+                _trace_meta = {"exec_trace": _exec_trace}
+
             assistant_msg_id = uuid.uuid4()
             assistant_msg = EngineChatMessage(
                 id=assistant_msg_id,
@@ -513,6 +585,7 @@ class StreamManager:
                 tokens_output=accumulator.output_tokens,
                 cost=accumulator.cost_usd,
                 latency_ms=accumulator.latency_ms,
+                metadata_json=_trace_meta if _trace_meta else {},
                 created_at=datetime.now(timezone.utc),
             )
             db.add(assistant_msg)

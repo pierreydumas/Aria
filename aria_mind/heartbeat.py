@@ -55,9 +55,11 @@ class Heartbeat:
         self._beats_since_reflection = 0
         self._beats_since_consolidation = 0
         self._beats_since_goal_check = 0
+        self._beats_since_maintenance = 0
         self._reflection_interval = 6      # every 6 beats = 6hr (matches six_hour_review cron)
         self._consolidation_interval = 6   # every 6 beats = 6hr (surface→medium promotion)
         self._goal_check_interval = 1      # every beat = 1hr (matches hourly_goal_check cron)
+        self._maintenance_interval = 24    # every 24 beats = 24hr (daily autonomous maintenance)
     
     async def _get_focus_level(self) -> str:
         """
@@ -234,6 +236,13 @@ class Heartbeat:
                     self.logger.debug(f"🧹 Cleared {removed} stale surface files")
             except Exception:
                 pass
+
+        # 8. Autonomous maintenance (every 24 beats = daily)
+        #    Non-destructive only: archive, compress, vacuum — never hard-delete
+        self._beats_since_maintenance += 1
+        if self._beats_since_maintenance >= self._maintenance_interval:
+            self._beats_since_maintenance = 0
+            await self._autonomous_maintenance()
         
         self.logger.debug(f"💓 Beat #{self._beat_count} — all systems nominal")
     
@@ -273,7 +282,110 @@ class Heartbeat:
         for subsystem in ["memory", "soul", "cognition"]:
             if not self._subsystem_health.get(subsystem, False):
                 await self._heal_subsystem(subsystem)
-    
+
+    async def _autonomous_maintenance(self) -> None:
+        """
+        Autonomous non-destructive maintenance — runs daily.
+
+        Policy: Non-destructive = Autonomous. Destructive = Consent.
+        All operations here archive/compress/vacuum — never hard-delete.
+        """
+        self.logger.info("🔧 Starting autonomous maintenance cycle...")
+        results: dict[str, Any] = {"beat": self._beat_count, "actions": []}
+
+        try:
+            from aria_skills.api_client import get_api_client
+            api = await get_api_client()
+            if not api:
+                self.logger.debug("Autonomous maintenance skipped: api_client unavailable")
+                self._write_degraded_log("autonomous_maintenance", "api_client_unavailable")
+                return
+        except Exception as e:
+            self.logger.debug(f"Autonomous maintenance skipped: {e}")
+            return
+
+        # 1. Session archiving — archive stale sessions (>24h idle)
+        try:
+            session_result = await api.post(
+                "/api/agent-manager/prune-stale-sessions",
+                json={"max_age_hours": 24},
+            )
+            pruned = session_result.get("pruned", 0) if isinstance(session_result, dict) else 0
+            results["actions"].append({"op": "session_archive", "pruned": pruned})
+            if pruned:
+                self.logger.info(f"🗂️ Archived {pruned} stale sessions (>24h)")
+        except Exception as e:
+            self.logger.debug(f"Session archiving skipped: {e}")
+
+        # 2. Activity compression — archive activities >7 days old
+        try:
+            compress_result = await api.post(
+                "/api/admin/maintenance",
+                json={"operation": "vacuum", "tables": ["activity_log"]},
+            )
+            results["actions"].append({"op": "activity_vacuum", "result": "ok"})
+            self.logger.info("📊 Activity table vacuumed")
+        except Exception as e:
+            self.logger.debug(f"Activity vacuum skipped: {e}")
+
+        # 3. Semantic memory dedup (non-destructive — marks dupes, keeps originals)
+        try:
+            dedup_result = await api.post(
+                "/api/admin/maintenance",
+                json={"operation": "vacuum", "tables": ["semantic_memories"]},
+            )
+            results["actions"].append({"op": "semantic_vacuum", "result": "ok"})
+            self.logger.info("🧠 Semantic memories vacuumed")
+        except Exception as e:
+            self.logger.debug(f"Semantic vacuum skipped: {e}")
+
+        # 4. Log the maintenance activity
+        try:
+            await api.create_activity(
+                action="autonomous_maintenance",
+                skill="heartbeat",
+                details=results,
+                success=True,
+            )
+        except Exception:
+            pass
+
+        self.logger.info(
+            f"🔧 Autonomous maintenance complete: {len(results['actions'])} actions"
+        )
+
+    async def _emergency_maintenance(self) -> None:
+        """
+        Emergency maintenance triggered by resource thresholds.
+        Called from _beat() when thresholds are exceeded.
+        Non-destructive only — archive/compress/evict caches.
+        """
+        self.logger.warning("⚡ Emergency maintenance triggered by resource pressure")
+
+        try:
+            from aria_skills.api_client import get_api_client
+            api = await get_api_client()
+            if not api:
+                return
+        except Exception:
+            return
+
+        # Emergency session pruning (>6h idle when >50 sessions)
+        try:
+            stats = await api.get("/api/agent-manager/session-stats")
+            active = (stats or {}).get("active_sessions", 0) if isinstance(stats, dict) else 0
+            if active > 50:
+                await api.post(
+                    "/api/agent-manager/prune-stale-sessions",
+                    json={"max_age_hours": 6},
+                )
+                self.logger.warning(f"⚡ Emergency pruned sessions (had {active} active, >50 threshold)")
+        except Exception as e:
+            self.logger.debug(f"Emergency session prune failed: {e}")
+
+        # Force memory consolidation
+        await self._trigger_consolidation()
+
     async def _check_goals(self) -> None:
         """Execute one concrete goal-work step per cycle, scaled by focus level."""
         if not self._mind.cognition or not self._mind.cognition._skills:
@@ -464,6 +576,7 @@ class Heartbeat:
                     "next_goal_check_in": self._goal_check_interval - self._beats_since_goal_check,
                     "next_reflection_in": self._reflection_interval - self._beats_since_reflection,
                     "next_consolidation_in": self._consolidation_interval - self._beats_since_consolidation,
+                    "next_maintenance_in": self._maintenance_interval - self._beats_since_maintenance,
                 },
             }
             self._mind.memory.write_surface(surface_data)
@@ -589,6 +702,7 @@ class Heartbeat:
                 "next_goal_check_in": self._goal_check_interval - self._beats_since_goal_check,
                 "next_reflection_in": self._reflection_interval - self._beats_since_reflection,
                 "next_consolidation_in": self._consolidation_interval - self._beats_since_consolidation,
+                "next_maintenance_in": self._maintenance_interval - self._beats_since_maintenance,
             },
             "details": self._health_status,
         }

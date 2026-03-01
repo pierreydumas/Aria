@@ -1044,6 +1044,15 @@
 
         <!-- Messages -->
         <div class="chat-messages" id="chatMessages" style="position:relative;">
+            <!-- Graph Path — auto-collapsed context trail -->
+            <div class="graph-path-bar" id="graphPathBar">
+                <button class="graph-path-toggle" id="graphPathToggle" onclick="toggleGraphPath()">
+                    <span class="graph-path-icon">🕸️</span>
+                    <span class="graph-path-summary" id="graphPathSummary">Context path</span>
+                    <span class="graph-path-arrow" id="graphPathArrow">▶</span>
+                </button>
+                <div class="graph-path-detail" id="graphPathDetail"></div>
+            </div>
             <div class="chat-empty" id="chatEmpty">
                 <div class="icon">🌟</div>
                 <h3>Chat with Aria</h3>
@@ -1335,12 +1344,82 @@
 })();
 </script>
 
-<script src="/static/js/vis-network.min.js"></script>
+<!-- Graph Path Context Bar -->
+<style>
+.graph-path-bar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--bg-secondary, #1a1a2e);
+    border-bottom: 1px solid var(--border-color, #2a2a3e);
+    font-size: 11px;
+    opacity: 0.6;
+    transition: opacity 0.2s;
+}
+.graph-path-bar:hover { opacity: 1; }
+.graph-path-bar.has-path { opacity: 0.7; }
+.graph-path-bar.has-path:hover { opacity: 1; }
+.graph-path-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    width: 100%;
+    text-align: left;
+    color: var(--text-muted, #666);
+    font-size: 11px;
+    font-family: inherit;
+    line-height: 1.4;
+}
+.graph-path-toggle:hover { color: var(--text-secondary, #999); }
+.graph-path-icon { font-size: 10px; }
+.graph-path-summary {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.graph-path-arrow {
+    font-size: 8px;
+    transition: transform 0.15s;
+}
+.graph-path-bar.open .graph-path-arrow { transform: rotate(90deg); }
+.graph-path-detail {
+    display: none;
+    padding: 6px 12px 8px 28px;
+    color: var(--text-muted, #666);
+    font-size: 11px;
+    line-height: 1.6;
+    max-height: 120px;
+    overflow-y: auto;
+}
+.graph-path-bar.open .graph-path-detail { display: block; }
+.graph-path-node {
+    display: inline-block;
+    padding: 1px 6px;
+    margin: 1px 2px;
+    border-radius: 8px;
+    background: var(--bg-tertiary, #252535);
+    color: var(--text-secondary, #999);
+    font-size: 10px;
+}
+.graph-path-node.entity { border-left: 2px solid #6c63ff; }
+.graph-path-node.topic { border-left: 2px solid #00bfa5; }
+.graph-path-node.skill { border-left: 2px solid #ff9800; }
+.graph-path-edge {
+    color: var(--text-muted, #555);
+    font-size: 9px;
+    margin: 0 1px;
+}
+</style>
 
 <!-- S-34: Chat Tool Execution Graph Visualizer -->
 <style>
 .execution-graph-panel {
-    margin-top: 8px;
+    margin: 4px 0 8px;
     border: 1px solid var(--border-color, #3a3a3a);
     border-radius: 8px;
     background: var(--bg-secondary, #1a1a1a);
@@ -1350,7 +1429,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 12px;
+    padding: 6px 12px;
     cursor: pointer;
     font-size: 12px;
     color: var(--text-secondary, #888);
@@ -1361,7 +1440,7 @@
     text-align: left;
 }
 .execution-graph-toggle:hover { color: var(--text-primary, #eee); }
-.execution-graph-toggle .arrow { transition: transform .2s; }
+.execution-graph-toggle .arrow { transition: transform .2s; font-size: 10px; }
 .execution-graph-toggle.open .arrow { transform: rotate(90deg); }
 .execution-graph-container {
     display: none;
@@ -1378,6 +1457,7 @@
     background: var(--bg-tertiary, #252525); color: var(--text-secondary, #888);
 }
 </style>
+<script src="/static/js/vis-network.min.js"></script>
 <script>
 (function() {
     'use strict';
@@ -1435,8 +1515,9 @@
                 font: { color: '#4a9fd4', size: 12 },
                 level: iteration
             });
-            const prevNode = iteration === 1 ? 'user' : `llm_${iteration - 1}`;
-            this._addEdge(prevNode, nodeId, '');
+            if (iteration > 1) {
+                this._addEdge(`llm_${iteration - 1}`, nodeId, '');
+            }
         }
 
         addToolCall(tc) {
@@ -1475,14 +1556,14 @@
                 font: { color: '#9b59d4', size: 12 },
                 level: this.currentIteration + 1
             });
-            const fromNode = this._hadTools ? `llm_${this.currentIteration}` : (this.currentIteration > 0 ? `llm_${this.currentIteration}` : 'user');
+            const fromNode = this.currentIteration > 0 ? `llm_${this.currentIteration}` : 'llm_1';
             this._addEdge(fromNode, nodeId, '');
         }
 
         initGraph(container) {
             if (!window.vis || !this.nodes || !this.nodes.add) return;
             const options = {
-                layout: { hierarchical: { direction: 'LR', sortMethod: 'directed', levelSeparation: 100, nodeSpacing: 60 } },
+                layout: { hierarchical: { direction: 'LR', sortMethod: 'directed', levelSeparation: 200, nodeSpacing: 120 } },
                 physics: { enabled: false },
                 interaction: { tooltipDelay: 100, hover: true },
                 nodes: { borderWidth: 1.5 },
@@ -1496,25 +1577,143 @@
             const latency = this.startTime ? Date.now() - this.startTime : null;
             const panel = document.createElement('div');
             panel.className = 'execution-graph-panel';
+            const graphId = 'exec-graph-' + Date.now();
             panel.innerHTML = `
                 <button class="execution-graph-toggle" type="button">
                     <span class="arrow">▶</span>
                     <span>Execution Graph — ${this.currentIteration} LLM call${this.currentIteration !== 1 ? 's' : ''}, ${this.totalTools} tool${this.totalTools !== 1 ? 's' : ''}${latency ? ', ' + (latency / 1000).toFixed(1) + 's' : ''}</span>
                 </button>
-                <div class="execution-graph-container" id="exec-graph-${Date.now()}"></div>
+                <div class="execution-graph-container" id="${graphId}"></div>
             `;
             const toggle = panel.querySelector('.execution-graph-toggle');
             const container = panel.querySelector('.execution-graph-container');
+
+            // Snapshot nodes/edges so subsequent reset() doesn't wipe this graph
+            const snapshotNodes = this.nodes.get ? new vis.DataSet(this.nodes.get()) : this.nodes;
+            const snapshotEdges = this.edges.get ? new vis.DataSet(this.edges.get()) : this.edges;
+
             toggle.addEventListener('click', () => {
                 const open = container.classList.toggle('visible');
                 toggle.classList.toggle('open', open);
-                if (open && !this.network) this.initGraph(container);
+                if (open && !container._graphInit) {
+                    container._graphInit = true;
+                    if (window.vis) {
+                        const options = {
+                            layout: { hierarchical: { direction: 'LR', sortMethod: 'directed', levelSeparation: 200, nodeSpacing: 120 } },
+                            physics: { enabled: false },
+                            interaction: { tooltipDelay: 100, hover: true },
+                            nodes: { borderWidth: 1.5 },
+                            edges: { smooth: { type: 'curvedCW', roundness: 0.1 }, width: 1, color: { color: '#555', hover: '#888' } }
+                        };
+                        new vis.Network(container, { nodes: snapshotNodes, edges: snapshotEdges }, options);
+                    }
+                }
             });
-            msgEl.appendChild(panel);
+
+            // Insert right after message-header (under "Aria · Main")
+            const body = msgEl.querySelector('.message-body');
+            const header = body?.querySelector('.message-header');
+            if (header && header.nextSibling) {
+                body.insertBefore(panel, header.nextSibling);
+            } else if (body) {
+                body.appendChild(panel);
+            }
+
+            // Persist snapshot to localStorage for survival across tab close
+            this._saveSnapshot(
+                this.nodes.get ? this.nodes.get() : [],
+                this.edges.get ? this.edges.get() : [],
+                this.currentIteration,
+                this.totalTools,
+                latency
+            );
+        }
+
+        _saveSnapshot(nodes, edges, iterations, tools, latencyMs) {
+            const sid = window.location.pathname.split('/chat/')[1];
+            if (!sid) return;
+            const key = `execGraphs_${sid}`;
+            try {
+                // Strip non-serializable fields from vis.js node/edge objects
+                const cleanNodes = nodes.map(n => ({
+                    id: n.id, label: n.label, shape: n.shape,
+                    color: n.color, font: n.font, level: n.level
+                }));
+                const cleanEdges = edges.map(e => ({
+                    from: e.from, to: e.to, label: e.label,
+                    arrows: e.arrows, font: e.font
+                }));
+                const arr = JSON.parse(localStorage.getItem(key) || '[]');
+                arr.push({ nodes: cleanNodes, edges: cleanEdges, iterations, tools, latencyMs });
+                localStorage.setItem(key, JSON.stringify(arr));
+                console.debug('[ExecGraph] Saved snapshot', { sid, graphs: arr.length, nodes: cleanNodes.length, edges: cleanEdges.length });
+            } catch(e) { console.warn('[ExecGraph] Save failed:', e); }
+        }
+
+        static restoreGraphsForSession(sid) {
+            if (!window.vis) { console.warn('[ExecGraph] vis.js not loaded'); return; }
+            const key = `execGraphs_${sid}`;
+            let stored;
+            try { stored = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) { return; }
+            if (!stored.length) { console.debug('[ExecGraph] No stored graphs for', sid); return; }
+
+            // Find assistant messages that had tool_calls (they have .tool-call-card)
+            const msgEls = document.querySelectorAll('#chatMessages .message.assistant');
+            const toolMsgEls = Array.from(msgEls).filter(el => el.querySelector('.tool-call-card'));
+            console.debug('[ExecGraph] Restoring', stored.length, 'graphs into', toolMsgEls.length, 'tool messages');
+
+            toolMsgEls.forEach((msgEl, i) => {
+                if (i >= stored.length) return;
+                // Skip if graph already attached
+                if (msgEl.querySelector('.execution-graph-panel')) return;
+
+                const snap = stored[i];
+                const panel = document.createElement('div');
+                panel.className = 'execution-graph-panel';
+                const graphId = 'exec-graph-restore-' + Date.now() + '-' + i;
+                const latStr = snap.latencyMs ? ', ' + (snap.latencyMs / 1000).toFixed(1) + 's' : '';
+                panel.innerHTML = `
+                    <button class="execution-graph-toggle" type="button">
+                        <span class="arrow">\u25b6</span>
+                        <span>Execution Graph \u2014 ${snap.iterations} LLM call${snap.iterations !== 1 ? 's' : ''}, ${snap.tools} tool${snap.tools !== 1 ? 's' : ''}${latStr}</span>
+                    </button>
+                    <div class="execution-graph-container" id="${graphId}"></div>
+                `;
+
+                const toggle = panel.querySelector('.execution-graph-toggle');
+                const container = panel.querySelector('.execution-graph-container');
+                const snapNodes = new vis.DataSet(snap.nodes);
+                const snapEdges = new vis.DataSet(snap.edges);
+
+                toggle.addEventListener('click', () => {
+                    const open = container.classList.toggle('visible');
+                    toggle.classList.toggle('open', open);
+                    if (open && !container._graphInit) {
+                        container._graphInit = true;
+                        const options = {
+                            layout: { hierarchical: { direction: 'LR', sortMethod: 'directed', levelSeparation: 200, nodeSpacing: 120 } },
+                            physics: { enabled: false },
+                            interaction: { tooltipDelay: 100, hover: true },
+                            nodes: { borderWidth: 1.5 },
+                            edges: { smooth: { type: 'curvedCW', roundness: 0.1 }, width: 1, color: { color: '#555', hover: '#888' } }
+                        };
+                        new vis.Network(container, { nodes: snapNodes, edges: snapEdges }, options);
+                    }
+                });
+
+                const body = msgEl.querySelector('.message-body');
+                const header = body?.querySelector('.message-header');
+                if (header && header.nextSibling) {
+                    body.insertBefore(panel, header.nextSibling);
+                } else if (body) {
+                    body.appendChild(panel);
+                }
+            });
         }
     }
 
     window._execGraph = new ExecutionGraphVisualizer();
+    window._ExecGraphClass = ExecutionGraphVisualizer;
 })();
 </script>
 
@@ -1541,6 +1740,140 @@
     const userDisplayName = '{{ user_display_name | default("User") }}';
     let currentAgentId = 'aria';  // updated when session loads
 
+    // ── Graph Path Tracker ──────────────────────────────────────
+    // Tracks entities, topics, and skills mentioned during conversation
+    // Renders as a minimal auto-collapsed breadcrumb trail at top of chat
+    const graphPath = {
+        entities: [],   // named entities extracted from conversation
+        topics: [],     // topic keywords
+        skills: [],     // tools/skills used
+        _maxNodes: 12,  // max visible nodes before compacting
+
+        _storageKey() {
+            return sessionId ? `graphPath_${sessionId}` : null;
+        },
+
+        _save() {
+            const key = this._storageKey();
+            if (!key) return;
+            try {
+                localStorage.setItem(key, JSON.stringify({
+                    entities: this.entities,
+                    topics: this.topics,
+                    skills: this.skills,
+                }));
+            } catch(e) { /* quota */ }
+        },
+
+        _load() {
+            const key = this._storageKey();
+            if (!key) return;
+            try {
+                const raw = localStorage.getItem(key);
+                if (!raw) return;
+                const data = JSON.parse(raw);
+                this.entities = data.entities || [];
+                this.topics = data.topics || [];
+                this.skills = data.skills || [];
+                this._render(true);  // render without saving (already saved)
+            } catch(e) { /* corrupt */ }
+        },
+
+        reset() {
+            this.entities = [];
+            this.topics = [];
+            this.skills = [];
+            this._render();
+        },
+
+        addFromToolCall(toolName) {
+            // Extract skill name from tool calls (e.g. "aria-browser.search" → "browser")
+            const skill = toolName.replace(/^aria[-_]/, '').split(/[._]/)[0];
+            if (skill && !this.skills.includes(skill)) {
+                this.skills.push(skill);
+                if (this.skills.length > 6) this.skills.shift();
+                this._render();
+            }
+        },
+
+        addFromContent(text) {
+            if (!text || text.length < 10) return;
+            // Extract topic-like keywords from conversation (simple heuristic)
+            const words = text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/);
+            const stopwords = new Set(['the','a','an','is','are','was','were','be','been',
+                'have','has','had','do','does','did','will','would','could','should',
+                'can','may','might','shall','i','you','he','she','it','we','they',
+                'me','him','her','us','them','my','your','his','its','our','their',
+                'this','that','these','those','what','which','who','whom','whose',
+                'when','where','how','why','not','no','yes','and','or','but','if',
+                'then','so','just','also','very','too','really','much','more','most',
+                'some','any','all','each','every','both','few','several','many','other',
+                'about','for','from','with','into','through','during','before','after',
+                'above','below','to','of','in','on','at','by','up','out','off','over']);
+            const meaningful = words.filter(w => w.length > 3 && !stopwords.has(w));
+            // Pick top 2-3 uncommon words as topic signals
+            const freq = {};
+            meaningful.forEach(w => { freq[w] = (freq[w] || 0) + 1; });
+            const topWords = Object.entries(freq)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 2)
+                .map(e => e[0]);
+
+            topWords.forEach(w => {
+                if (!this.topics.includes(w)) {
+                    this.topics.push(w);
+                    if (this.topics.length > 8) this.topics.shift();
+                }
+            });
+            if (topWords.length) this._render();
+        },
+
+        _render(skipSave) {
+            const bar = document.getElementById('graphPathBar');
+            const summary = document.getElementById('graphPathSummary');
+            const detail = document.getElementById('graphPathDetail');
+            if (!bar || !summary || !detail) return;
+
+            const allNodes = [
+                ...this.skills.map(s => ({type: 'skill', label: s})),
+                ...this.topics.map(t => ({type: 'topic', label: t})),
+                ...this.entities.map(e => ({type: 'entity', label: e})),
+            ];
+
+            if (!allNodes.length) {
+                bar.classList.remove('has-path');
+                summary.textContent = 'Context path';
+                detail.innerHTML = '';
+                if (!skipSave) this._save();
+                return;
+            }
+
+            bar.classList.add('has-path');
+
+            // Summary line (collapsed view)
+            const summaryParts = [];
+            if (this.skills.length) summaryParts.push(this.skills.slice(-3).join(' → '));
+            if (this.topics.length) summaryParts.push(this.topics.slice(-3).join(' · '));
+            summary.textContent = summaryParts.join(' │ ') || 'Context path';
+
+            // Detail (expanded view)
+            const nodes = allNodes.slice(-this._maxNodes);
+            detail.innerHTML = nodes.map((n, i) => {
+                const arrow = i < nodes.length - 1 ? '<span class="graph-path-edge">→</span>' : '';
+                return `<span class="graph-path-node ${n.type}">${n.label}</span>${arrow}`;
+            }).join('');
+
+            // Persist to localStorage (skip if called from _load to avoid loop)
+            if (!skipSave) this._save();
+        }
+    };
+
+    // Global toggle for the graph path bar
+    window.toggleGraphPath = function() {
+        const bar = document.getElementById('graphPathBar');
+        if (bar) bar.classList.toggle('open');
+    };
+
     // ── Marked config ───────────────────────────────────────────
     marked.setOptions({
         highlight: function(code, lang) {
@@ -1561,7 +1894,7 @@
         setupInput();
         setupScrollDetection();
         if (sessionId) {
-            loadSession(sessionId);
+            loadSession(sessionId).then(() => graphPath._load());
         } else if (allSessions.length) {
             // Auto-select the most recent non-ghost session so the user sees their last chat
             const nonGhost = allSessions.find(s => (s.message_count || 0) > 0);
@@ -1927,6 +2260,7 @@
         sessionId = sid;
         wsAttempts = 0;  // reset retry counter for new session
         _titleGenerated = false;  // reset for loaded session
+        graphPath.reset();  // clear graph path for new session context
         history.replaceState(null, '', `/chat/${sid}`);
 
         const messagesContainer = document.getElementById('chatMessages');
@@ -1969,6 +2303,7 @@
         }
 
         await loadSession(sid);
+        graphPath._load();  // restore persisted graph path for this session
     }
 
     async function createNewSession() {
@@ -1978,8 +2313,17 @@
         streamingMessageEl = null;
         streamingMessageId = '';
         isStreaming = false;
+        graphPath.reset();  // clear graph path for fresh session
 
         document.getElementById('chatMessages').innerHTML = `
+            <div class="graph-path-bar" id="graphPathBar">
+                <button class="graph-path-toggle" id="graphPathToggle" onclick="toggleGraphPath()">
+                    <span class="graph-path-icon">🕸️</span>
+                    <span class="graph-path-summary" id="graphPathSummary">Context path</span>
+                    <span class="graph-path-arrow" id="graphPathArrow">▶</span>
+                </button>
+                <div class="graph-path-detail" id="graphPathDetail"></div>
+            </div>
             <div class="chat-empty" id="chatEmpty">
                 <div class="icon">🌟</div>
                 <h3>Chat with Aria</h3>
@@ -2174,6 +2518,7 @@
                     window._toolVisualizer.createToolCard(body, _tc);
                 }
                 window._execGraph.addToolCall(_tc);
+                graphPath.addFromToolCall(_tc.name);
                 break;
             }
             case 'tool_result':
@@ -2274,6 +2619,9 @@
 
     function finalizeStreamingMessage(msg) {
         isStreaming = false;
+
+        // Update graph path with conversation content
+        if (streamContent) graphPath.addFromContent(streamContent);
 
         // Finalize thinking display
         if (streamingMessageId) {
@@ -2487,6 +2835,11 @@
         const text = input.value.trim();
         if (!text || isStreaming) return;
 
+        // Feed user input to graph path context tracker
+        graphPath.addFromContent(text);
+        // S-34: feed user input to execution graph
+        // (user node removed from graph per preference)
+
         const msgPayload = {
             type: 'message',
             content: text,
@@ -2586,25 +2939,147 @@
                     }
                 });
 
-                messages.forEach(m => {
-                    const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content || '');
-                    // skip tool results — shown inside assistant cards via toolResultMap
-                    if (m.role === 'tool') return;
-                    // skip empty assistant messages (no content, no tool_calls)
-                    if (m.role === 'assistant' && !content && (!m.tool_calls || !m.tool_calls.length)) return;
-                    // Annotate each tool_call with its result for rendering
-                    const toolCallsWithResults = m.tool_calls
-                        ? m.tool_calls.map(tc => ({
+                // Merge consecutive assistant messages (multi-iteration LLM loops)
+                // into a single rendered message to match streaming behavior.
+                // Pattern: assistant(tool_calls) → tool results → assistant(content)
+                // should render as ONE message with tool cards + content.
+                const mergedMessages = [];
+                const seenToolCallIds = new Set();
+                for (let i = 0; i < messages.length; i++) {
+                    const m = messages[i];
+                    if (m.role === 'tool') continue;  // skip tool results — shown inside cards
+                    if (m.role === 'assistant') {
+                        const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content || '');
+                        // Deduplicate tool_calls by id
+                        const dedupedTcs = (m.tool_calls || []).filter(tc => {
+                            if (seenToolCallIds.has(tc.id)) return false;
+                            seenToolCallIds.add(tc.id);
+                            return true;
+                        });
+                        // Merge into previous assistant if it exists (consecutive assistant msgs)
+                        const prev = mergedMessages.length ? mergedMessages[mergedMessages.length - 1] : null;
+                        if (prev && prev.role === 'assistant') {
+                            // Merge content (keep non-empty, prefer the one with actual response)
+                            if (content && content.length > (prev._content || '').length) {
+                                prev._content = content;
+                            }
+                            // Merge thinking (keep longest)
+                            if (m.thinking && (!prev.thinking || m.thinking.length > prev.thinking.length)) {
+                                prev.thinking = m.thinking;
+                            }
+                            // Merge tool_calls (deduplicated)
+                            if (dedupedTcs.length) {
+                                prev._toolCalls = (prev._toolCalls || []).concat(dedupedTcs);
+                            }
+                            // Keep model from whichever has it
+                            if (m.model) prev.model = m.model;
+                            // Keep exec_trace from metadata (usually on final assistant msg)
+                            if (m.metadata && m.metadata.exec_trace) {
+                                prev._execTrace = m.metadata.exec_trace;
+                            }
+                        } else {
+                            // Start new merged entry
+                            if (!content && !dedupedTcs.length) continue;  // skip empty
+                            mergedMessages.push({
+                                role: 'assistant',
+                                _content: content,
+                                thinking: m.thinking,
+                                _toolCalls: dedupedTcs,
+                                model: m.model,
+                                _execTrace: m.metadata?.exec_trace || null,
+                            });
+                        }
+                    } else {
+                        // user or system — reset tool dedup for next exchange
+                        seenToolCallIds.clear();
+                        const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content || '');
+                        mergedMessages.push({ role: m.role, _content: content, model: m.model });
+                    }
+                }
+
+                mergedMessages.forEach(m => {
+                    const toolCallsWithResults = m._toolCalls && m._toolCalls.length
+                        ? m._toolCalls.map(tc => ({
                             ...tc,
                             _result: toolResultMap[tc.id] ?? null
                           }))
                         : undefined;
-                    addMessage(m.role, content, {
+                    addMessage(m.role, m._content || '', {
                         thinking: m.thinking,
                         tool_calls: toolCallsWithResults,
                         model: m.model,
                     });
+
+                    // Rebuild execution graph from DB exec_trace if available
+                    if (m._execTrace && window.vis) {
+                        const trace = m._execTrace;
+                        const container = document.getElementById('chatMessages');
+                        const msgEl = container.lastElementChild;
+                        if (msgEl && trace.nodes && trace.nodes.length) {
+                            const panel = document.createElement('div');
+                            panel.className = 'execution-graph-panel';
+                            const graphId = 'exec-graph-db-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+                            const latStr = trace.latency_ms ? ', ' + (trace.latency_ms / 1000).toFixed(1) + 's' : '';
+                            panel.innerHTML = `
+                                <button class="execution-graph-toggle" type="button">
+                                    <span class="arrow">\u25b6</span>
+                                    <span>Execution Graph \u2014 ${trace.iterations || '?'} LLM call${(trace.iterations || 0) !== 1 ? 's' : ''}, ${trace.total_tools || 0} tool${(trace.total_tools || 0) !== 1 ? 's' : ''}${latStr}</span>
+                                </button>
+                                <div class="execution-graph-container" id="${graphId}"></div>
+                            `;
+                            const toggle = panel.querySelector('.execution-graph-toggle');
+                            const gContainer = panel.querySelector('.execution-graph-container');
+                            const snapNodes = new vis.DataSet(trace.nodes);
+                            const snapEdges = new vis.DataSet(trace.edges);
+                            toggle.addEventListener('click', () => {
+                                const open = gContainer.classList.toggle('visible');
+                                toggle.classList.toggle('open', open);
+                                if (open && !gContainer._graphInit) {
+                                    gContainer._graphInit = true;
+                                    new vis.Network(gContainer, { nodes: snapNodes, edges: snapEdges }, {
+                                        layout: { hierarchical: { direction: 'LR', sortMethod: 'directed', levelSeparation: 200, nodeSpacing: 120 } },
+                                        physics: { enabled: false },
+                                        interaction: { tooltipDelay: 100, hover: true },
+                                        nodes: { borderWidth: 1.5 },
+                                        edges: { smooth: { type: 'curvedCW', roundness: 0.1 }, width: 1, color: { color: '#555', hover: '#888' } }
+                                    });
+                                }
+                            });
+                            const body = msgEl.querySelector('.message-body');
+                            const header = body?.querySelector('.message-header');
+                            if (header && header.nextSibling) {
+                                body.insertBefore(panel, header.nextSibling);
+                            } else if (body) {
+                                body.appendChild(panel);
+                            }
+                        }
+                    }
                 });
+
+                // Rebuild graphPath from loaded history if no meaningful data stored
+                const _gpRaw = localStorage.getItem(graphPath._storageKey());
+                const _gpHasData = (() => {
+                    if (!_gpRaw) return false;
+                    try { const d = JSON.parse(_gpRaw); return (d.skills?.length || d.topics?.length || d.entities?.length); } catch(e) { return false; }
+                })();
+                if (!_gpHasData) {
+                    messages.forEach(m => {
+                        if (m.role === 'user' && m.content) {
+                            graphPath.addFromContent(typeof m.content === 'string' ? m.content : '');
+                        }
+                        if (m.tool_calls) {
+                            m.tool_calls.forEach(tc => {
+                                const name = tc.name || tc.function?.name;
+                                if (name) graphPath.addFromToolCall(name);
+                            });
+                        }
+                    });
+                }
+
+                // Restore execution graphs from localStorage
+                if (window._ExecGraphClass) {
+                    window._ExecGraphClass.restoreGraphsForSession(sid);
+                }
             } else {
                 console.warn(`Messages load returned ${resp.status} for session ${sid}`);
             }

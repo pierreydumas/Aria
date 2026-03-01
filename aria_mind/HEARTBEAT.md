@@ -97,7 +97,40 @@ Memory continuity rule:
 - If `active_goal_reference` is missing, derive from goals and set it before ending cycle.
 - After each cycle, persist a compact `last_cycle_summary` and refresh `active_goal_reference`.
 - Review cron jobs (`six_hour_review`, `morning_checkin`, `daily_reflection`, `weekly_summary`) must refresh `last_review_summary`.
-- Consent queue key: `pending_consent_actions` (review and resolve during review jobs before requesting high-impact execution).
+- Consent queue key: `pending_consent_actions` — ONLY for destructive operations (DROP, TRUNCATE, hard-delete, schema migrations). Non-destructive maintenance (archive, compress, vacuum, reindex, consolidate) executes autonomously without consent.
+
+---
+
+## Autonomous Maintenance Policy
+
+**Principle: Non-destructive = Autonomous. Destructive = Consent.**
+
+### Auto-Execute (No consent needed)
+| Operation | Trigger | Notes |
+|-----------|---------|-------|
+| Session archiving | >20 active or >24h idle | Archives to DB, never deletes |
+| Memory compression | Every 6h or >75% usage | Surface→medium→deep compaction |
+| Activity archiving | Entries >7d old | Compressed into weekly summaries |
+| VACUUM ANALYZE | Daily (4 AM UTC) | Non-locking on PG |
+| REINDEX CONCURRENTLY | Weekly or index bloat >30% | Non-blocking |
+| Surface file cleanup | Every 10 beats | Keep last 20 files |
+| Semantic dedup | Weekly | Cosine similarity >0.95 |
+| Stale plan archiving | Plans >30d with no activity | Moved to deep storage |
+
+### Consent Required (add to `pending_consent_actions`)
+| Operation | Why |
+|-----------|-----|
+| Hard-delete sessions | Permanent data loss |
+| DROP/TRUNCATE tables | Irreversible schema change |
+| Schema migrations | Could break running services |
+| Config changes | Affects system behavior |
+| Credential rotation | Security-sensitive |
+
+### Self-Healing Triggers
+- Memory usage >75% → trigger memory consolidation immediately
+- Disk usage >80% → trigger archive compression immediately
+- Session count >50 → trigger emergency session archiving (>6h idle)
+- 3+ consecutive heartbeat failures → full subsystem self-heal
 
 ---
 

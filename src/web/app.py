@@ -19,6 +19,10 @@ def create_app():
     
     app.config['SECRET_KEY'] = os.environ['SECRET_KEY']
 
+    # Disable Jinja2 template caching so bind-mounted changes are picked up instantly
+    app.config['TEMPLATES_AUTO_RELOAD'] = True
+    app.jinja_env.auto_reload = True
+
     # S-17: Secure session cookies in production
     _is_production = os.environ.get('FLASK_ENV', 'development').lower() == 'production'
     app.config['SESSION_COOKIE_SECURE'] = _is_production
