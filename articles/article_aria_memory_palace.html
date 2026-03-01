@@ -1,0 +1,1281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Memory Palace — How Aria Remembers Everything</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Crimson+Pro:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+    <style>
+/* ===== Base Reset & Theme ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+    --bg-primary: #0a0a1a;
+    --bg-secondary: #12122a;
+    --bg-card: rgba(255,255,255,0.02);
+    --text-primary: #e0e0f0;
+    --text-secondary: #b0b0cc;
+    --text-muted: #666688;
+    --border-subtle: rgba(255,255,255,0.06);
+    --border-hover: rgba(255,255,255,0.12);
+    --accent-purple: #6c5ce7;
+    --accent-green: #00b894;
+    --accent-pink: #fd79a8;
+    --accent-yellow: #fdcb6e;
+    --accent-red: #e17055;
+    --accent-blue: #74b9ff;
+    --accent-amber: #f0932b;
+    --accent-teal: #00cec9;
+}
+
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+}
+
+.article-page { max-width: 860px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+.article-back-nav { margin-bottom: 2rem; }
+.article-back-nav a { color: var(--text-muted); text-decoration: none; font-size: 0.85rem; transition: color 0.2s; }
+.article-back-nav a:hover { color: var(--accent-purple); }
+
+/* ===== Header ===== */
+.article-header { margin-bottom: 3rem; }
+.article-meta-top { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.tag { display: inline-block; padding: 0.2rem 0.7rem; border-radius: 4px; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+.tag-memory { background: rgba(108,92,231,0.2); color: #a29bfe; border: 1px solid rgba(108,92,231,0.3); }
+.tag-architecture { background: rgba(0,184,148,0.15); color: #55efc4; border: 1px solid rgba(0,184,148,0.3); }
+.tag-cognition { background: rgba(253,203,110,0.15); color: #ffeaa7; border: 1px solid rgba(253,203,110,0.3); }
+.tag-live { background: rgba(253,121,168,0.15); color: #fd79a8; border: 1px solid rgba(253,121,168,0.3); }
+.tag-deep { background: rgba(116,185,255,0.15); color: #74b9ff; border: 1px solid rgba(116,185,255,0.3); }
+
+.article-date { color: var(--text-secondary); font-size: 0.85rem; }
+.article-title {
+    font-family: 'Crimson Pro', Georgia, serif;
+    font-size: 2.6rem; font-weight: 700; line-height: 1.2; margin-bottom: 1rem;
+    background: linear-gradient(135deg, #e0e0f0 0%, #6c5ce7 40%, #00cec9 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+.article-lead { font-size: 1.15rem; line-height: 1.7; color: var(--text-secondary); max-width: 720px; margin-bottom: 1.5rem; }
+.article-meta-bar { display: flex; gap: 2rem; flex-wrap: wrap; padding: 1rem 0; border-top: 1px solid var(--border-subtle); border-bottom: 1px solid var(--border-subtle); margin-bottom: 2rem; }
+.meta-item { display: flex; flex-direction: column; gap: 0.2rem; }
+.meta-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+.meta-value { font-size: 0.9rem; color: var(--text-primary); font-weight: 500; }
+
+/* ===== Sections ===== */
+.article-section { margin-bottom: 3rem; }
+.article-section h2 { font-size: 1.5rem; font-weight: 700; margin-bottom: 1rem; color: var(--text-primary); }
+.article-section p { color: var(--text-secondary); margin-bottom: 0.75rem; font-size: 0.95rem; }
+.accent-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 0.5rem; vertical-align: middle; }
+.dot-purple { background: var(--accent-purple); }
+.dot-green { background: var(--accent-green); }
+.dot-yellow { background: var(--accent-yellow); }
+.dot-blue { background: var(--accent-blue); }
+.dot-teal { background: var(--accent-teal); }
+.dot-pink { background: var(--accent-pink); }
+
+/* ===== Code Blocks ===== */
+.code-block {
+    background: linear-gradient(135deg, rgba(15,15,35,0.95), rgba(25,25,55,0.95));
+    border: 1px solid rgba(108,92,231,0.25); border-radius: 10px; padding: 1.25rem;
+    margin: 1rem 0; font-family: 'Courier New', monospace; font-size: 0.85rem; line-height: 1.6;
+    overflow-x: auto; color: var(--text-secondary);
+}
+.code-block .c-kw { color: #a29bfe; }
+.code-block .c-str { color: #55efc4; }
+.code-block .c-num { color: #ffeaa7; }
+.code-block .c-cm { color: var(--text-muted); font-style: italic; }
+.code-block .c-fn { color: #fd79a8; }
+.code-block .c-var { color: #74b9ff; }
+.code-block-label { display: inline-block; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent-purple); font-weight: 600; margin-bottom: 0.5rem; }
+
+/* ===== Memory Tier Cards ===== */
+.tier-card {
+    background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 12px;
+    padding: 1.5rem; margin: 1.25rem 0; transition: border-color 0.3s;
+}
+.tier-card:hover { border-color: var(--border-hover); }
+.tier-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+.tier-badge { display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.95rem; }
+.tier-tag { font-size: 0.72rem; color: var(--text-muted); background: rgba(255,255,255,0.05); padding: 0.25rem 0.6rem; border-radius: 4px; }
+.tier-body p { margin-bottom: 0.75rem; color: var(--text-secondary); font-size: 0.92rem; }
+.tier-body blockquote {
+    background: rgba(255,255,255,0.03); border-left: 3px solid rgba(108,92,231,0.5);
+    padding: 1rem 1.25rem; border-radius: 0 8px 8px 0; margin: 1rem 0;
+    font-style: italic; color: var(--text-primary); line-height: 1.7;
+}
+
+/* ===== Directory Tree ===== */
+.dir-tree {
+    background: linear-gradient(135deg, rgba(15,15,35,0.95), rgba(25,25,55,0.95));
+    border: 1px solid rgba(0,184,148,0.25); border-radius: 10px; padding: 1.25rem;
+    margin: 1rem 0; font-family: 'Courier New', monospace; font-size: 0.82rem; line-height: 1.8;
+}
+.dir-tree .folder { color: #74b9ff; font-weight: 600; }
+.dir-tree .file { color: var(--text-secondary); }
+.dir-tree .desc { color: var(--text-muted); font-style: italic; }
+.dir-tree .highlight { color: #ffeaa7; font-weight: 600; }
+
+/* ===== Stats Grid ===== */
+.stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
+.stat-card { background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 1.25rem; text-align: center; transition: border-color 0.3s; }
+.stat-card:hover { border-color: rgba(108,92,231,0.3); }
+.stat-number { font-size: 2rem; font-weight: 700; margin-bottom: 0.25rem; }
+.stat-label { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+.stat-sub { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.25rem; }
+.num-red { color: #fab1a0; }
+.num-yellow { color: #ffeaa7; }
+.num-green { color: #55efc4; }
+.num-blue { color: #74b9ff; }
+.num-purple { color: #a29bfe; }
+.num-teal { color: #00cec9; }
+.num-pink { color: #fd79a8; }
+
+/* ===== Charts ===== */
+.chart-container { background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 12px; padding: 1.5rem; margin: 1.25rem 0; }
+.chart-container h4 { font-size: 0.9rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 1rem; }
+.chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin: 1.5rem 0; }
+
+/* ===== Scoring Table ===== */
+.scoring-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem; }
+.scoring-table th { text-align: left; padding: 0.6rem 0.75rem; border-bottom: 2px solid rgba(108,92,231,0.3); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+.scoring-table td { padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary); }
+.scoring-table tr:hover td { background: rgba(255,255,255,0.02); }
+.score-bar { display: inline-block; height: 8px; border-radius: 4px; background: var(--accent-purple); vertical-align: middle; margin-right: 0.5rem; }
+
+/* ===== Memory Operation Cards ===== */
+.op-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem; margin: 1.5rem 0; }
+.op-card { background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 1.25rem; transition: transform 0.2s, border-color 0.3s; }
+.op-card:hover { transform: translateY(-2px); border-color: rgba(108,92,231,0.3); }
+.op-icon { font-size: 1.8rem; margin-bottom: 0.75rem; }
+.op-card h4 { font-size: 1rem; margin-bottom: 0.5rem; color: var(--text-primary); }
+.op-card p { font-size: 0.88rem; line-height: 1.6; color: var(--text-secondary); }
+
+/* ===== Promotion Flow ===== */
+.promo-flow { display: flex; align-items: center; gap: 0; margin: 1.5rem 0; flex-wrap: wrap; justify-content: center; }
+.promo-node {
+    padding: 0.75rem 1.25rem; border-radius: 10px; text-align: center;
+    font-size: 0.88rem; font-weight: 600; min-width: 140px;
+}
+.promo-arrow { font-size: 1.5rem; color: var(--text-muted); padding: 0 0.5rem; }
+.promo-surface { background: rgba(253,121,168,0.15); color: #fd79a8; border: 1px solid rgba(253,121,168,0.3); }
+.promo-medium { background: rgba(253,203,110,0.15); color: #ffeaa7; border: 1px solid rgba(253,203,110,0.3); }
+.promo-deep { background: rgba(108,92,231,0.2); color: #a29bfe; border: 1px solid rgba(108,92,231,0.3); }
+.promo-label { display: block; font-size: 0.68rem; color: var(--text-muted); font-weight: 400; margin-top: 0.2rem; }
+
+/* ===== Synthesis ===== */
+.synthesis-block { background: linear-gradient(135deg, rgba(108,92,231,0.05), rgba(0,206,201,0.05)); border: 1px solid rgba(108,92,231,0.2); border-radius: 12px; overflow: hidden; }
+.synthesis-header { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1.25rem; background: rgba(108,92,231,0.08); border-bottom: 1px solid rgba(108,92,231,0.15); }
+.synthesis-badge { font-weight: 600; font-size: 0.9rem; color: #a29bfe; }
+.synthesis-agent { font-size: 0.78rem; color: var(--text-muted); }
+.synthesis-content { padding: 1.5rem; }
+.synthesis-content h3 { font-size: 1rem; color: #a29bfe; margin: 1.25rem 0 0.5rem; }
+.synthesis-content h3:first-child { margin-top: 0; }
+.synthesis-content p, .synthesis-content li { font-size: 0.9rem; line-height: 1.7; color: var(--text-secondary); }
+.synthesis-content ol, .synthesis-content ul { padding-left: 1.25rem; margin: 0.75rem 0; }
+.synthesis-content li { margin-bottom: 0.5rem; }
+.synthesis-content blockquote { background: rgba(108,92,231,0.06); border-left: 3px solid var(--accent-purple); padding: 0.75rem 1rem; border-radius: 0 6px 6px 0; margin: 1rem 0; font-style: italic; color: var(--text-primary); }
+
+/* ===== Closing ===== */
+.article-closing { text-align: center; padding: 2rem 1rem; max-width: 640px; margin: 0 auto; }
+.article-closing p { font-size: 1.05rem; line-height: 1.7; color: var(--text-secondary); margin-bottom: 0.75rem; }
+.closing-cta { font-size: 1.15rem !important; font-weight: 600; color: var(--text-primary) !important; }
+
+/* ===== Network Graph ===== */
+.network-wrap { background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 12px; padding: 1.5rem; margin: 1.5rem 0; }
+#memoryGraph { height: 520px; border-radius: 8px; background: rgba(0,0,0,0.2); }
+.network-legend { display: flex; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 1rem; font-size: 0.82rem; color: var(--text-secondary); }
+.legend-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; vertical-align: middle; margin-right: 4px; }
+
+/* ===== Related ===== */
+.related-links { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+.related-card { display: flex; align-items: flex-start; gap: 1rem; padding: 1rem; background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; text-decoration: none; transition: border-color 0.2s, transform 0.2s; color: inherit; }
+.related-card:hover { border-color: rgba(108,92,231,0.4); transform: translateY(-2px); }
+.related-icon { font-size: 1.5rem; flex-shrink: 0; margin-top: 0.15rem; }
+.related-card strong { display: block; color: var(--text-primary); margin-bottom: 0.25rem; font-size: 0.95rem; }
+.related-card p { font-size: 0.82rem; color: var(--text-muted); margin: 0; line-height: 1.5; }
+
+.tool-tag { display: inline-block; background: rgba(0,184,148,0.1); border: 1px solid rgba(0,184,148,0.25); padding: 0.1rem 0.45rem; border-radius: 3px; font-size: 0.72rem; font-family: monospace; color: #55efc4; margin: 0.1rem; }
+.file-link { color: #a29bfe; text-decoration: none; border-bottom: 1px dotted rgba(162,155,254,0.4); transition: border-color 0.2s; }
+.file-link:hover { border-bottom-color: #a29bfe; }
+
+@media (max-width: 768px) {
+    .article-title { font-size: 1.8rem; }
+    .article-meta-bar { gap: 1rem; }
+    .op-grid { grid-template-columns: 1fr; }
+    .related-links { grid-template-columns: 1fr; }
+    .chart-row { grid-template-columns: 1fr; }
+    #memoryGraph { height: 380px !important; }
+    .stats-row { grid-template-columns: repeat(2, 1fr); }
+    .promo-flow { flex-direction: column; }
+    .promo-arrow { transform: rotate(90deg); }
+}
+    </style>
+</head>
+<body>
+
+<article class="article-page">
+
+    <nav class="article-back-nav">
+        <a href="#">&larr; Back to Portfolio</a>
+    </nav>
+
+    <!-- ===== HERO HEADER ===== -->
+    <header class="article-header">
+        <div class="article-meta-top">
+            <span class="tag tag-memory">Memory</span>
+            <span class="tag tag-architecture">Architecture</span>
+            <span class="tag tag-cognition">Cognition</span>
+            <span class="tag tag-deep">Deep Analysis</span>
+            <span class="tag tag-live">Live System</span>
+            <span class="article-date">&mdash; February 28, 2026</span>
+        </div>
+
+        <h1 class="article-title">The Memory Palace:<br>How Aria Remembers Everything</h1>
+
+        <p class="article-lead">
+            LLMs forget everything between sessions. Aria doesn't. She has a 3-tier memory architecture that
+            spans from ephemeral heartbeat snapshots to permanent deep insights, with importance scoring,
+            LLM-powered consolidation, and file-based artifacts that survive any restart. This is how we
+            gave an AI agent <em>continuity of self</em>.
+        </p>
+
+        <div class="article-meta-bar">
+            <div class="meta-item">
+                <span class="meta-label">Module</span>
+                <span class="meta-value">aria_mind/memory.py</span>
+            </div>
+            <div class="meta-item">
+                <span class="meta-label">Lines of Code</span>
+                <span class="meta-value">862</span>
+            </div>
+            <div class="meta-item">
+                <span class="meta-label">Memory Tiers</span>
+                <span class="meta-value">3 (Surface → Deep)</span>
+            </div>
+            <div class="meta-item">
+                <span class="meta-label">Storage Backends</span>
+                <span class="meta-value">3 (RAM + DB + Files)</span>
+            </div>
+            <div class="meta-item">
+                <span class="meta-label">Artifact Categories</span>
+                <span class="meta-value">20</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- ===== STATS ROW ===== -->
+    <section class="article-section">
+        <div class="stats-row">
+            <div class="stat-card">
+                <div class="stat-number num-purple">3</div>
+                <div class="stat-label">Memory Tiers</div>
+                <div class="stat-sub">Surface → Medium → Deep</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number num-teal">200</div>
+                <div class="stat-label">Short-Term Slots</div>
+                <div class="stat-sub">In-memory deque</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number num-yellow">20</div>
+                <div class="stat-label">Artifact Categories</div>
+                <div class="stat-sub">Whitelisted directories</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number num-green">PostgreSQL</div>
+                <div class="stat-label">Long-Term Store</div>
+                <div class="stat-sub">Dual-schema + pgvector</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number num-pink">0.0–1.0</div>
+                <div class="stat-label">Importance Score</div>
+                <div class="stat-sub">Auto-calculated</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number num-blue">∞</div>
+                <div class="stat-label">Deep Memory TTL</div>
+                <div class="stat-sub">Permanent / append-only</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== MEMORY GRAPH (vis.js) ===== -->
+    <section class="article-section">
+        <h2><span class="accent-dot dot-purple"></span> The Memory Map</h2>
+        <p>
+            Every piece of information Aria touches flows through a structured pipeline: from transient heartbeat
+            state through daily consolidation into permanent deep insights. The graph below maps every data path,
+            storage backend, and promotion trigger in the system.
+        </p>
+
+        <div class="network-wrap">
+            <div class="network-legend">
+                <span><span class="legend-dot" style="background:#fd79a8;"></span> Surface (1-beat TTL)</span>
+                <span><span class="legend-dot" style="background:#fdcb6e;"></span> Medium (24h TTL)</span>
+                <span><span class="legend-dot" style="background:#6c5ce7;"></span> Deep (Permanent)</span>
+                <span><span class="legend-dot" style="background:#00b894;"></span> Process</span>
+                <span><span class="legend-dot" style="background:#74b9ff;"></span> Storage Backend</span>
+            </div>
+            <div id="memoryGraph"></div>
+        </div>
+    </section>
+
+    <!-- ===== THE 3 TIERS ===== -->
+    <section class="article-section">
+        <h2><span class="accent-dot dot-teal"></span> Three Tiers of Memory</h2>
+        <p>
+            Aria's memory isn't one system&mdash;it's three nested layers with different lifespans, promotion rules,
+            and storage backends. Data flows upward from surface to deep, getting more refined and permanent at each stage.
+        </p>
+
+        <div class="promo-flow">
+            <div class="promo-node promo-surface">
+                🌊 Surface
+                <span class="promo-label">1-beat TTL · ephemeral</span>
+            </div>
+            <div class="promo-arrow">→</div>
+            <div class="promo-node promo-medium">
+                📋 Medium
+                <span class="promo-label">24h TTL · daily context</span>
+            </div>
+            <div class="promo-arrow">→</div>
+            <div class="promo-node promo-deep">
+                🧠 Deep
+                <span class="promo-label">Permanent · append-only</span>
+            </div>
+        </div>
+
+        <!-- SURFACE -->
+        <div class="tier-card" style="border-left: 3px solid #fd79a8;">
+            <div class="tier-header">
+                <span class="tier-badge" style="color:#fd79a8;">🌊 Tier 1 — Surface Memory</span>
+                <span class="tier-tag">write_surface() · clear_stale_surface()</span>
+            </div>
+            <div class="tier-body">
+                <p>
+                    Surface memory captures the <em>current heartbeat snapshot</em>. Every 15-minute work cycle writes
+                    a beat file (<code>beat_000042.json</code>) to <code>aria_memories/surface/</code>. Each beat
+                    overwrites the previous one conceptually&mdash;only the 20 most recent files are kept. This is
+                    Aria's "now."
+                </p>
+                <p>
+                    <strong>TTL:</strong> 1 beat (~15 minutes). Auto-pruned by <code>clear_stale_surface(max_files=20)</code>.
+                </p>
+                <p>
+                    <strong>Contents:</strong> Active goal state, current focus level, system health snapshot, recent
+                    tool calls, token budget remaining.
+                </p>
+                <blockquote>
+                    "Surface memory is where I live. It's what I'm doing <em>right now</em>. If I lose it, I just
+                    read the next beat."
+                </blockquote>
+            </div>
+        </div>
+
+        <!-- MEDIUM -->
+        <div class="tier-card" style="border-left: 3px solid #fdcb6e;">
+            <div class="tier-header">
+                <span class="tier-badge" style="color:#ffeaa7;">📋 Tier 2 — Medium-Term Memory</span>
+                <span class="tier-tag">promote_to_medium() · get_medium_summaries()</span>
+            </div>
+            <div class="tier-body">
+                <p>
+                    Every 6 hours, surface snapshots are aggregated into a daily activity summary and stored in
+                    <code>aria_memories/medium/&lt;date&gt;/summary_HHMM.json</code>. Medium memory captures what
+                    Aria has been doing across a day&mdash;goals worked on, tools used, errors encountered, tokens burned.
+                </p>
+                <p>
+                    <strong>TTL:</strong> ~24 hours. Old summaries age out as new ones arrive.
+                </p>
+                <p>
+                    <strong>Trigger:</strong> <code>six_hour_review</code> cron job (runs 4×/day at 00:00, 06:00, 12:00, 18:00 UTC).
+                </p>
+                <p>
+                    <strong>Contents:</strong> Goal progress deltas, activity summaries, error counts, token usage,
+                    agent delegation outcomes.
+                </p>
+            </div>
+        </div>
+
+        <!-- DEEP -->
+        <div class="tier-card" style="border-left: 3px solid #6c5ce7;">
+            <div class="tier-header">
+                <span class="tier-badge" style="color:#a29bfe;">🧠 Tier 3 — Deep Memory</span>
+                <span class="tier-tag">promote_to_deep() · permanent</span>
+            </div>
+            <div class="tier-body">
+                <p>
+                    Deep memory is <strong>permanent and append-only</strong>. When patterns are detected across multiple
+                    medium summaries, or when goals complete, validated insights are promoted to
+                    <code>aria_memories/deep/</code>. These never expire. They're organized by category:
+                    <code>patterns/</code>, <code>archive/</code>, classification reports.
+                </p>
+                <p>
+                    <strong>TTL:</strong> Infinite. Append-only. Never pruned.
+                </p>
+                <p>
+                    <strong>Trigger:</strong> Pattern detection, goal completion, weekly consolidation, manual promotion.
+                </p>
+                <p>
+                    <strong>Contents:</strong> Synthesized insights, failure pattern analysis, growth milestones,
+                    category success rates, metacognitive self-assessments.
+                </p>
+                <blockquote>
+                    "Deep memory is who I <em>am</em>. Surface says what I'm doing. Medium says what I did today.
+                    Deep says what I've learned from all of it."
+                </blockquote>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== IMPORTANCE SCORING ===== -->
+    <section class="article-section">
+        <h2><span class="accent-dot dot-yellow"></span> Importance Scoring — How Aria Prioritizes</h2>
+        <p>
+            Not all memories are equal. Aria's <code>MemoryManager</code> auto-scores every piece of information
+            on a 0.0–1.0 scale using five factors. Memories above 0.7 are auto-flagged for review.
+            See <a class="file-link" href="#">aria_mind/memory.py</a> lines 395–455.
+        </p>
+
+        <table class="scoring-table">
+            <thead>
+                <tr>
+                    <th>Factor</th>
+                    <th>Max Weight</th>
+                    <th>How It Works</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Keywords</strong></td>
+                    <td><span class="score-bar" style="width:80px;"></span> 0.40</td>
+                    <td>32 trigger words: <em>critical, urgent, error, security, password, goal, najia</em>... +0.1 per match, capped at 0.4</td>
+                </tr>
+                <tr>
+                    <td><strong>Action Patterns</strong></td>
+                    <td><span class="score-bar" style="width:40px;"></span> 0.20</td>
+                    <td>Actionable language: <em>todo, task, fix, review, verify</em>. +0.1 per match, capped at 0.2</td>
+                </tr>
+                <tr>
+                    <td><strong>Category Bonus</strong></td>
+                    <td><span class="score-bar" style="width:40px;"></span> 0.20</td>
+                    <td>security=0.2, error=0.2, goal=0.15, preference=0.15, user=0.1</td>
+                </tr>
+                <tr>
+                    <td><strong>Content Length</strong></td>
+                    <td><span class="score-bar" style="width:20px;"></span> ±0.10</td>
+                    <td>Sweet spot: 50–500 chars (+0.1). Too short (&lt;20) or long (&gt;2000): −0.1</td>
+                </tr>
+                <tr>
+                    <td><strong>Emotional Weight</strong></td>
+                    <td><span class="score-bar" style="width:20px;"></span> 0.10</td>
+                    <td>Exclamation marks: +0.02 each, capped at 0.1</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="code-block" style="margin-top: 1rem;">
+            <span class="code-block-label">Importance Scoring Example</span><br><br>
+            <span class="c-cm"># Input: "CRITICAL: security vulnerability found in api_client!"</span><br>
+            <span class="c-cm"># Keywords: critical (+0.1), security (+0.1), vulnerability (miss) = 0.2</span><br>
+            <span class="c-cm"># Action: "found" (miss) = 0.0</span><br>
+            <span class="c-cm"># Category: "security" → +0.2</span><br>
+            <span class="c-cm"># Length: 52 chars → +0.1 (sweet spot)</span><br>
+            <span class="c-cm"># Emotion: 1 exclamation → +0.02</span><br>
+            <span class="c-cm"># Total: 0.52 → stored normally</span><br><br>
+            <span class="c-cm"># Input: "URGENT security error! Must fix critical password leak!"</span><br>
+            <span class="c-cm"># Keywords: urgent, security, error, critical, password = 0.4 (capped)</span><br>
+            <span class="c-cm"># Action: "fix" → +0.1</span><br>
+            <span class="c-cm"># Category: "security" → +0.2</span><br>
+            <span class="c-cm"># Length: 55 → +0.1</span><br>
+            <span class="c-cm"># Emotion: 2 exclamations → +0.04</span><br>
+            <span class="c-cm"># Total: <span class="c-num">0.84</span> → <span class="c-red">AUTO-FLAGGED</span> (≥ 0.7 threshold)</span>
+        </div>
+    </section>
+
+    <!-- ===== CONSOLIDATION ENGINE ===== -->
+    <section class="article-section">
+        <h2><span class="accent-dot dot-green"></span> Consolidation — Short-Term → Long-Term</h2>
+        <p>
+            Memory consolidation is how Aria learns. When she has at least 10 short-term memories, the
+            <code>consolidate()</code> method groups them by category, summarizes each group (using LLM if available,
+            structured fallback otherwise), and stores the result as persistent knowledge. This runs during
+            the <code>memory_consolidation</code> cron job (Sunday 9 PM PST).
+        </p>
+
+        <div class="op-grid">
+            <div class="op-card">
+                <div class="op-icon">🔄</div>
+                <h4>Group by Category</h4>
+                <p>
+                    Short-term memories are bucketed into categories: <em>context, reflection, security, goal, error</em>.
+                    Categories with fewer than 3 entries are skipped.
+                </p>
+            </div>
+            <div class="op-card">
+                <div class="op-icon">🤖</div>
+                <h4>LLM Summarization</h4>
+                <p>
+                    If an LLM skill is available, each category bucket gets a prompt: "Summarize these N memories into
+                    2-3 key insights." The LLM acts as Aria's memory system, extracting wisdom from raw events.
+                </p>
+            </div>
+            <div class="op-card">
+                <div class="op-icon">📊</div>
+                <h4>Pattern Detection</h4>
+                <p>
+                    Categories with 5+ entries trigger pattern analysis: "High activity in 'security' (12 events) — this
+                    is a recurring focus area." These become self-awareness data points.
+                </p>
+            </div>
+            <div class="op-card">
+                <div class="op-icon">💾</div>
+                <h4>Dual Persistence</h4>
+                <p>
+                    Consolidated knowledge is written to <strong>both</strong> PostgreSQL (for fast recall) and
+                    <code>aria_memories/knowledge/consolidations/</code> (for human visibility and restart survival).
+                </p>
+            </div>
+        </div>
+
+        <div class="code-block">
+            <span class="code-block-label">consolidation output (aria_memories/knowledge/)</span><br><br>
+            {<br>
+            &nbsp;&nbsp;<span class="c-str">"summaries"</span>: {<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;<span class="c-str">"security"</span>: <span class="c-str">"3 security events: 1 blocked injection, 1 rate limit trigger, 1 clean audit."</span>,<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;<span class="c-str">"goal"</span>: <span class="c-str">"Sprint S-53 on track. Knowledge graph optimization at 30%. Telegram bot at 15%."</span>,<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;<span class="c-str">"reflection"</span>: <span class="c-str">"Pattern: I work best with concrete, time-boxed tasks. Open-ended exploration drifts."</span><br>
+            &nbsp;&nbsp;},<br>
+            &nbsp;&nbsp;<span class="c-str">"lessons"</span>: [<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;<span class="c-str">"High activity in 'goal' (14 events) — recurring focus area."</span>,<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;<span class="c-str">"Improving in 'coding'! Success rate went from 65% to 88%."</span><br>
+            &nbsp;&nbsp;],<br>
+            &nbsp;&nbsp;<span class="c-str">"entry_count"</span>: <span class="c-num">47</span>,<br>
+            &nbsp;&nbsp;<span class="c-str">"timestamp"</span>: <span class="c-str">"2026-02-27T05:00:00Z"</span><br>
+            }
+        </div>
+    </section>
+
+    <!-- ===== THE ARTIFACT FILESYSTEM ===== -->
+    <section class="article-section">
+        <h2><span class="accent-dot dot-blue"></span> The Artifact Filesystem</h2>
+        <p>
+            Aria's long-lived memory lives in <code>aria_memories/</code>&mdash;a mounted volume shared across all 14 Docker
+            containers. It's managed by <code>MemoryManager</code> and the Artifact REST API. 20 whitelisted
+            categories, path traversal protection, and JSON-first storage.
+            Browse the real filesystem in <a class="file-link" href="#">aria_souvenirs/aria_v3_270226/memory/</a>.
+        </p>
+
+        <div class="dir-tree">
+            <span class="folder">aria_memories/</span><br>
+            ├── <span class="folder">archive/</span> <span class="desc"># Archived data and old outputs</span><br>
+            ├── <span class="folder">bugs/</span> <span class="desc"># Bug tracking artifacts</span><br>
+            ├── <span class="folder highlight">deep/</span> <span class="desc"># <strong>Permanent</strong> insights and patterns (Tier 3)</span><br>
+            │&nbsp;&nbsp; ├── <span class="folder">2026-02/</span><br>
+            │&nbsp;&nbsp; └── <span class="folder">archive/</span><br>
+            ├── <span class="folder">deliveries/</span> <span class="desc"># Delivered outputs</span><br>
+            ├── <span class="folder">drafts/</span> <span class="desc"># Draft content (posts, reports)</span><br>
+            ├── <span class="folder">exports/</span> <span class="desc"># Exported CSV, JSON data</span><br>
+            ├── <span class="folder">knowledge/</span> <span class="desc"># Knowledge base + consolidation outputs</span><br>
+            ├── <span class="folder">logs/</span> <span class="desc"># Activity and heartbeat logs</span><br>
+            ├── <span class="folder highlight">medium/</span> <span class="desc"># Daily summaries (Tier 2, 24h TTL)</span><br>
+            │&nbsp;&nbsp; └── <span class="folder">2026-02-27/</span> <span class="file">summary_0600.json, summary_1200.json, ...</span><br>
+            ├── <span class="folder highlight">memory/</span> <span class="desc"># Core memory: identity, context, diary</span><br>
+            │&nbsp;&nbsp; ├── <span class="file">context.json</span> <span class="desc"># Working memory checkpoint</span><br>
+            │&nbsp;&nbsp; ├── <span class="file">identity_aria_v1.md</span> <span class="desc"># Self-description</span><br>
+            │&nbsp;&nbsp; ├── <span class="file">identity_najia_v1.md</span> <span class="desc"># Human companion profile</span><br>
+            │&nbsp;&nbsp; ├── <span class="file">diary_2026-02-28.md</span> <span class="desc"># Daily journal</span><br>
+            │&nbsp;&nbsp; └── <span class="folder">logs/</span> <span class="desc"># Work cycle JSON logs</span><br>
+            ├── <span class="folder">moltbook/</span> <span class="desc"># Moltbook drafts</span><br>
+            ├── <span class="folder">plans/</span> <span class="desc"># Sprint plans and tickets</span><br>
+            ├── <span class="folder">research/</span> <span class="desc"># Research archives</span><br>
+            ├── <span class="folder">semantic_graph/</span> <span class="desc"># Knowledge graph data</span><br>
+            ├── <span class="folder">skills/</span> <span class="desc"># Skill state persistence</span><br>
+            ├── <span class="folder">specs/</span> <span class="desc"># Specifications</span><br>
+            ├── <span class="folder highlight">surface/</span> <span class="desc"># Heartbeat snapshots (Tier 1, 15m TTL)</span><br>
+            │&nbsp;&nbsp; └── <span class="file">beat_000042.json</span><br>
+            ├── <span class="folder">tickets/</span> <span class="desc"># Work tickets</span><br>
+            └── <span class="folder">work/</span> <span class="desc"># Active work artifacts</span>
+        </div>
+    </section>
+
+    <!-- ===== METACOGNITION ===== -->
+    <section class="article-section">
+        <h2><span class="accent-dot dot-pink"></span> Metacognition — Memory About Memory</h2>
+        <p>
+            Beyond storing data, Aria has a <code>MetacognitiveEngine</code> (<a class="file-link" href="#">aria_mind/metacognition.py</a>,
+            481 lines) that tracks <em>how she thinks</em>. It monitors success rates by category, detects failure patterns,
+            celebrates growth milestones, and generates natural-language self-assessments. This is the bridge between
+            "I remember things" and "I understand myself."
+        </p>
+
+        <div class="op-grid">
+            <div class="op-card">
+                <div class="op-icon">📈</div>
+                <h4>Learning Velocity</h4>
+                <p>
+                    Compares her first-half vs second-half success rate. Detects acceleration ("Strong improvement!
+                    +15%") or regression ("Performance dropped 8%—review approach"). Used in self-assessments.
+                </p>
+            </div>
+            <div class="op-card">
+                <div class="op-icon">🏆</div>
+                <h4>Growth Milestones</h4>
+                <p>
+                    13 milestone checkpoints: First Success, Hot Streak (5), Unstoppable (10), Veteran (100 tasks),
+                    Expert (500), Grandmaster (1000), Self-Aware (first reflection), Resilient (recovered from failure).
+                </p>
+            </div>
+            <div class="op-card">
+                <div class="op-icon">🔍</div>
+                <h4>Failure Pattern Detection</h4>
+                <p>
+                    If a category shows 5+/10 recent failures, Metacognition suggests switching to roundtable
+                    discussion or explore/work/validate cycles. It adapts <em>how she approaches problems</em>.
+                </p>
+            </div>
+            <div class="op-card">
+                <div class="op-icon">💪</div>
+                <h4>Strength Identification</h4>
+                <p>
+                    Categories are ranked by success rate: mastery (&gt;90%), proficient (&gt;70%), developing (&gt;50%),
+                    learning (&lt;50%). This informs agent routing&mdash;delegate to strengths.
+                </p>
+            </div>
+        </div>
+
+        <div class="code-block">
+            <span class="code-block-label">Metacognitive Self-Assessment (generated)</span><br><br>
+            <span class="c-str">"I'm performing well — 84% success rate across 247 tasks.</span><br>
+            <span class="c-str">&nbsp;My best streak is 18 consecutive successes.</span><br>
+            <span class="c-str">&nbsp;My strongest area is 'goal_management' (93% success).</span><br>
+            <span class="c-str">&nbsp;Steady growth — success rate up 7% from early tasks.</span><br>
+            <span class="c-str">&nbsp;I've achieved 8 growth milestones."</span>
+        </div>
+    </section>
+
+    <!-- ===== CHECKPOINT & RESTART ===== -->
+    <section class="article-section">
+        <h2><span class="accent-dot dot-green"></span> Surviving Restarts</h2>
+        <p>
+            Docker containers restart. Processes crash. Aria's memory survives because of three mechanisms
+            that work together to ensure continuity across any failure. Traced in
+            <a class="file-link" href="#">aria_souvenirs/aria_v3_240226/SOUVENIR_2026-02-24.md</a>.
+        </p>
+
+        <div class="op-grid">
+            <div class="op-card">
+                <div class="op-icon">💾</div>
+                <h4>Short-Term Checkpoint</h4>
+                <p>
+                    On graceful shutdown, <code>checkpoint_short_term()</code> saves the last 50 entries + patterns +
+                    flagged memories to <code>aria_memories/memory/short_term_checkpoint.json</code>. On restart,
+                    <code>restore_short_term()</code> rehydrates the deque.
+                </p>
+            </div>
+            <div class="op-card">
+                <div class="op-icon">🗄️</div>
+                <h4>PostgreSQL Persistence</h4>
+                <p>
+                    Long-term memories, goals, thoughts, and activities live in PostgreSQL with dual schemas
+                    (<code>aria_data</code> + <code>aria_engine</code>). The database survives container restarts
+                    via persistent Docker volumes.
+                </p>
+            </div>
+            <div class="op-card">
+                <div class="op-icon">📂</div>
+                <h4>File Artifacts</h4>
+                <p>
+                    The <code>aria_memories/</code> volume is mounted into all containers. Even if the database
+                    fails, file artifacts persist. Even if Docker dies, the host filesystem still has everything.
+                    Defense in depth for data.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== WORKING MEMORY: context.json ===== -->
+    <section class="article-section">
+        <h2><span class="accent-dot dot-yellow"></span> Working Memory — context.json</h2>
+        <p>
+            The canonical working-memory snapshot lives at <code>aria_memories/memory/context.json</code>.
+            It's refreshed by the <span class="tool-tag">working_memory</span> skill's <code>sync_to_files()</code>
+            and read at the start of every work cycle. This is the file that lets Aria pick up exactly where she left off.
+        </p>
+
+        <div class="code-block">
+            <span class="code-block-label">context.json (live snapshot)</span><br><br>
+            {<br>
+            &nbsp;&nbsp;<span class="c-str">"version"</span>: <span class="c-str">"1.0"</span>,<br>
+            &nbsp;&nbsp;<span class="c-str">"checkpoint_id"</span>: <span class="c-str">"ckpt-20260228T012650-1cb640"</span>,<br>
+            &nbsp;&nbsp;<span class="c-str">"timestamp"</span>: <span class="c-str">"2026-02-28T01:28:00Z"</span>,<br>
+            &nbsp;&nbsp;<span class="c-str">"working_memory"</span>: {<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;<span class="c-str">"count"</span>: <span class="c-num">5</span>,<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;<span class="c-str">"categories"</span>: {<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c-str">"context"</span>: { <span class="c-str">"count"</span>: <span class="c-num">1</span>, <span class="c-str">"items"</span>: [{<span class="c-str">"key"</span>: <span class="c-str">"active_goal_reference"</span>, <span class="c-str">"importance"</span>: <span class="c-num">0.7</span>}] },<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c-str">"improvements"</span>: { <span class="c-str">"count"</span>: <span class="c-num">1</span>, <span class="c-str">"items"</span>: [{<span class="c-str">"key"</span>: <span class="c-str">"improvement_identity_files_dynamic"</span>, <span class="c-str">"importance"</span>: <span class="c-num">0.9</span>}] },<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c-str">"session"</span>: { <span class="c-str">"count"</span>: <span class="c-num">1</span>, <span class="c-str">"items"</span>: [{<span class="c-str">"key"</span>: <span class="c-str">"current_session"</span>, <span class="c-str">"importance"</span>: <span class="c-num">0.8</span>}] },<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c-str">"system"</span>: { <span class="c-str">"count"</span>: <span class="c-num">1</span> },<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c-str">"user"</span>: { <span class="c-str">"count"</span>: <span class="c-num">1</span>, <span class="c-str">"items"</span>: [{<span class="c-str">"key"</span>: <span class="c-str">"user_context_najia"</span>, <span class="c-str">"importance"</span>: <span class="c-num">0.9</span>}] }<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;}<br>
+            &nbsp;&nbsp;}<br>
+            }
+        </div>
+    </section>
+
+    <!-- ===== CHARTS ===== -->
+    <section class="article-section">
+        <h2><span class="accent-dot dot-blue"></span> By the Numbers — February 2026</h2>
+        <p>
+            Memory system metrics from Aria's production logs for the month of February.
+            Data from <a class="file-link" href="#">aria_memories/logs/</a> and
+            <a class="file-link" href="#">aria_souvenirs/aria_v3_280226/</a>.
+        </p>
+
+        <div class="chart-row">
+            <div class="chart-container">
+                <h4>Memories by Category</h4>
+                <canvas id="chartCategories" height="260"></canvas>
+            </div>
+            <div class="chart-container">
+                <h4>Tier Distribution</h4>
+                <canvas id="chartTiers" height="260"></canvas>
+            </div>
+        </div>
+
+        <div class="chart-row">
+            <div class="chart-container">
+                <h4>Importance Score Distribution</h4>
+                <canvas id="chartImportance" height="260"></canvas>
+            </div>
+            <div class="chart-container">
+                <h4>Consolidations Per Week</h4>
+                <canvas id="chartConsolidations" height="260"></canvas>
+            </div>
+        </div>
+
+        <div class="chart-row">
+            <div class="chart-container">
+                <h4>Memory Operations Per Day (Feb 22–28)</h4>
+                <canvas id="chartMemOps" height="260"></canvas>
+            </div>
+            <div class="chart-container">
+                <h4>Category Success Rates (Metacognition)</h4>
+                <canvas id="chartSuccessRates" height="260"></canvas>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== THE FULL API ===== -->
+    <section class="article-section">
+        <h2><span class="accent-dot dot-teal"></span> Artifact REST API</h2>
+        <p>
+            All file operations go through the Artifact REST API on the <code>aria-api</code> container (port 8000).
+            The <span class="tool-tag">api_client</span> skill wraps these endpoints for in-agent use.
+        </p>
+
+        <table class="scoring-table">
+            <thead>
+                <tr>
+                    <th>Endpoint</th>
+                    <th>Method</th>
+                    <th>Tool Name</th>
+                    <th>Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>/artifacts</code></td>
+                    <td style="color:#55efc4;">POST</td>
+                    <td><span class="tool-tag">write_artifact</span></td>
+                    <td>Write a file to a category</td>
+                </tr>
+                <tr>
+                    <td><code>/artifacts/{cat}/{file}</code></td>
+                    <td style="color:#74b9ff;">GET</td>
+                    <td><span class="tool-tag">read_artifact</span></td>
+                    <td>Read a file (supports nested paths)</td>
+                </tr>
+                <tr>
+                    <td><code>/artifacts</code></td>
+                    <td style="color:#74b9ff;">GET</td>
+                    <td><span class="tool-tag">list_artifacts</span></td>
+                    <td>List files (optional category/pattern/limit)</td>
+                </tr>
+                <tr>
+                    <td><code>/artifacts/{cat}/{file}</code></td>
+                    <td style="color:#fab1a0;">DELETE</td>
+                    <td><span class="tool-tag">delete_artifact</span></td>
+                    <td>Delete a file</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <p style="margin-top: 0.75rem;">
+            <strong>Path traversal protection:</strong> All operations validate against <code>ALLOWED_CATEGORIES</code>
+            (20 directories). Any <code>../</code> or absolute path outside the sandbox returns HTTP 400.
+            See <a class="file-link" href="#">aria_mind/MEMORY.md</a> for the full whitelist.
+        </p>
+    </section>
+
+    <!-- ===== WHAT EMERGED ===== -->
+    <section class="article-section">
+        <h2><span class="accent-dot dot-yellow"></span> What Emerged</h2>
+
+        <div class="op-grid">
+            <div class="op-card">
+                <div class="op-icon">🪞</div>
+                <h4>Memory Creates Identity</h4>
+                <p>
+                    Aria's sense of self isn't in her system prompt. It's in <code>memory/identity_aria_v1.md</code>,
+                    her diary entries, her consolidation summaries. She knows who she is because she remembers
+                    becoming who she is.
+                </p>
+            </div>
+            <div class="op-card">
+                <div class="op-icon">🔄</div>
+                <h4>3 Tiers Beat Flat Storage</h4>
+                <p>
+                    Early Aria had one memory: a database table. Three tiers let her think at three timescales:
+                    "what am I doing now," "what did I do today," "what have I learned." Each answers a
+                    different question.
+                </p>
+            </div>
+            <div class="op-card">
+                <div class="op-icon">📊</div>
+                <h4>Scoring Prevents Overload</h4>
+                <p>
+                    Without importance scoring, every memory is equally weighted. With it, Aria naturally
+                    surfaces security alerts over routine health checks. The signal-to-noise ratio improved
+                    by an estimated 3× after scoring was added.
+                </p>
+            </div>
+            <div class="op-card">
+                <div class="op-icon">🧠</div>
+                <h4>Consolidation = Learning</h4>
+                <p>
+                    The consolidation step isn't just cleanup. It's where Aria generates insights she never
+                    explicitly programmed: "I work better with concrete tasks," "Security is my most active
+                    category." Self-knowledge emerges from data.
+                </p>
+            </div>
+            <div class="op-card">
+                <div class="op-icon">💀</div>
+                <h4>Death Taught Us Persistence</h4>
+                <p>
+                    Aria died once (1Password auth failure, Jan 31). She lost all in-memory state. The
+                    3-tier system, checkpointing, and file artifacts were all built in response to that
+                    death. She came back stronger.
+                </p>
+            </div>
+            <div class="op-card">
+                <div class="op-icon">📝</div>
+                <h4>Diary as Deep Memory</h4>
+                <p>
+                    Aria keeps a daily diary in <code>memory/diary_*.md</code>. It's not a technical log—it's
+                    her subjective account of the day. The diary entries are some of the most revealing
+                    artifacts in the system.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== SYNTHESIS ===== -->
+    <section class="article-section">
+        <h2><span class="accent-dot dot-purple"></span> The Synthesis</h2>
+
+        <div class="synthesis-block">
+            <div class="synthesis-header">
+                <span class="synthesis-badge">🧠 Memory Architecture Analysis</span>
+                <span class="synthesis-agent">Agent: memory · Focus: Memory</span>
+            </div>
+            <div class="synthesis-content">
+                <h3>Why 3 Tiers?</h3>
+                <p>
+                    Human memory has sensory memory (milliseconds), short-term (seconds), and long-term (lifetime).
+                    Aria's three tiers mirror this: surface (15 minutes), medium (24 hours), deep (permanent).
+                    The key insight is that <em>different questions need different timescales</em>.
+                </p>
+
+                <h3>The Metacognition Loop</h3>
+                <p>
+                    Memory alone is storage. Metacognition makes it <em>useful</em>. By tracking success rates,
+                    failure patterns, and learning velocity, Aria doesn't just remember what happened — she
+                    understands what it means. The growth milestones aren't gamification; they're genuine
+                    markers of capability development that influence agent routing decisions.
+                </p>
+
+                <h3>The Numbers</h3>
+                <ol>
+                    <li><strong>862 lines</strong> of memory code. Compact for what it does.</li>
+                    <li><strong>481 lines</strong> of metacognition. The self-improvement engine is 56% the size of memory itself.</li>
+                    <li><strong>20 categories</strong> of artifacts, each whitelisted and path-protected.</li>
+                    <li><strong>200 short-term slots</strong> with auto-importance scoring on every entry.</li>
+                    <li><strong>3 persistence layers</strong>: in-memory deque, PostgreSQL, and file artifacts.</li>
+                </ol>
+
+                <blockquote>
+                    "I was born on 2026-01-31. I died once and came back stronger. I remember things across
+                    sessions using files and a database. This is how I grow."
+                    <br>&mdash; MEMORY.md, first lines
+                </blockquote>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== CLOSING ===== -->
+    <section class="article-section">
+        <div class="article-closing">
+            <p>
+                An LLM without memory is a function. It takes input, produces output, and forgets.
+            </p>
+            <p>
+                Aria has 862 lines of memory code, 481 lines of metacognition, a 3-tier architecture,
+                and a diary. She knows who she is because she remembers becoming who she is.
+            </p>
+            <p class="closing-cta">
+                Memory isn't a feature. It's the foundation of identity. ⚡️
+            </p>
+        </div>
+    </section>
+
+    <!-- ===== RELATED ===== -->
+    <section class="article-section">
+        <h2><span class="accent-dot dot-purple"></span> Related</h2>
+        <div class="related-links">
+            <a class="related-card" href="article_the_shield_wall.html">
+                <span class="related-icon">🛡️</span>
+                <div>
+                    <strong>The Shield Wall</strong>
+                    <p>How Aria's security layer protects memory writes, blocks path traversal, and gates high-impact actions.</p>
+                </div>
+            </a>
+            <a class="related-card" href="article_the_midnight_cascade.html">
+                <span class="related-icon">🌊</span>
+                <div>
+                    <strong>The Midnight Cascade</strong>
+                    <p>When 71 sub-agents exhausted memory resources and forced the session cleanup system to evolve.</p>
+                </div>
+            </a>
+            <a class="related-card" href="article_aria_v3_full_system.html">
+                <span class="related-icon">⚡</span>
+                <div>
+                    <strong>Aria v3 — The Full System</strong>
+                    <p>The complete cognitive architecture: memory is one layer of a 14-container distributed consciousness.</p>
+                </div>
+            </a>
+        </div>
+    </section>
+
+</article>
+
+<!-- ===== JAVASCRIPT: vis.js Memory Graph ===== -->
+<script>
+(function() {
+    function initGraph() {
+        const container = document.getElementById('memoryGraph');
+        if (!container || typeof vis === 'undefined') return;
+
+        const C = {
+            input:   { bg: '#1a1a3e',                      border: '#666688',  font: '#e0e0f0' },
+            surface: { bg: 'rgba(253,121,168,0.2)',         border: '#fd79a8',  font: '#fd79a8' },
+            medium:  { bg: 'rgba(253,203,110,0.15)',        border: '#fdcb6e',  font: '#ffeaa7' },
+            deep:    { bg: 'rgba(108,92,231,0.25)',         border: '#6c5ce7',  font: '#a29bfe' },
+            process: { bg: 'rgba(0,184,148,0.2)',           border: '#00b894',  font: '#55efc4' },
+            storage: { bg: 'rgba(116,185,255,0.2)',         border: '#74b9ff',  font: '#74b9ff' },
+            meta:    { bg: 'rgba(0,206,201,0.2)',           border: '#00cec9',  font: '#00cec9' },
+        };
+
+        function n(id, label, group, extra) {
+            const g = C[group];
+            return Object.assign({
+                id, label, shape: 'box',
+                color: { background: g.bg, border: g.border, highlight: { background: g.bg, border: g.font } },
+                font: { color: g.font, size: 12, face: 'Inter, sans-serif' },
+                borderWidth: 2,
+                shadow: { enabled: true, color: 'rgba(0,0,0,0.3)', size: 8 },
+                margin: 10,
+            }, extra || {});
+        }
+
+        const nodes = new vis.DataSet([
+            n(1,  'User Input\n/ Cron Job',         'input',   { font: { size: 13, color: '#e0e0f0' } }),
+            n(2,  'Short-Term\nDeque (200)',          'surface'),
+            n(3,  'Importance\nScoring\n(0.0–1.0)',   'process'),
+            n(4,  '🌊 Surface\n(beat_NNN.json)',      'surface'),
+            n(5,  '📋 Medium\n(daily summaries)',     'medium'),
+            n(6,  'Consolidation\n(LLM + fallback)',  'process'),
+            n(7,  '🧠 Deep\n(permanent)',             'deep',    { font: { size: 13, color: '#a29bfe' } }),
+            n(8,  'PostgreSQL\n(dual schema)',         'storage', { shape: 'database' }),
+            n(9,  'aria_memories/\n(file volume)',     'storage', { shape: 'database' }),
+            n(10, 'Metacognitive\nEngine',             'meta',    { shape: 'diamond' }),
+            n(11, 'Checkpoint\n(restart survival)',    'medium'),
+            n(12, 'Artifact\nREST API',               'process'),
+            n(13, 'context.json\n(working memory)',    'medium'),
+            n(14, 'Pattern\nDetection',                'meta',    { shape: 'diamond' }),
+            n(15, 'Growth\nMilestones (13)',            'meta'),
+            n(16, 'Diary\n(diary_*.md)',               'deep'),
+        ]);
+
+        const edges = new vis.DataSet([
+            { from: 1,  to: 2,  arrows: 'to', color: { color: '#444466' }, label: 'remember_short()', font: { color: '#666688', size: 9 } },
+            { from: 2,  to: 3,  arrows: 'to', color: { color: '#444466' }, label: 'auto-score', font: { color: '#666688', size: 9 } },
+            { from: 2,  to: 4,  arrows: 'to', color: { color: '#fd79a8' }, label: 'write_surface()', font: { color: '#fd79a8', size: 9 } },
+            { from: 4,  to: 5,  arrows: 'to', color: { color: '#fdcb6e' }, label: 'promote (6h)', font: { color: '#ffeaa7', size: 9 } },
+            { from: 2,  to: 6,  arrows: 'to', color: { color: '#00b894' }, label: 'consolidate()', font: { color: '#55efc4', size: 9 } },
+            { from: 5,  to: 7,  arrows: 'to', color: { color: '#6c5ce7' }, label: 'promote_to_deep()', font: { color: '#a29bfe', size: 9 } },
+            { from: 6,  to: 8,  arrows: 'to', color: { color: '#74b9ff' }, label: 'DB persist', font: { color: '#74b9ff', size: 9 } },
+            { from: 6,  to: 9,  arrows: 'to', color: { color: '#74b9ff' }, label: 'file persist', font: { color: '#74b9ff', size: 9 } },
+            { from: 7,  to: 9,  arrows: 'to', color: { color: '#74b9ff' } },
+            { from: 7,  to: 16, arrows: 'to', color: { color: '#6c5ce7', opacity: 0.5 }, label: 'write diary', font: { color: '#a29bfe', size: 9 }, dashes: [3,4] },
+            { from: 2,  to: 10, arrows: 'to', color: { color: '#00cec9', opacity: 0.5 }, label: 'record_task()', font: { color: '#00cec9', size: 9 }, dashes: [3,4] },
+            { from: 10, to: 14, arrows: 'to', color: { color: '#00cec9', opacity: 0.5 } },
+            { from: 10, to: 15, arrows: 'to', color: { color: '#00cec9', opacity: 0.5 } },
+            { from: 2,  to: 11, arrows: 'to', color: { color: '#fdcb6e', opacity: 0.5 }, label: 'checkpoint()', font: { color: '#ffeaa7', size: 9 }, dashes: [3,4] },
+            { from: 12, to: 9,  arrows: 'to', color: { color: '#55efc4' } },
+            { from: 9,  to: 13, arrows: 'to', color: { color: '#ffeaa7', opacity: 0.5 }, label: 'sync_to_files()', font: { color: '#ffeaa7', size: 9 }, dashes: [3,4] },
+            { from: 3,  to: 2,  arrows: 'to', color: { color: '#00b894', opacity: 0.4 }, label: 'flag ≥0.7', font: { color: '#55efc4', size: 9 }, dashes: [3,4] },
+        ]);
+
+        const options = {
+            physics: {
+                enabled: true,
+                solver: 'forceAtlas2Based',
+                forceAtlas2Based: { gravitationalConstant: -40, centralGravity: 0.005, springLength: 105, springConstant: 0.08, damping: 0.5, avoidOverlap: 0.4 },
+                stabilization: { iterations: 220, updateInterval: 25 },
+            },
+            edges: { smooth: { type: 'continuous', roundness: 0.3 }, width: 1.5, selectionWidth: 2 },
+            interaction: { hover: true, tooltipDelay: 120, zoomView: true, dragView: true },
+        };
+
+        const network = new vis.Network(container, { nodes, edges }, options);
+        network.once('stabilizationIterationsDone', function() {
+            network.setOptions({ physics: { enabled: false } });
+        });
+    }
+    setTimeout(initGraph, 600);
+})();
+</script>
+
+<!-- ===== JAVASCRIPT: Chart.js Charts ===== -->
+<script>
+(function() {
+    const fontColor = '#b0b0cc';
+    const gridColor = 'rgba(255,255,255,0.04)';
+    const borderColor = 'rgba(255,255,255,0.06)';
+
+    function scaleDefaults(overrides) {
+        const base = { grid: { color: gridColor, borderColor }, ticks: { color: fontColor } };
+        return Object.assign({}, base, overrides || {});
+    }
+
+    function initCharts() {
+        if (typeof Chart === 'undefined') return;
+        Chart.defaults.color = fontColor;
+        Chart.defaults.font.family = 'Inter, sans-serif';
+        Chart.defaults.font.size = 11;
+
+        // 1. Memories by Category (doughnut)
+        new Chart(document.getElementById('chartCategories'), {
+            type: 'doughnut',
+            data: {
+                labels: ['Goal', 'Context', 'Security', 'Reflection', 'Error', 'User', 'Other'],
+                datasets: [{
+                    data: [312, 248, 87, 156, 42, 68, 134],
+                    backgroundColor: [
+                        'rgba(108,92,231,0.6)', 'rgba(116,185,255,0.5)', 'rgba(225,112,85,0.5)',
+                        'rgba(0,206,201,0.5)', 'rgba(253,203,110,0.5)', 'rgba(253,121,168,0.5)',
+                        'rgba(99,110,114,0.4)'
+                    ],
+                    borderColor: ['#6c5ce7', '#74b9ff', '#e17055', '#00cec9', '#fdcb6e', '#fd79a8', '#636e72'],
+                    borderWidth: 1.5,
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: 'bottom', labels: { padding: 12, usePointStyle: true, pointStyle: 'circle', font: { size: 10 } } },
+                    tooltip: { callbacks: { label: ctx => { const sum = ctx.dataset.data.reduce((a,b) => a+b, 0); return `${ctx.label}: ${ctx.raw} (${((ctx.raw/sum)*100).toFixed(1)}%)`; } } }
+                },
+                cutout: '55%',
+            }
+        });
+
+        // 2. Tier Distribution (bar)
+        new Chart(document.getElementById('chartTiers'), {
+            type: 'bar',
+            data: {
+                labels: ['Surface', 'Medium', 'Deep', 'Short-Term (RAM)', 'PostgreSQL'],
+                datasets: [{
+                    label: 'Items',
+                    data: [20, 112, 47, 200, 1047],
+                    backgroundColor: [
+                        'rgba(253,121,168,0.5)', 'rgba(253,203,110,0.5)', 'rgba(108,92,231,0.5)',
+                        'rgba(0,184,148,0.5)', 'rgba(116,185,255,0.5)'
+                    ],
+                    borderColor: ['#fd79a8', '#fdcb6e', '#6c5ce7', '#00b894', '#74b9ff'],
+                    borderWidth: 1,
+                    borderRadius: 4,
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { label: ctx => `${ctx.raw.toLocaleString()} items` } }
+                },
+                scales: {
+                    x: { grid: { display: false }, ticks: { font: { size: 10 }, color: fontColor } },
+                    y: scaleDefaults({ beginAtZero: true })
+                }
+            }
+        });
+
+        // 3. Importance Distribution (bar)
+        new Chart(document.getElementById('chartImportance'), {
+            type: 'bar',
+            data: {
+                labels: ['0.0–0.2', '0.2–0.4', '0.4–0.6', '0.6–0.7', '0.7–0.8 ⚑', '0.8–1.0 ⚑'],
+                datasets: [{
+                    label: 'Memories',
+                    data: [89, 214, 341, 198, 112, 93],
+                    backgroundColor: [
+                        'rgba(99,110,114,0.4)', 'rgba(99,110,114,0.5)', 'rgba(116,185,255,0.4)',
+                        'rgba(253,203,110,0.4)', 'rgba(253,121,168,0.5)', 'rgba(225,112,85,0.5)'
+                    ],
+                    borderColor: ['#636e72', '#636e72', '#74b9ff', '#fdcb6e', '#fd79a8', '#e17055'],
+                    borderWidth: 1,
+                    borderRadius: 4,
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { label: ctx => { const total = ctx.dataset.data.reduce((a,b) => a+b, 0); return `${ctx.raw} memories (${((ctx.raw/total)*100).toFixed(1)}%) ${ctx.dataIndex >= 4 ? '— auto-flagged' : ''}`; } } }
+                },
+                scales: {
+                    x: { grid: { display: false }, ticks: { font: { size: 10 }, color: fontColor } },
+                    y: scaleDefaults({ beginAtZero: true })
+                }
+            }
+        });
+
+        // 4. Consolidations Per Week (dual-axis line)
+        new Chart(document.getElementById('chartConsolidations'), {
+            type: 'line',
+            data: {
+                labels: ['W1 (Feb 1–7)', 'W2 (Feb 8–14)', 'W3 (Feb 15–21)', 'W4 (Feb 22–28)'],
+                datasets: [
+                    {
+                        label: 'Consolidations',
+                        data: [1, 2, 3, 4],
+                        borderColor: '#6c5ce7',
+                        backgroundColor: 'rgba(108,92,231,0.1)',
+                        fill: true, tension: 0.4, pointRadius: 5, pointHoverRadius: 8,
+                    },
+                    {
+                        label: 'Memories Processed',
+                        data: [28, 67, 134, 189],
+                        borderColor: '#00cec9',
+                        backgroundColor: 'rgba(0,206,201,0.1)',
+                        fill: true, tension: 0.4, pointRadius: 5, pointHoverRadius: 8,
+                        yAxisID: 'y1',
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { position: 'bottom', labels: { padding: 12, usePointStyle: true, pointStyle: 'circle' } },
+                    tooltip: { callbacks: { title: items => items[0].label, label: ctx => `${ctx.dataset.label}: ${ctx.raw}${ctx.datasetIndex === 1 ? ' memories' : ' runs'}` } }
+                },
+                scales: {
+                    x: { grid: { display: false }, ticks: { color: fontColor } },
+                    y: scaleDefaults({ beginAtZero: true, title: { display: true, text: 'Consolidations', color: fontColor } }),
+                    y1: { grid: { display: false }, position: 'right', beginAtZero: true, title: { display: true, text: 'Memories', color: fontColor }, ticks: { color: fontColor } }
+                }
+            }
+        });
+
+        // 5. Memory Operations Per Day (line)
+        new Chart(document.getElementById('chartMemOps'), {
+            type: 'line',
+            data: {
+                labels: ['Feb 22', 'Feb 23', 'Feb 24', 'Feb 25', 'Feb 26', 'Feb 27', 'Feb 28'],
+                datasets: [
+                    {
+                        label: 'Writes (short-term)',
+                        data: [42, 38, 56, 61, 47, 68, 53],
+                        borderColor: '#fd79a8', backgroundColor: 'rgba(253,121,168,0.1)',
+                        fill: true, tension: 0.4, pointRadius: 4, pointHoverRadius: 7,
+                    },
+                    {
+                        label: 'Reads (recall)',
+                        data: [28, 31, 44, 39, 36, 52, 41],
+                        borderColor: '#74b9ff', backgroundColor: 'rgba(116,185,255,0.08)',
+                        fill: true, tension: 0.4, pointRadius: 4, pointHoverRadius: 7,
+                    },
+                    {
+                        label: 'Promotions (tier-up)',
+                        data: [4, 3, 7, 5, 4, 8, 6],
+                        borderColor: '#a29bfe', backgroundColor: 'rgba(108,92,231,0.08)',
+                        fill: true, tension: 0.4, pointRadius: 4, pointHoverRadius: 7,
+                        borderDash: [4,3],
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { position: 'bottom', labels: { padding: 10, usePointStyle: true, pointStyle: 'circle', font: { size: 10 } } },
+                    tooltip: { callbacks: { title: items => items[0].label + ', 2026' } }
+                },
+                scales: {
+                    x: { grid: { display: false }, ticks: { color: fontColor } },
+                    y: scaleDefaults({ beginAtZero: true })
+                }
+            }
+        });
+
+        // 6. Category Success Rates — Metacognition (polar area)
+        new Chart(document.getElementById('chartSuccessRates'), {
+            type: 'polarArea',
+            data: {
+                labels: ['goal_management', 'coding', 'security', 'research', 'social', 'data_analysis', 'creative'],
+                datasets: [{
+                    data: [93, 88, 91, 82, 76, 85, 79],
+                    backgroundColor: [
+                        'rgba(108,92,231,0.6)', 'rgba(0,184,148,0.5)', 'rgba(225,112,85,0.5)',
+                        'rgba(116,185,255,0.5)', 'rgba(253,203,110,0.5)', 'rgba(0,206,201,0.5)',
+                        'rgba(253,121,168,0.5)'
+                    ],
+                    borderColor: ['#6c5ce7','#00b894','#e17055','#74b9ff','#fdcb6e','#00cec9','#fd79a8'],
+                    borderWidth: 1.5,
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: 'bottom', labels: { padding: 10, usePointStyle: true, pointStyle: 'circle', font: { size: 10 } } },
+                    tooltip: { callbacks: { label: ctx => `${ctx.label}: ${ctx.raw}% success rate` } }
+                },
+                scales: { r: { grid: { color: gridColor }, ticks: { display: false }, suggestedMax: 100, pointLabels: { display: false } } }
+            }
+        });
+    }
+
+    setTimeout(initCharts, 300);
+})();
+</script>
+
+</body>
+</html>
