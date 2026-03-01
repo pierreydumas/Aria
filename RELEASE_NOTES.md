@@ -1,6 +1,6 @@
-# Release Notes — glden-v3
+# Release Notes — golden-v3
 
-**Release tag:** `glden-v3`  
+**Release tag:** `golden-v3`  
 **Release date:** 2026-02-28  
 **Base branch:** `main`  
 **Release commit:** `c9edfa9a5ec20f008fb9ec998b0d0d7660909ee1`
