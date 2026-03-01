@@ -16,7 +16,9 @@ import asyncio
 import inspect
 import json
 import logging
+import os
 import time
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -67,6 +69,180 @@ class ToolRegistry:
         self._skill_instances: dict[str, Any] = {}
         self._initialized_skills: set[str] = set()
         self._timeout = timeout_seconds
+        self._consent_mode = os.getenv("ARIA_CONSENT_MODE", "enforced").strip().lower()
+
+    @staticmethod
+    def _has_explicit_consent(args: dict[str, Any]) -> bool:
+        """Check whether the tool arguments include explicit human consent."""
+        consent_keys = (
+            "consent",
+            "consent_granted",
+            "human_approved",
+            "approval_granted",
+            "approved_by_user",
+        )
+        for key in consent_keys:
+            value = args.get(key)
+            if value is True:
+                return True
+            if isinstance(value, str) and value.strip().lower() in {"true", "yes", "approved", "consented"}:
+                return True
+        return False
+
+    @staticmethod
+    def _is_high_impact(function_name: str) -> tuple[bool, str]:
+        """Classify tool calls that require human consent before execution."""
+        fn = function_name.lower()
+
+        # Explicitly safe categories (always allowed)
+        safe_prefixes = (
+            "working_memory__",
+            "sandbox__",
+            "pytest_runner__",
+        )
+        safe_exact = {
+            "api_client__set_memory",
+            "api_client__get_memory",
+            "api_client__create_thought",
+            "api_client__create_activity",
+            "api_client__propose_improvement",
+        }
+        if fn.startswith(safe_prefixes) or fn in safe_exact:
+            return False, "safe"
+
+        # External posting / outward actions
+        if fn.startswith("social__") or fn.startswith("moltbook__") or fn.startswith("telegram__"):
+            posting_safe = ("get_", "list", "search", "draft", "preview")
+            if any(token in fn for token in posting_safe):
+                return False, "safe"
+            return True, "external_posting"
+
+        # Raw SQL executor is high-impact
+        if fn == "database__execute":
+            return True, "raw_sql_execute"
+
+        # Destructive patterns across tools
+        destructive_tokens = (
+            "delete",
+            "remove",
+            "drop",
+            "truncate",
+            "wipe",
+            "purge",
+            "destroy",
+            "reset",
+            "cleanup",
+        )
+        if any(token in fn for token in destructive_tokens):
+            return True, "destructive_operation"
+
+        # Config/scope modifying actions
+        config_tokens = (
+            "set_config",
+            "update_config",
+            "apply_config",
+            "sync_jobs",
+            "create_task",
+            "update_job",
+            "remove_job",
+        )
+        if any(token in fn for token in config_tokens):
+            return True, "config_or_scope_change"
+
+        return False, "safe"
+
+    async def _invoke_handler(self, handler: Callable, kwargs: dict[str, Any]) -> Any:
+        """Invoke a skill handler with timeout support for async/sync handlers."""
+        if asyncio.iscoroutinefunction(handler):
+            return await asyncio.wait_for(handler(**kwargs), timeout=self._timeout)
+        loop = asyncio.get_event_loop()
+        return await asyncio.wait_for(
+            loop.run_in_executor(None, lambda: handler(**kwargs)),
+            timeout=self._timeout,
+        )
+
+    async def _queue_pending_consent_action(
+        self,
+        function_name: str,
+        args: dict[str, Any],
+        reason: str,
+    ) -> None:
+        """Best-effort queue for blocked actions: API memory key first, file fallback."""
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "tool": function_name,
+            "reason": reason,
+            "arguments": args,
+            "status": "pending_human_consent",
+        }
+
+        # Primary path: persistent key-value memory for UI consumption
+        try:
+            get_tool = self._tools.get("api_client__get_memory")
+            set_tool = self._tools.get("api_client__set_memory")
+            if get_tool and set_tool:
+                if not get_tool._handler:
+                    get_tool._handler = self._lazy_import_handler(get_tool)
+                if not set_tool._handler:
+                    set_tool._handler = self._lazy_import_handler(set_tool)
+
+                if get_tool._handler and set_tool._handler:
+                    skill_name = set_tool.skill_name
+                    if skill_name not in self._initialized_skills:
+                        instance = self._skill_instances.get(skill_name)
+                        if instance is not None and hasattr(instance, "initialize"):
+                            try:
+                                await instance.initialize()
+                            except Exception:
+                                pass
+                        self._initialized_skills.add(skill_name)
+
+                    existing_items: list[Any] = []
+                    get_result = await self._invoke_handler(
+                        get_tool._handler,
+                        {"key": "pending_consent_actions"},
+                    )
+
+                    get_data = getattr(get_result, "data", None)
+                    current_value: Any = None
+                    if isinstance(get_data, dict) and "value" in get_data:
+                        current_value = get_data.get("value")
+                    elif isinstance(get_data, list):
+                        current_value = get_data
+                    elif isinstance(get_data, dict):
+                        current_value = get_data
+                    else:
+                        current_value = get_data
+
+                    if isinstance(current_value, list):
+                        existing_items = current_value
+                    elif isinstance(current_value, dict):
+                        existing_items = [current_value]
+
+                    existing_items.append(entry)
+                    existing_items = existing_items[-50:]
+
+                    await self._invoke_handler(
+                        set_tool._handler,
+                        {
+                            "key": "pending_consent_actions",
+                            "value": existing_items,
+                            "category": "governance",
+                        },
+                    )
+                    return
+        except Exception:
+            pass
+
+        # Fallback path: local artifact log (non-blocking)
+        try:
+            consent_dir = Path("aria_memories/memory")
+            consent_dir.mkdir(parents=True, exist_ok=True)
+            consent_file = consent_dir / "pending_consent_actions.jsonl"
+            with consent_file.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
 
     def discover_from_skills(self, skill_registry) -> int:
         """
@@ -430,6 +606,28 @@ class ToolRegistry:
                 args = {"input": arguments}
         else:
             args = arguments
+
+        # Consent checkpoint (small central guardrail)
+        if self._consent_mode == "enforced":
+            requires_consent, reason = self._is_high_impact(function_name)
+            if requires_consent and not self._has_explicit_consent(args):
+                await self._queue_pending_consent_action(function_name, args, reason)
+                elapsed_ms = int((time.monotonic() - start) * 1000)
+                return ToolResult(
+                    tool_call_id=tool_call_id,
+                    name=function_name,
+                    content=json.dumps({
+                        "error": "human_consent_required",
+                        "reason": reason,
+                        "message": (
+                            "High-impact action blocked until explicit human consent is provided. "
+                            "Allowed alternatives: write proposal, run sandbox tests, write memory, "
+                            "or produce a draft plan."
+                        ),
+                    }),
+                    success=False,
+                    duration_ms=elapsed_ms,
+                )
 
         try:
             # Execute with timeout

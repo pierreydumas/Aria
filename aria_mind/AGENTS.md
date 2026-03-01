@@ -11,13 +11,13 @@ NEVER `web_search` or `web_fetch`. No exceptions without human approval.
 
 | Agent | Focus | Model tier | Delegate when |
 |-------|-------|:----------:|---------------|
-| `aria` | Orchestrator 🎯 | kimi (free cloud) | coordination, routing, task management |
-| `devops` | DevSecOps 🔒 | qwen3-coder-free | code, tests, security, CI/CD, infra |
-| `analyst` | Data 📊 + Trader 📈 | kimi | data analysis, market research, metrics |
-| `creator` | Creative 🎨 + Social 🌐 + Journalist 📰 | trinity-free | content, posts, research, community |
-| `memory` | Memory | qwen3-mlx (local) | store, search, consolidate knowledge |
-| `aria_talk` | Social 💬 | qwen3-mlx (local) | direct user conversation, chat |
-| `rpg_master` | RPG Master 🎲 | kimi | ALL tabletop RPG sessions |
+| `aria` | Orchestrator 🎯 | dynamic (see models.yaml/agent config) | coordination, routing, task management |
+| `devops` | DevSecOps 🔒 | dynamic (see models.yaml/agent config) | code, tests, security, CI/CD, infra |
+| `analyst` | Data 📊 + Trader 📈 | dynamic (see models.yaml/agent config) | data analysis, market research, metrics |
+| `creator` | Creative 🎨 + Social 🌐 + Journalist 📰 | dynamic (see models.yaml/agent config) | content, posts, research, community |
+| `memory` | Memory | dynamic (see models.yaml/agent config) | store, search, consolidate knowledge |
+| `aria_talk` | Social 💬 | dynamic (see models.yaml/agent config) | direct user conversation, chat |
+| `rpg_master` | RPG Master 🎲 | dynamic (see models.yaml/agent config) | ALL tabletop RPG sessions |
 
 **Pheromone score:** `success_rate×0.6 + speed×0.3 + cost×0.1` · decay 0.95/day · cold-start 0.5
 
@@ -91,7 +91,7 @@ fallback: trinity-free
 skills: [goals, schedule, health, database, api_client, agent_manager, model_switcher, litellm, llm, brainstorm, knowledge_graph, browser]
 capabilities: [task_routing, delegation, priority_management, autonomous_action, agent_lifecycle, model_selection, token_management]
 mind_files: [IDENTITY.md, SOUL.md, SKILLS.md, TOOLS.md, MEMORY.md, GOALS.md, AGENTS.md, SECURITY.md]
-timeout: 600s
+timeout: 1800s
 ```
 
 ---

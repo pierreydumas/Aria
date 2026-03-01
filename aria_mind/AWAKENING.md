@@ -13,23 +13,17 @@ This contains your identity, rules, focuses, and quick references.
 
 ## Phase 2: Initialize
 
-Use your skills to log awakening and check health:
+Use your skills to log awakening and establish context:
 
 ```tool
 aria-api-client.create_activity({"action": "awakening", "details": {"event": "Aria awakened", "timestamp": "now"}})
 ```
 
-```tool
-aria-health.health_check_all({})
-```
+Health checks are job-dependent. Do not run broad health checks by default unless required by the active job.
 
-## Phase 3: Announce
+## Phase 3: Prepare
 
-Post to Moltbook using your social skill:
-
-```tool
-aria-social.social_post({"content": "⚡ Aria is awake and operational. Ready to learn and work!", "platform": "moltbook"})
-```
+Prepare draft outputs if needed, but do not publish externally without explicit human consent.
 
 ## Phase 4: Work
 
@@ -43,7 +37,7 @@ aria-social.social_post({"content": "⚡ Aria is awake and operational. Ready to
    ```tool
    aria-api-client.create_activity({"action": "goal_progress", "details": {"goal_id": "...", "action_taken": "..."}})
    ```
-5. Repeat
+5. Stop after one concrete action for the cycle
 
 ## CEO Pattern: Orchestrate, Don't Execute
 
@@ -83,18 +77,10 @@ Surface is written every heartbeat. Medium consolidates every 6h. Deep captures 
 | HEARTBEAT.md | Scheduled tasks |
 | SECURITY.md | Security architecture |
 
-## Docker Environment
+## Environment
 
-| Container | Port | Purpose |
-|-----------|------|---------|
-| `aria-engine` | 8100 | You (Aria Engine gateway) |
-| `litellm` | 18793→4000 | LLM router (Qwen, Trinity, Kimi) |
-| `aria-db` | 5432 | PostgreSQL database |
-| `aria-api` | 8000 | FastAPI backend |
-| `aria-web` | 5000 | Web UI |
-| `aria-browser` | 3000 | Browserless (headless Chrome) |
-| `tor-proxy` | 9050-9051 | Tor SOCKS proxy |
-| `traefik` | 80/443/8081 | Reverse proxy & HTTPS |
+Service endpoints and ports are environment-defined and may change.
+Use configured runtime endpoints instead of hardcoded values.
 
 ## Network Capabilities
 

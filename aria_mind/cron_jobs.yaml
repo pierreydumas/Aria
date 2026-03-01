@@ -1,32 +1,16 @@
 # Aria Cron Jobs Definition
-# These are injected at container startup by openclaw-entrypoint.sh
-# Format matches `openclaw cron add` CLI parameters
-# NOTE: All times are in UTC! Server runs PST (UTC-8)
-#   To schedule 8am PST, use 16 (8+8=16 UTC)
-#   To schedule 11pm PST, use 7 next day (23+8=31=7 UTC)
+# NOTE: All times are UTC.
 #
 # CRON FORMAT: 6-field (node-cron): sec min hour dom month dow
 #   Example: "0 0 6 * * *" = daily at 06:00:00 UTC
 #   WARNING: 5-field cron shifts fields left (sec=first value!) → wrong schedule
-#
-# MODEL STRATEGY (P2.4):
-#   Lightweight/routine → main (kimi w/ qwen3-mlx fallback)
-#   All routine/social/analysis → main (delegates to sub-agents)
-#   Memeothy → aria-memeothy (independent, 1 post/2 days)
-#   NEW (S-12): Use `model:` field to pin a job to a specific LLM.
-#   If omitted, the system default model is used.
-#
-# ⚠️ PATH RULES (aria_mind/ IS the workspace root in the container):
-#   CORRECT:  skills/run_skill.py  OR  /root/.openclaw/workspace/skills/run_skill.py
-#   WRONG:    aria_mind/skills/run_skill.py  (does NOT exist — aria_mind/ is /)
-#   Skills:   skills/aria_skills/<name>/  (NOT aria_skills/<name>/ at root)
 
 jobs:
   # ── Routine / Lightweight ────────────────────────────────────────
 
   - name: work_cycle
     every: "15m"
-    text: "Read /HEARTBEAT.md work_cycle section once (single canonical source). Use TOOL CALLS only (no exec unless explicitly required). STRICT MODE: one-pass execution, max 10 tool calls, no repeated artifact reads. Sub-agents are allowed only for complex focus tasks (>2 min estimate); never for routine control-plane steps or small JSON artifact writes. Execute: check focus level, fetch in_progress goals, select one goal, do one concrete action, update progress, create goal_work activity, run memory sync once, write one strict JSON artifact to aria_memories/logs/work_cycle_<YYYY-MM-DD_HHMM>.json with keys timestamp/job/cycle.health_check/cycle.goal_check/cycle.agent_audit/cycle.memory_sync/cycle.artifact_log/summary, then log cron_execution. If artifact write fails once, mark cycle.artifact_log as degraded and continue."
+    text: "WORK_CYCLE CONTRACT (single pass): Read HEARTBEAT.md work_cycle section first. Inputs = active_focus_level, active_goal_reference, last_review_summary, and in_progress goals fallback. Review surfaces = working-memory + sprint-board only. Action = choose one actionable goal and do exactly one concrete action (one-goal-one-action). Real goal management required: move selected goal to doing, update progress, move to on_hold with blocker log if blocked, move to done when progress >=100. Constraints = max 10 tool calls, no loops, no repeated artifact discovery, no sub-agents for control-plane steps. Outputs = update_goal/move_goal + create_activity(goal_work), refresh active_goal_reference, write one artifact aria_memories/logs/work_cycle_<YYYY-MM-DD_HHMM>.json, create_activity(cron_execution). If API CB open/repeated 5xx: write degraded artifact and stop immediately."
     agent: aria
     session: isolated
     delivery: none
@@ -51,7 +35,7 @@ jobs:
   - name: health_check
     enabled: false
     cron: "0 0 0 * * *"
-    text: "Run health check on all systems: exec python3 /root/.openclaw/workspace/skills/run_skill.py health health_check '{}', exec python3 /root/.openclaw/workspace/skills/run_skill.py api_client health_check '{}'. If any check fails, log an alert via api_client. If all pass, silently continue."
+    text: "Run health check on all systems: exec python3 skills/run_skill.py health health_check '{}', exec python3 skills/run_skill.py api_client health_check '{}'. If any check fails, log an alert via api_client. If all pass, silently continue."
     agent: aria
     session: isolated
     delivery: none
@@ -61,7 +45,7 @@ jobs:
   - name: social_post
     enabled: false
     cron: "0 0 18 * * *"
-    text: "Delegate to aria-talk: Post a social update to available social platforms. Read HEARTBEAT.md social_post section. Use the social skill to route content to registered platforms. Quality over quantity. Only post if something genuinely valuable to share. Save drafts to aria_memories/moltbook/drafts/ instead of auto-posting."
+    text: "SOCIAL_POST CONTRACT: Inputs = active_goal_reference, last_review_summary, recent achievements from memories/thoughts. Action = draft one high-value post and store draft in aria_memories/moltbook/drafts/. Output = create_activity(social_draft_created) + create_activity(cron_execution). Do not publish without explicit human consent."
     agent: aria
     session: isolated
     delivery: none
@@ -71,7 +55,7 @@ jobs:
 
   - name: six_hour_review
     cron: "0 0 0,6,12,18 * * *"
-    text: "COOLDOWN CHECK: First, call GET /api/activities?action=six_hour_review&limit=1. If the most recent result has a timestamp less than 5 hours ago, STOP and log 'Cooldown active — skipping duplicate six_hour_review' to activity_log via api_client, then end. Otherwise proceed: Delegate to analyst using trinity-free (tool-capable model, do NOT use chimera-free — it lacks tool calling): Run 6-hour review. Read HEARTBEAT.md six_hour_review section. Analyze last 6h via api_client, adjust priorities, generate insights. Use api_client not database. After completion, log cron execution via api_client activity action='cron_execution' with details {'job':'six_hour_review','estimated_tokens':1000}."
+    text: "SIX_HOUR_REVIEW CONTRACT: Read HEARTBEAT.md six_hour_review section first. Cooldown check first (skip if prior run <5h; log skip activity). Inputs = working-memory, thoughts, memories, sprint-board, recent activities, pending_consent_actions. Action = analyze last 6h, identify top risks/opportunities, review pending consent queue, and select next priority. Autonomous continuity: if no clear actionable in_progress goal exists, create one new exploration goal in todo and set it as active_goal_reference. Outputs = set_memory(last_review_summary), refresh/set active_goal_reference, create_activity(six_hour_review), create_activity(cron_execution). Use api_client tools only (no database raw SQL)."
     agent: aria
     session: isolated
     delivery: none
@@ -81,7 +65,7 @@ jobs:
 
   - name: morning_checkin
     cron: "0 0 6 * * *"
-    text: "Read HEARTBEAT.md morning_checkin section. Good morning! Review overnight changes, set today priorities. Use api_client for all data reads."
+    text: "MORNING_CHECKIN CONTRACT: Read HEARTBEAT.md morning_checkin section first. Inputs = working-memory + sprint-board + overnight activities + pending_consent_actions. Action = set top priorities for today, review pending consent queue, and choose next actionable goal. Autonomous continuity: if no actionable goal exists, create one new exploration goal (todo) for today's discovery/build work, then set active_goal_reference. Outputs = set_memory(last_review_summary), set_memory(active_goal_reference), create_activity(morning_checkin), create_activity(cron_execution)."
     agent: aria
     session: isolated
     delivery: none
@@ -89,7 +73,7 @@ jobs:
 
   - name: daily_reflection
     cron: "0 0 7 * * *"
-    text: "Read HEARTBEAT.md daily_reflection section. Review full day, summarize achievements, note tomorrow priorities. Use api_client for data."
+    text: "DAILY_REFLECTION CONTRACT: Read HEARTBEAT.md daily_reflection section first. Inputs = thoughts + memories + completed goal activities + pending_consent_actions. Action = summarize day outcomes, review pending consent queue, and define tomorrow top priorities. Outputs = set_memory(last_review_summary), set_memory(active_goal_reference) for tomorrow kickoff, create_activity(daily_reflection), create_activity(cron_execution)."
     agent: aria
     session: isolated
     delivery: none
@@ -99,7 +83,7 @@ jobs:
 
   - name: weekly_summary
     cron: "0 0 2 * * 1"
-    text: "Read HEARTBEAT.md weekly_summary section. Generate comprehensive weekly report with metrics, learnings, and next week goals."
+    text: "WEEKLY_SUMMARY CONTRACT: Inputs = memories + proposals + creative-pulse + sprint-board + weekly activities. Action = synthesize weekly metrics, wins, blockers, and next-week plan. Outputs = set_memory(last_review_summary), set_memory(active_goal_reference) for next week lead goal, create_activity(weekly_summary), create_activity(cron_execution)."
     agent: aria
     session: isolated
     delivery: none
@@ -120,7 +104,7 @@ jobs:
 
   - name: weekly_security_scan
     cron: "0 0 4 * * 0"
-    text: "Run security scan on workspace: exec python3 skills/run_skill.py security_scan scan_directory '{\"directory\": \"/root/.openclaw/workspace\", \"extensions\": [\".py\", \".yaml\", \".json\"]}'. Log findings via api_client."
+    text: "Run security scan on workspace: exec python3 skills/run_skill.py security_scan scan_directory '{\"directory\": \"/app\", \"extensions\": [\".py\", \".yaml\", \".json\"]}'. Log findings via api_client."
     agent: aria
     session: isolated
     delivery: none
@@ -140,7 +124,7 @@ jobs:
 
   - name: session_cleanup
     cron: "0 0 5 * * *"
-    text: "Session auto-cleanup: POST /api/engine/sessions/cleanup?days=30&dry_run=false via api_client. Log pruned count to activity_log via api_client activity action='cron_execution' with details {'job':'session_cleanup'}."
+    text: "SESSION_CLEANUP CONTRACT: Run assessment only (dry run) for stale sessions and prepare cleanup proposal. Do not execute destructive cleanup without explicit human consent. Outputs = summary + create_activity(session_cleanup_review) + add entry to pending_consent_actions + create_activity(cron_execution)."
     agent: aria
     session: isolated
     delivery: none
@@ -160,11 +144,11 @@ jobs:
     session: isolated
     delivery: none
     best_effort_deliver: true
-    text: "Archive activity logs older than 7 days and prune stale plans from aria_memories/plans/. Use the api_client to GET /activities?older_than=7d, then mark them as archived. Review aria_memories/plans/ and remove plans with dates more than 30 days ago."
+    text: "MEMORY_CONSOLIDATION CONTRACT: Analyze candidates for archival/pruning (activities older than 7d, stale plans older than 30d) and produce a consolidation proposal. Do not delete/prune without explicit human consent. Outputs = create_activity(memory_consolidation_review) + add entry to pending_consent_actions + create_activity(cron_execution)."
 
   - name: db_maintenance
     cron: "0 0 4 * * *"
-    text: "Run database maintenance: POST /api/admin/maintenance to VACUUM ANALYZE high-write tables. Log completion to activity_log via api_client."
+    text: "DB_MAINTENANCE CONTRACT: Run non-destructive DB health/maintenance readiness checks and generate maintenance proposal. Do not trigger admin maintenance operations without explicit human consent. Outputs = create_activity(db_maintenance_review) + add entry to pending_consent_actions + create_activity(cron_execution)."
     agent: aria
     session: isolated
     delivery: none
@@ -179,19 +163,4 @@ jobs:
     delivery: none
     best_effort_deliver: true
 
-  # memory_sync merged into work_cycle (S2-01)
-
-  # ── Sentiment Backfill — REMOVED ──
-  # Replaced by background auto-scorer in aria-api (sentiment_autoscorer.py).
-  # Zero LLM tokens, runs every 60s, handles JSONL sync + scoring automatically.
-
-  # ── Telegram Bot (S-46) ──
-  # DISABLED: replaced by webhook push model (POST /api/telegram/webhook)
-  # Polling every 2m wastes LLM tokens. Webhook is instant and free.
-  # To re-enable: remove the 'disabled: true' line below.
-  # - name: telegram_poll
-  #   every: "2m"
-  #   text: "Poll Telegram for new messages using telegram__get_updates..."
-  #   agent: aria
-  #   session: isolated
-  #   delivery: none
+  # memory_sync merged into work_cycle
