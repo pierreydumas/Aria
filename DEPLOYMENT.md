@@ -345,6 +345,11 @@ Periodic agent turns every 30 minutes:
 }
 ```
 
+Clone-safe note:
+- `aria_memories/` is intentionally gitignored for user data safety.
+- On API startup, Aria auto-seeds `aria_memories/HEARTBEAT.md` from canonical `aria_mind/HEARTBEAT.md` (or container equivalent) when the memory copy is missing.
+- This keeps first-run heartbeat behavior consistent on fresh clones.
+
 ---
 
 ## Skill Execution

@@ -10,7 +10,7 @@ jobs:
 
   - name: work_cycle
     every: "15m"
-    text: "WORK_CYCLE CONTRACT (single pass): Read HEARTBEAT.md work_cycle section first. Inputs = active_focus_level, active_goal_reference, last_review_summary, and in_progress goals fallback. Review surfaces = working-memory + sprint-board only. Action = choose one actionable goal and do exactly one concrete action (one-goal-one-action). Real goal management required: move selected goal to doing, update progress, move to on_hold with blocker log if blocked, move to done when progress >=100. Constraints = max 10 tool calls, no loops, no repeated artifact discovery, no sub-agents for control-plane steps. Outputs = update_goal/move_goal + create_activity(goal_work), refresh active_goal_reference, write one artifact aria_memories/logs/work_cycle_<YYYY-MM-DD_HHMM>.json, create_activity(cron_execution). If API CB open/repeated 5xx: write degraded artifact and stop immediately."
+    text: "WORK_CYCLE CONTRACT (single pass): Read aria_memories/HEARTBEAT.md work_cycle section first using artifact path (category=memory, filename=HEARTBEAT.md); if artifact read fails, fall back to /HEARTBEAT.md. Inputs = active_focus_level, active_goal_reference, last_review_summary, and in_progress goals fallback. Review surfaces = working-memory + sprint-board only. Action = choose one actionable goal and do exactly one concrete action (one-goal-one-action). Real goal management required: move selected goal to doing, update progress, move to on_hold with blocker log if blocked, move to done when progress >=100. Constraints = max 10 tool calls, no loops, no repeated artifact discovery, no sub-agents for control-plane steps. Outputs = update_goal/move_goal + create_activity(goal_work), refresh active_goal_reference, write one artifact aria_memories/logs/work_cycle_<YYYY-MM-DD_HHMM>.json, create_activity(cron_execution). If API CB open/repeated 5xx: write degraded artifact and stop immediately."
     agent: aria
     session: isolated
     delivery: none
@@ -55,7 +55,7 @@ jobs:
 
   - name: six_hour_review
     cron: "0 0 0,6,12,18 * * *"
-    text: "SIX_HOUR_REVIEW CONTRACT: Read HEARTBEAT.md six_hour_review section first. Cooldown check first (skip if prior run <5h; log skip activity). Inputs = working-memory, thoughts, memories, sprint-board, recent activities, pending_consent_actions. Action = analyze last 6h, identify top risks/opportunities, review pending consent queue, and select next priority. Autonomous continuity: if no clear actionable in_progress goal exists, create one new exploration goal in todo and set it as active_goal_reference. Outputs = set_memory(last_review_summary), refresh/set active_goal_reference, create_activity(six_hour_review), create_activity(cron_execution). Use api_client tools only (no database raw SQL)."
+    text: "SIX_HOUR_REVIEW CONTRACT: Read aria_memories/HEARTBEAT.md six_hour_review section first using artifact path (category=memory, filename=HEARTBEAT.md); if artifact read fails, fall back to /HEARTBEAT.md. Cooldown check first (skip if prior run <5h; log skip activity). Inputs = working-memory, thoughts, memories, sprint-board, recent activities, pending_consent_actions. Action = analyze last 6h, identify top risks/opportunities, review pending consent queue, and select next priority. Autonomous continuity: if no clear actionable in_progress goal exists, create one new exploration goal in todo and set it as active_goal_reference. Outputs = set_memory(last_review_summary), refresh/set active_goal_reference, create_activity(six_hour_review), create_activity(cron_execution). Use api_client tools only (no database raw SQL)."
     agent: aria
     session: isolated
     delivery: none
@@ -65,7 +65,7 @@ jobs:
 
   - name: morning_checkin
     cron: "0 0 6 * * *"
-    text: "MORNING_CHECKIN CONTRACT: Read HEARTBEAT.md morning_checkin section first. Inputs = working-memory + sprint-board + overnight activities + pending_consent_actions. Action = set top priorities for today, review pending consent queue, and choose next actionable goal. Autonomous continuity: if no actionable goal exists, create one new exploration goal (todo) for today's discovery/build work, then set active_goal_reference. Outputs = set_memory(last_review_summary), set_memory(active_goal_reference), create_activity(morning_checkin), create_activity(cron_execution)."
+    text: "MORNING_CHECKIN CONTRACT: Read aria_memories/HEARTBEAT.md morning_checkin section first using artifact path (category=memory, filename=HEARTBEAT.md); if artifact read fails, fall back to /HEARTBEAT.md. Inputs = working-memory + sprint-board + overnight activities + pending_consent_actions. Action = set top priorities for today, review pending consent queue, and choose next actionable goal. Autonomous continuity: if no actionable goal exists, create one new exploration goal (todo) for today's discovery/build work, then set active_goal_reference. Outputs = set_memory(last_review_summary), set_memory(active_goal_reference), create_activity(morning_checkin), create_activity(cron_execution)."
     agent: aria
     session: isolated
     delivery: none
@@ -73,7 +73,7 @@ jobs:
 
   - name: daily_reflection
     cron: "0 0 7 * * *"
-    text: "DAILY_REFLECTION CONTRACT: Read HEARTBEAT.md daily_reflection section first. Inputs = thoughts + memories + completed goal activities + pending_consent_actions. Action = summarize day outcomes, review pending consent queue, and define tomorrow top priorities. Outputs = set_memory(last_review_summary), set_memory(active_goal_reference) for tomorrow kickoff, create_activity(daily_reflection), create_activity(cron_execution)."
+    text: "DAILY_REFLECTION CONTRACT: Read aria_memories/HEARTBEAT.md daily_reflection section first using artifact path (category=memory, filename=HEARTBEAT.md); if artifact read fails, fall back to /HEARTBEAT.md. Inputs = thoughts + memories + completed goal activities + pending_consent_actions. Action = summarize day outcomes, review pending consent queue, and define tomorrow top priorities. Outputs = set_memory(last_review_summary), set_memory(active_goal_reference) for tomorrow kickoff, create_activity(daily_reflection), create_activity(cron_execution)."
     agent: aria
     session: isolated
     delivery: none

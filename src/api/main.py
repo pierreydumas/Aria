@@ -15,6 +15,7 @@ import time as _time
 import traceback
 import uuid as _uuid
 import sys
+import shutil
 from pathlib import Path
 from contextlib import asynccontextmanager
 
@@ -58,6 +59,38 @@ except ImportError:
     from startup_skill_backfill import run_skill_invocation_backfill
 
 _logger = logging.getLogger("aria.api")
+
+
+def _ensure_runtime_heartbeat_artifact() -> None:
+    """Ensure aria_memories/HEARTBEAT.md exists for artifact-based runtime reads.
+
+    Fresh clones do not include aria_memories/* (gitignored), so seed a runtime
+    copy from canonical HEARTBEAT source if missing.
+    """
+    src_candidates = [
+        Path(os.getenv("HEARTBEAT_SOURCE_PATH", "")).expanduser() if os.getenv("HEARTBEAT_SOURCE_PATH") else None,
+        Path("/aria_mind/HEARTBEAT.md"),
+        Path("/app/HEARTBEAT.md"),
+        Path(__file__).resolve().parent.parent.parent / "aria_mind" / "HEARTBEAT.md",
+    ]
+    dst_candidates = [
+        Path("/aria_memories/HEARTBEAT.md"),
+        Path(__file__).resolve().parent.parent.parent / "aria_memories" / "HEARTBEAT.md",
+    ]
+
+    source = next((p for p in src_candidates if p and p.exists() and p.is_file()), None)
+    if source is None:
+        _logger.warning("HEARTBEAT seed skipped: no source HEARTBEAT.md found")
+        return
+
+    destination = next((p for p in dst_candidates if p.parent.exists()), dst_candidates[-1])
+    destination.parent.mkdir(parents=True, exist_ok=True)
+
+    if destination.exists() and destination.is_file():
+        return
+
+    shutil.copy2(source, destination)
+    _logger.info("Seeded runtime HEARTBEAT artifact: %s -> %s", source, destination)
 
 
 # ── Lifespan ─────────────────────────────────────────────────────────────────
@@ -185,6 +218,13 @@ async def lifespan(app: FastAPI):
         print(f"✅ Skill graph synced: {stats['entities']} entities, {stats['relations']} relations")
     except Exception as e:
         print(f"⚠️  Skill graph sync failed (non-fatal): {e}")
+
+    # Ensure runtime HEARTBEAT artifact exists (fresh clone safe)
+    try:
+        _ensure_runtime_heartbeat_artifact()
+        print("✅ HEARTBEAT runtime artifact ensured")
+    except Exception as e:
+        print(f"⚠️  HEARTBEAT artifact ensure failed (non-fatal): {e}")
 
     # S-54: Auto-sync cron jobs from YAML → DB
     try:
