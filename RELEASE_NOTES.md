@@ -3,42 +3,37 @@
 **Release tag:** `golden-v3`  
 **Release date:** 2026-02-28  
 **Base branch:** `main`  
-**Release commit:** `c9edfa9a5ec20f008fb9ec998b0d0d7660909ee1`
+**Release commit:** `17a76920a428fc75934f1f6eda19ee7549928d69`
 
 ## Summary
-This release captures a stable production snapshot of Aria Blue with validated orchestration safeguards, improved sessions/token observability, resilient chat UX behavior, and a streamlined dashboard footer.
+This release captures a stable production snapshot with heartbeat-contract hardening, clone-safe runtime behavior, and live cron prompt sync verification.
 
 ## Highlights
 
-### 1) Sub-agent churn protection
-- Added a cooldown breaker in `agent_manager` sub-agent communication paths to prevent repeated failure loops.
-- Result: repeated failing calls are short-circuited during cooldown windows.
+### 1) Work-cycle contract path hardening
+- Updated cron job contracts to explicitly read `aria_memories/HEARTBEAT.md` via artifact path, with fallback to `/HEARTBEAT.md`.
+- Applied to `work_cycle`, `six_hour_review`, `morning_checkin`, and `daily_reflection`.
 
-### 2) Chat stream recovery UX
-- Improved chat UI handling for interrupted websocket streams.
-- Result: controls recover correctly after backend restart/disconnect events.
+### 2) Clone-safe heartbeat availability
+- Added API startup self-heal in `src/api/main.py` to auto-seed `aria_memories/HEARTBEAT.md` from canonical heartbeat source when missing.
+- Ensures fresh `git clone` environments work even though `aria_memories/` is gitignored.
 
-### 3) Sessions token clarity
-- Sessions recent table now splits token display into:
-  - **Chat Tokens** (full session token total)
-  - **Output Tokens** (assistant visible output token signal)
-- Backend `/api/sessions` now provides explicit `chat_tokens` and `model_tokens` fields.
+### 3) Runtime + DB sync validation
+- Synced cron YAML to DB with `POST /api/jobs/sync`.
+- Verified live payload marker includes `aria_memories/HEARTBEAT.md`.
+- Manually triggered `work_cycle` and confirmed injected contract text uses the new path and no legacy phrase.
 
-### 4) Footer polish
-- Global footer simplified for professional presentation.
-- Footer now links brand to: `https://datascience-adventure.xyz/`
-- Footer copyright text standardized to:
-  - `© 2026 Aria Blue. All rights reserved.`
+### 4) Operational readiness checks
+- Restarted `aria-api`, `aria-engine`, and `aria-brain` and confirmed healthy state.
+- Confirmed artifact endpoint for heartbeat returns HTTP 200.
 
 ## Verification done
-- API + web services restarted and smoke checked.
-- Live sessions page verified for new token column headers.
-- Footer content and external link verified in served HTML.
-- Branch/tag release hygiene completed:
-  - Only `main` branch remains (local + remote)
-  - Legacy tags removed
-  - `glden-v3` tag pushed to origin
+- `POST /api/jobs/sync` returned updated/unchanged sync status from `cron_jobs.yaml`.
+- `GET /api/jobs/live` contained updated contract marker.
+- `GET /api/artifacts/memory/HEARTBEAT.md` returned 200.
+- Startup self-heal test passed: deleting `aria_memories/HEARTBEAT.md` then restarting API recreated the file.
+- `golden-v3` reviewed and updated to release commit above.
 
 ## Notes
 - This release is intended as a stable baseline snapshot.
-- If future patching is needed, branch from `main` and create a new tag rather than mutating `glden-v3`.
+- `aria_memories/` remains excluded from git by design; heartbeat runtime copy is now ensured at startup.
