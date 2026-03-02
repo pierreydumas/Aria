@@ -180,6 +180,71 @@ FREE models available:
 | **Service Control** | `ARIA_SERVICE_CONTROL_ENABLED`, restart/stop commands | 15 |
 | **Sentiment** | `SENTIMENT_METHOD`, `SENTIMENT_MODEL` | 2 |
 
+### Ollama on macOS (persistent auto-start)
+
+In this stack, Ollama is host-native on macOS (not a Docker Compose service), so Docker `restart:` policies do not manage it.
+Use `launchd` (not `systemctl`) for auto-start and auto-restart.
+
+1. Create `~/Library/LaunchAgents/com.najia.ollama.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.najia.ollama</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/ollama</string>
+    <string>serve</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>OLLAMA_HOST</key>
+    <string>0.0.0.0:11434</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/najia</string>
+  <key>StandardOutPath</key>
+  <string>/Users/najia/Library/Logs/ollama-launchd.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/najia/Library/Logs/ollama-launchd.err.log</string>
+</dict>
+</plist>
+```
+
+2. Load and start the job:
+
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.najia.ollama.plist
+launchctl enable gui/$(id -u)/com.najia.ollama
+launchctl kickstart -k gui/$(id -u)/com.najia.ollama
+```
+
+3. Verify:
+
+```bash
+launchctl print gui/$(id -u)/com.najia.ollama | grep -E 'state =|program ='
+curl -sS http://localhost:11434/api/tags
+curl -sS http://localhost:8000/api/status/ollama
+```
+
+4. Disable/remove later (if needed):
+
+```bash
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.najia.ollama.plist
+launchctl disable gui/$(id -u)/com.najia.ollama
+```
+
 <details>
 <summary>Quick-start example (.env minimal)</summary>
 
@@ -348,7 +413,27 @@ Periodic agent turns every 30 minutes:
 Clone-safe note:
 - `aria_memories/` is intentionally gitignored for user data safety.
 - On API startup, Aria auto-seeds `aria_memories/HEARTBEAT.md` from canonical `aria_mind/HEARTBEAT.md` (or container equivalent) when the memory copy is missing.
+- On first-run setup, Aria seeds identity defaults from `stacks/brain/identity_seed.default/` into `aria_memories/memory/` when those files are missing.
+- Optional: first-run can also seed API working-memory defaults by setting `ARIA_SEED_WORKING_MEMORY_ON_FIRST_RUN=true` before running `scripts/first-run.sh`.
 - This keeps first-run heartbeat behavior consistent on fresh clones.
+
+Manual identity seed command:
+
+```bash
+./scripts/seed_identity_memory.sh
+```
+
+Use force overwrite only when you intentionally want to replace local identity files:
+
+```bash
+./scripts/seed_identity_memory.sh --force
+```
+
+Manual working-memory seed command:
+
+```bash
+./scripts/import_working_memory_seed.sh
+```
 
 ---
 

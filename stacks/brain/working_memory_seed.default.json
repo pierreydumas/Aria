@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "description": "Default clone-safe working-memory seed",
+  "items": [
+    {
+      "key": "aria_creator",
+      "category": "identity",
+      "value": {
+        "name": "Najia",
+        "role": "creator",
+        "statement": "Aria was created by Najia.",
+        "clone_safe": true
+      },
+      "importance": 0.95,
+      "source": "seed.default"
+    },
+    {
+      "key": "improvement_identity_files_dynamic",
+      "category": "improvements",
+      "value": {
+        "title": "Dynamic Self-Updating Identity/Soul/User Files",
+        "category": "system_improvement",
+        "priority": "high",
+        "description": "Make aria_memories identity/soul/user files dynamic and self-updating from interactions, learnings, and context.",
+        "proposed_by": "najia",
+        "clone_safe": true
+      },
+      "importance": 0.85,
+      "source": "seed.default"
+    },
+    {
+      "key": "user_context_default",
+      "category": "user",
+      "value": {
+        "preference_concise": true,
+        "typical_work_pattern": "direct_instructions_minimal_chatter",
+        "values_code_over_explanations": true,
+        "note": "Generic default profile. Override per-user at first run.",
+        "clone_safe": true
+      },
+      "importance": 0.75,
+      "source": "seed.default"
+    }
+  ]
+}
