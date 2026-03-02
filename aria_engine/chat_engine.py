@@ -630,8 +630,16 @@ class ChatEngine:
                         final_finish_reason = summary_response.finish_reason
                 except Exception as e:
                     logger.error("Summary call failed in session %s: %s", sid, e)
-                    if not final_content:
-                        final_content = "I completed the requested actions. Let me know if you need anything else."
+                if not (final_content or "").strip():
+                    final_content = (
+                        "I completed the requested actions, but the final summary content was empty. "
+                        "Please continue and I will provide a concise recap in the next turn."
+                    )
+
+            final_content = self._apply_tool_result_consistency_guards(
+                final_content,
+                accumulated_tool_results,
+            )
 
             # ── 5. Persist assistant message ──────────────────────────────
             elapsed_ms = int((time.monotonic() - overall_start) * 1000)
@@ -1012,6 +1020,62 @@ class ChatEngine:
         if len(title) > 80:
             title = title[:77] + "..."
         return title
+
+    @staticmethod
+    def _extract_schedule_job_total(tool_results: list[dict[str, Any]]) -> int | None:
+        """Best-effort extraction of schedule total jobs from tool result payloads."""
+        total: int | None = None
+        for item in tool_results:
+            name = str(item.get("name", ""))
+            if "schedule__list_jobs" not in name and "schedule" not in name:
+                continue
+
+            raw = item.get("content")
+            payload: Any = raw
+            if isinstance(raw, str):
+                try:
+                    payload = json.loads(raw)
+                except Exception:
+                    continue
+
+            if isinstance(payload, dict):
+                data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+                candidate = data.get("total") if isinstance(data, dict) else None
+                if isinstance(candidate, int):
+                    total = candidate
+                elif isinstance(candidate, str) and candidate.isdigit():
+                    total = int(candidate)
+        return total
+
+    def _apply_tool_result_consistency_guards(
+        self,
+        content: str,
+        tool_results: list[dict[str, Any]],
+    ) -> str:
+        """Apply lightweight factual guards so summaries don't contradict tool outputs."""
+        if not content or not tool_results:
+            return content
+
+        schedule_total = self._extract_schedule_job_total(tool_results)
+        if schedule_total is None:
+            return content
+
+        lowered = content.lower()
+        contradiction_markers = (
+            "0 scheduled jobs",
+            "zero scheduled jobs",
+            "registry: empty",
+            "empty job registry",
+            "0 jobs total",
+        )
+        if schedule_total > 0 and any(marker in lowered for marker in contradiction_markers):
+            return (
+                f"{content}\n\n"
+                f"⚠️ Correction: tool results report {schedule_total} scheduled job(s), "
+                "so the scheduler registry is not empty."
+            )
+
+        return content
 
     @staticmethod
     def _session_to_dict(session) -> dict[str, Any]:

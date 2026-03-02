@@ -41,6 +41,7 @@ fi
 REMOTE_USER="${ARIA_DEPLOY_USER:-${MAC_USER:-}}"
 REMOTE_HOST="${ARIA_DEPLOY_HOST:-${MAC_HOST:-}}"
 SSH_KEY="${ARIA_DEPLOY_SSH_KEY:-${SSH_KEY_PATH:-}}"
+SSH_STRICT_HOST_KEY_CHECKING="${ARIA_DEPLOY_STRICT_HOST_KEY_CHECKING:-accept-new}"
 REMOTE_DIR="${ARIA_DEPLOY_DIR:-}"
 COMPOSE_FILE="${ARIA_DEPLOY_COMPOSE_FILE:-stacks/brain/docker-compose.yml}"
 BACKUP_DIR="${ARIA_DEPLOY_BACKUP_DIR:-/Users/${REMOTE_USER:-aria}/aria_vault/deploy_backups}"
@@ -81,11 +82,11 @@ validate_config() {
 }
 
 ssh_cmd() {
-    ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no "$REMOTE_USER@$REMOTE_HOST" "$@"
+    ssh -i "$SSH_KEY" -o StrictHostKeyChecking="$SSH_STRICT_HOST_KEY_CHECKING" "$REMOTE_USER@$REMOTE_HOST" "$@"
 }
 
 scp_to() {
-    scp -i "$SSH_KEY" -o StrictHostKeyChecking=no "$1" "$REMOTE_USER@$REMOTE_HOST:$2"
+    scp -i "$SSH_KEY" -o StrictHostKeyChecking="$SSH_STRICT_HOST_KEY_CHECKING" "$1" "$REMOTE_USER@$REMOTE_HOST:$2"
 }
 
 # --- Pre-flight checks ---
@@ -182,7 +183,7 @@ deploy() {
             --exclude 'aria_memories/logs' \
             --exclude '*.pyc' \
             --exclude '.env' \
-            -e "ssh -i $SSH_KEY" \
+                -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=$SSH_STRICT_HOST_KEY_CHECKING" \
             ./ "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR/"
     fi
 
@@ -256,17 +257,20 @@ deploy() {
 verify_health() {
     log "  Running health checks..."
 
-    # Check all containers are running
-    RUNNING=$(ssh_cmd "cd $REMOTE_DIR && docker compose ps --status running -q | wc -l")
-    EXPECTED=10  # aria-db, aria-browser, aria-engine, tor-proxy, traefik, litellm, aria-brain, aria-web, aria-api, docker-socket-proxy
-    if [ "$RUNNING" -lt "$EXPECTED" ]; then
-        error "  Only $RUNNING/$EXPECTED containers running"
-        return 1
-    fi
-    log "  Containers: $RUNNING/$EXPECTED running"
+    # Check required containers are running
+    REQUIRED_CONTAINERS="aria-db aria-api aria-web aria-brain litellm traefik"
+    for container in $REQUIRED_CONTAINERS; do
+        if ! ssh_cmd "cd $REMOTE_DIR && docker compose ps --status running --services | grep -qx '$container'"; then
+            error "  Required container not running: $container"
+            return 1
+        fi
+    done
+    log "  Required containers: running"
+
+    API_PORT="${ARIA_API_PORT:-8000}"
 
     # HTTP health check
-    for endpoint in "http://localhost:8000/health" "http://localhost:8000/api/health" "http://localhost:8081/metrics"; do
+    for endpoint in "http://localhost:${API_PORT}/health" "http://localhost:${API_PORT}/api/health" "http://localhost:8081/metrics"; do
         STATUS=$(ssh_cmd "curl -s -o /dev/null -w '%{http_code}' $endpoint" 2>/dev/null || echo "000")
         if [ "$STATUS" != "200" ]; then
             error "  Health check failed: $endpoint returned $STATUS"

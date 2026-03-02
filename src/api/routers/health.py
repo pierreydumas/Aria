@@ -14,7 +14,13 @@ from pydantic import BaseModel
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import DOCKER_HOST_IP, SERVICE_URLS, STARTUP_TIME, API_VERSION
+from config import (
+    DOCKER_HOST_IP,
+    SERVICE_URLS,
+    STARTUP_TIME,
+    API_VERSION,
+    OPTIONAL_SERVICE_IDS,
+)
 from db.session import async_engine
 from db.models import ActivityLog, Thought, Memory
 from deps import get_db
@@ -187,7 +193,8 @@ async def api_status():
             finally:
                 socket.setdefaulttimeout(prev)
         except Exception as e:
-            logger.warning("Service probe %s failed: %s", name, e)
+            if name not in OPTIONAL_SERVICE_IDS:
+                logger.warning("Service probe %s failed: %s", name, e)
             return name, {"status": "down", "code": None, "error": str(e)[:50]}
 
     urls = {

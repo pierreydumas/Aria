@@ -55,6 +55,8 @@ This will:
 - Copy `.env.example` → `.env`
 - Generate secure random passwords for DB, API keys, LiteLLM, Grafana, pgAdmin
 - Optionally prompt for external API keys (OpenRouter, Moonshot)
+- Seed clone-safe identity defaults into `aria_memories/memory/` (missing files only)
+- Optionally seed working-memory defaults when `ARIA_SEED_WORKING_MEMORY_ON_FIRST_RUN=true`
 
 ### Manual Setup
 
@@ -79,7 +81,7 @@ docker compose ps
 curl http://localhost:8000/api/health
 ```
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for the full guide — API keys, environment config, troubleshooting.
+See [DEPLOYMENT.md](DEPLOYMENT.md) for the full guide — API keys, environment config, troubleshooting, and macOS Ollama `launchd` auto-start.
 
 ---
 
@@ -89,6 +91,7 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for the full guide — API keys, environment 
 |----------|---------|
 | **[ARCHITECTURE.md](ARCHITECTURE.md)** | System design, layer diagram, data flow, Aria's self-architecture |
 | **[DEPLOYMENT.md](DEPLOYMENT.md)** | How to deploy, configure, and operate the stack |
+| **[DEPLOYMENT.md](DEPLOYMENT.md)** (Ollama macOS launchd) | Persistent Ollama auto-start/auto-restart on macOS (`launchd`) |
 | **[SKILLS.md](SKILLS.md)** | Skill system, 5-layer hierarchy, how to create new skills |
 | **[MODELS.md](MODELS.md)** | Model routing strategy, tiers, configuration |
 | **[API.md](API.md)** | REST API, GraphQL, dashboard, security middleware |

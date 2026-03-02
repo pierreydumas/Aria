@@ -148,6 +148,8 @@ jobs:
 
   - name: db_maintenance
     cron: "0 0 4 * * *"
+    enabled: false
+    max_duration_seconds: 300
     text: "DB_MAINTENANCE CONTRACT: Autonomously execute non-destructive DB maintenance. Safe operations to execute directly (no consent needed): (1) VACUUM ANALYZE on all tables, (2) REINDEX CONCURRENTLY on bloated indexes, (3) Update table statistics, (4) Check and report disk usage, (5) Clean expired/orphaned rows from session tables older than 30d. Execute these operations directly — do NOT queue for consent or generate proposals. Only destructive admin operations (DROP TABLE, TRUNCATE, schema migrations) require human consent. Outputs = execute maintenance + create_activity(db_maintenance) + create_activity(cron_execution)."
     agent: aria
     session: isolated

@@ -91,6 +91,8 @@ async def write_artifact(body: ArtifactWriteRequest):
             "category": body.category,
             "filename": body.filename,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.warning("Artifact write failed: %s", e)
         raise HTTPException(status_code=500, detail=f"Failed to write artifact: {e}")

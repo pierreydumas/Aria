@@ -12,8 +12,11 @@ Endpoints:
     GET    /api/engine/cron/status         — scheduler status
 """
 import logging
+import os
 from datetime import datetime
 from typing import Any
+
+import httpx
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
@@ -219,6 +222,24 @@ def get_scheduler() -> EngineScheduler:
     return EngineScheduler(config, db)
 
 
+def _resolve_scheduler_running(scheduler: EngineScheduler) -> bool:
+    """Resolve scheduler runtime status across in-process and detached-engine modes."""
+    if getattr(scheduler, "_agent_pool", None) is not None:
+        return scheduler.is_running
+
+    engine_health_url = os.getenv("ARIA_ENGINE_HEALTH_URL", "http://aria-engine:8081/health")
+    try:
+        with httpx.Client(timeout=httpx.Timeout(connect=0.2, read=0.4, write=0.2, pool=0.3)) as client:
+            resp = client.get(engine_health_url)
+        if resp.status_code == 200:
+            payload = resp.json()
+            return bool(payload.get("scheduler", False))
+    except Exception as e:
+        logger.debug("Engine health probe failed while resolving scheduler status: %s", e)
+
+    return scheduler.is_running
+
+
 # ── Endpoints ────────────────────────────────────────────────────────
 
 
@@ -231,7 +252,7 @@ async def list_cron_jobs(
     return CronJobListResponse(
         total=len(jobs),
         jobs=[CronJobResponse(**j) for j in jobs],
-        scheduler_running=scheduler.is_running,
+        scheduler_running=_resolve_scheduler_running(scheduler),
     )
 
 
@@ -263,7 +284,9 @@ async def get_scheduler_status(
     scheduler: EngineScheduler = Depends(get_scheduler),
 ) -> SchedulerStatusResponse:
     """Get scheduler status (before /{job_id} to avoid path conflict)."""
-    return SchedulerStatusResponse(**scheduler.get_status())
+    status = scheduler.get_status()
+    status["running"] = _resolve_scheduler_running(scheduler)
+    return SchedulerStatusResponse(**status)
 
 
 @router.get("/{job_id}", response_model=CronJobResponse)

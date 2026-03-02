@@ -90,10 +90,21 @@ class SandboxSkill(BaseSkill):
         return sanitized
 
     @logged_method()
-    async def run_code(self, code: str, timeout: int = 30, **kwargs) -> SkillResult:
+    async def run_code(
+        self,
+        code: str = "",
+        timeout: int = 30,
+        input: str = "",
+        **kwargs,
+    ) -> SkillResult:
         """Execute Python code in the sandbox."""
         if not self._client:
             return SkillResult.fail("Not initialized")
+
+        if not code:
+            code = input or kwargs.get("source") or kwargs.get("script") or ""
+        if not code:
+            return SkillResult.fail("Missing 'code' parameter")
 
         try:
             resp = await self._client.post(
@@ -116,10 +127,20 @@ class SandboxSkill(BaseSkill):
             return SkillResult.fail(f"Sandbox execution failed: {e}")
 
     @logged_method()
-    async def write_file(self, path: str = "", content: str = "", *, file_path: str = "") -> SkillResult:
+    async def write_file(
+        self,
+        path: str = "",
+        content: str = "",
+        *,
+        file_path: str = "",
+        input: str = "",
+        **kwargs,
+    ) -> SkillResult:
         """Write a file in the sandbox via code execution (S-104: injection-safe)."""
         # Accept both 'path' and 'file_path' — LLMs sometimes hallucinate param names
         path = path or file_path
+        if not content:
+            content = input or kwargs.get("text") or kwargs.get("data") or ""
         if not path:
             return SkillResult.fail("Missing 'path' parameter")
         if not self._client:
