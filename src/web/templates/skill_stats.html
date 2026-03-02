@@ -1362,14 +1362,26 @@ function renderSessionTraceGraph(trace) {
         return;
     }
 
+    // ── helper: truncate label to maxLen chars ──────────────────
+    function truncLabel(text, maxLen = 100) {
+        const s = String(text || '');
+        return s.length > maxLen ? s.slice(0, maxLen) + '…' : s;
+    }
+
+    // ── Level counter: allocates hierarchical levels sequentially ──
+    let nextLevel = 0;
+
+    // ── Build query / path-finder nodes (top section) ───────────
     const nodes = (trace?.trace_nodes || []).map((node) => {
+        const level = nextLevel++;
         if (node.kind === 'session') {
             return {
                 id: node.id,
-                label: node.label,
+                label: truncLabel(node.label),
+                level,
                 shape: 'box',
                 color: { background: '#1f2937', border: '#60a5fa' },
-                font: { color: '#e5e7eb' },
+                font: { color: '#e5e7eb', size: 12 },
             };
         }
 
@@ -1387,14 +1399,15 @@ function renderSessionTraceGraph(trace) {
             label: (() => {
                 const text = String(node.label || '');
                 const parts = text.split('\n');
-                if (parts.length < 2) return text;
+                if (parts.length < 2) return truncLabel(text);
                 const secondLineRaw = parts.slice(1).join(' ');
                 const isUnresolvedTraverse = queryType.includes('traverse') && looksLikeUuid(secondLineRaw);
                 const secondLine = isUnresolvedTraverse
                     ? (showRawIds ? secondLineRaw : 'Unknown graph node')
                     : displayTarget(secondLineRaw, { raw: showRawIds });
-                return `${parts[0]}\n${secondLine}`;
+                return truncLabel(`${parts[0]}\n${secondLine}`);
             })(),
+            level,
             shape: 'box',
             color: palette,
             font: { color: '#f3f4f6', size: 12 },
@@ -1409,9 +1422,10 @@ function renderSessionTraceGraph(trace) {
         color: edge.kind === 'loop' ? '#f59e0b' : (edge.kind === 'parent' ? '#22c55e' : '#3b82f6'),
         dashes: edge.kind === 'loop',
         width: edge.kind === 'loop' ? 2 : (edge.kind === 'parent' ? 2 : 1),
-        smooth: { type: edge.kind === 'loop' ? 'curvedCW' : 'dynamic', roundness: edge.kind === 'loop' ? 0.25 : 0.0 },
+        smooth: { type: 'curvedCW', roundness: 0.1 },
     }));
 
+    // ── Build execution event nodes (chained sequentially) ──────
     const executionEvents = Array.isArray(trace?.execution_events) ? [...trace.execution_events] : [];
     executionEvents.sort((a, b) => (String(a?.created_at || '')).localeCompare(String(b?.created_at || '')));
 
@@ -1430,11 +1444,13 @@ function renderSessionTraceGraph(trace) {
         const kind = String(event?.kind || 'assistant').toLowerCase();
         const style = kindStyle[kind] || kindStyle.assistant;
         const nodeId = `exec-${idx}`;
-        const labelText = String(event?.label || kind).slice(0, 88);
+        const labelText = truncLabel(String(event?.label || kind));
+        const level = nextLevel++;
 
         nodes.push({
             id: nodeId,
             label: `${kind}\n${labelText}`,
+            level,
             shape: style.shape,
             color: { background: style.background, border: style.border },
             font: { color: style.color, size: 11 },
@@ -1448,7 +1464,7 @@ function renderSessionTraceGraph(trace) {
                 arrows: 'to',
                 color: '#64748b',
                 width: 1,
-                smooth: { type: 'dynamic' },
+                smooth: { type: 'curvedCW', roundness: 0.1 },
             });
         } else {
             const isHandoff = kind === 'agent_handoff';
@@ -1459,24 +1475,40 @@ function renderSessionTraceGraph(trace) {
                 color: isHandoff ? '#fb7185' : '#64748b',
                 dashes: isHandoff,
                 width: isHandoff ? 2 : 1,
-                smooth: { type: isHandoff ? 'curvedCW' : 'dynamic', roundness: isHandoff ? 0.2 : 0.0 },
+                smooth: { type: 'curvedCW', roundness: isHandoff ? 0.2 : 0.1 },
             });
         }
 
         previousExecNodeId = nodeId;
     });
 
+    // ── Render with hierarchical layout (chain, like chat graph) ─
     const data = { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(edges) };
     const options = {
-        physics: {
-            stabilization: true,
-            forceAtlas2Based: { gravitationalConstant: -35, springLength: 120, springConstant: 0.05 },
-            minVelocity: 0.75,
-            solver: 'forceAtlas2Based',
+        layout: {
+            hierarchical: {
+                enabled: true,
+                direction: 'UD',
+                sortMethod: 'directed',
+                levelSeparation: 100,
+                nodeSpacing: 140,
+                treeSpacing: 200,
+                blockShifting: true,
+                edgeMinimization: true,
+                parentCentralization: true,
+            },
         },
-        layout: { improvedLayout: true },
-        interaction: { hover: true, dragNodes: true, dragView: true, zoomView: true },
-        nodes: { shapeProperties: { borderRadius: 8 } },
+        physics: { enabled: false },
+        interaction: { hover: true, dragNodes: true, dragView: true, zoomView: true, tooltipDelay: 100 },
+        nodes: {
+            shapeProperties: { borderRadius: 8 },
+            borderWidth: 1.5,
+        },
+        edges: {
+            smooth: { type: 'curvedCW', roundness: 0.1 },
+            width: 1,
+            color: { color: '#555', hover: '#888' },
+        },
     };
 
     if (traceNetwork) {
@@ -1491,9 +1523,6 @@ function renderSessionTraceGraph(trace) {
 
     setTimeout(fitTraceGraph, 50);
     setTimeout(fitTraceGraph, 220);
-    traceNetwork.once('stabilized', () => {
-        fitTraceGraph();
-    });
 }
 
 function inferSessionOutcome(session, executionEvents) {
