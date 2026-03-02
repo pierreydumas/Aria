@@ -56,6 +56,9 @@ services:
       DATABASE_URL: postgresql+asyncpg://${DB_USER:-admin}:${DB_PASSWORD:-admin}@aria-db:${DB_INTERNAL_PORT:-5432}/${DB_NAME:-aria_warehouse}
       LITELLM_BASE_URL: http://litellm:${LITELLM_INTERNAL_PORT:-4000}/v1
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-change-me}
+      MOONSHOT_KIMI_KEY: ${MOONSHOT_KIMI_KEY:-}
+      OPEN_ROUTER_KEY: ${OPEN_ROUTER_KEY:-}
+      OPEN_ROUTER_KEY_DEEP: ${OPEN_ROUTER_KEY_DEEP:-${OPEN_ROUTER_KEY:-}}
       ENGINE_DEBUG: ${ENGINE_DEBUG:-false}
       ENGINE_HEALTH_PORT: ${ENGINE_HEALTH_PORT:-8081}
       # Full URL for heartbeat API posts (not the routing prefix API_BASE_URL)
