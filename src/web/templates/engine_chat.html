@@ -2265,6 +2265,7 @@
 
         const messagesContainer = document.getElementById('chatMessages');
         messagesContainer.innerHTML = '';
+        ensureScrollBtn();
 
         document.querySelectorAll('.session-item').forEach(el => {
             el.classList.toggle('active', el.dataset.id === sid);
@@ -2330,6 +2331,7 @@
                 <p>Send a message to start a conversation.</p>
             </div>
         `;
+        ensureScrollBtn();
         document.getElementById('chatTitle').textContent = 'New Chat';
         history.replaceState(null, '', '/chat/');
 
@@ -3130,8 +3132,20 @@
             const atBottom = scrollHeight - scrollTop - clientHeight < 100;
             autoScroll = atBottom;
             const btn = document.getElementById('scrollBottomBtn');
-            btn.classList.toggle('visible', !atBottom);
+            if (btn) btn.classList.toggle('visible', !atBottom);
         });
+    }
+
+    /** Re-inject the scroll-to-bottom button after innerHTML wipes */
+    function ensureScrollBtn() {
+        if (document.getElementById('scrollBottomBtn')) return;
+        const container = document.getElementById('chatMessages');
+        const btn = document.createElement('button');
+        btn.className = 'scroll-bottom-btn';
+        btn.id = 'scrollBottomBtn';
+        btn.onclick = scrollToBottom;
+        btn.textContent = '↓ New messages';
+        container.appendChild(btn);
     }
 
     function scrollToBottom() {
