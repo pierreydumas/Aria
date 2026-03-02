@@ -71,14 +71,20 @@ failed=0
 while IFS= read -r item; do
   key=$(jq -r '.key' <<<"$item")
   category=$(jq -r '.category // "general"' <<<"$item")
-  value=$(jq -c '.value' <<<"$item")
+  # API expects value as a string; stringify objects/arrays
+  raw_value=$(jq -c '.value' <<<"$item")
+  if [[ "$raw_value" == "{"* || "$raw_value" == "["* ]]; then
+    value="$raw_value"
+  else
+    value="$raw_value"
+  fi
   importance=$(jq -r '.importance // 0.5' <<<"$item")
   source=$(jq -r '.source // "seed.default"' <<<"$item")
 
   payload=$(jq -n \
     --arg key "$key" \
     --arg category "$category" \
-    --argjson value "$value" \
+    --arg value "$value" \
     --arg source "$source" \
     --argjson importance "$importance" \
     '{key:$key, category:$category, value:$value, importance:$importance, source:$source}')
@@ -86,7 +92,7 @@ while IFS= read -r item; do
   response_file=$(mktemp)
   status_code=$(curl -sS -o "$response_file" -w '%{http_code}' -X POST "$API_BASE_URL/working-memory" \
     -H "Content-Type: application/json" \
-    "${AUTH_HEADER[@]}" \
+    ${AUTH_HEADER[@]+"${AUTH_HEADER[@]}"} \
     -d "$payload" || true)
 
   if [[ "$status_code" =~ ^2 ]]; then
