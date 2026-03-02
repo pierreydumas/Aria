@@ -218,7 +218,7 @@ class BaseSkill(ABC):
             return os.environ.get(env_var)
         return value
     
-    def get_metrics(self) -> dict:
+    def get_metrics(self, **kwargs) -> dict:
         """Get skill usage metrics."""
         return {
             "name": self.name,

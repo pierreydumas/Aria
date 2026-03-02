@@ -1,0 +1,51 @@
+{
+  "timestamp": "2026-02-28T00:49:00Z",
+  "job": "work_cycle",
+  "cycle": {
+    "health_check": {
+      "status": "healthy",
+      "overall": "healthy",
+      "python_version": "3.13.12",
+      "memory_used_percent": 55.3,
+      "disk_used_percent": 20.4
+    },
+    "goal_check": {
+      "status": "no_goals",
+      "goals_checked": 0,
+      "highest_priority": null,
+      "action": "skipped_no_work"
+    },
+    "agent_audit": {
+      "active_agents": 8,
+      "total_sessions": 125,
+      "active_sessions": 67,
+      "total_tokens": 25762128,
+      "cost_usd": 3.321491,
+      "by_agent": {
+        "sub-devsecops": 65,
+        "sub-social": 35,
+        "sub-orchestrator": 10,
+        "aria": 8,
+        "main": 3,
+        "sub-research": 2,
+        "sub-data": 1,
+        "sub-devops": 1
+      }
+    },
+    "memory_sync": {
+      "status": "completed",
+      "pruned_sessions": 0,
+      "note": "Working memory synced to context.json"
+    },
+    "artifact_log": {
+      "status": "success",
+      "path": "aria_memories/logs/work_cycle_2026-02-28_0049.json",
+      "note": "Written via api_client"
+    }
+  },
+  "summary": "Work cycle completed successfully. System health is good. No active goals found - system idle. Agent audit shows 67 active sessions across 8 agent types. Memory synced. Artifact logged.",
+  "issues_detected": [],
+  "recommendations": [
+    "Create new goals to utilize idle capacity"
+  ]
+}

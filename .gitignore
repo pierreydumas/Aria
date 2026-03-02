@@ -93,3 +93,11 @@ htmlcov/
 # Database CSV exports (sensitive data)
 aria_souvenirs/*/db_export/
 
+
+# External-reference souvenirs (intentionally tracked)
+!aria_souvenirs/archive/bubble_compliance_schema.sql
+!aria_souvenirs/aria_v2_110226/exports/*.sql
+!aria_souvenirs/aria_v3_270226/logs/
+!aria_souvenirs/aria_v3_270226/logs/**
+!aria_souvenirs/aria_v3_270226/memory/logs/
+!aria_souvenirs/aria_v3_270226/memory/logs/**

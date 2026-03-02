@@ -1,0 +1,57 @@
+{
+  "timestamp": "2026-02-27T23:54:00Z",
+  "job": "work_cycle",
+  "cycle": {
+    "health_check": {
+      "status": "healthy",
+      "overall": "healthy",
+      "python": "3.13.12",
+      "memory_percent": 56.5,
+      "disk_percent": 20.0
+    },
+    "goal_check": {
+      "status": "circuit_breaker_open",
+      "note": "API circuit breaker preventing goal fetch - service degradation detected",
+      "goals_checked": 0,
+      "highest_priority": null
+    },
+    "agent_audit": {
+      "active_agents": 0,
+      "total_sessions": 119,
+      "active_sessions": 64,
+      "total_tokens": 24716224,
+      "cost_usd": 3.196117,
+      "by_agent": {
+        "sub-devsecops": 61,
+        "sub-social": 35,
+        "sub-orchestrator": 9,
+        "aria": 7,
+        "main": 3,
+        "sub-research": 2,
+        "sub-data": 1,
+        "sub-devops": 1
+      }
+    },
+    "memory_sync": {
+      "status": "circuit_breaker_open",
+      "pruned_sessions": 0,
+      "note": "Memory seeding blocked by circuit breaker"
+    },
+    "artifact_log": {
+      "status": "attempted",
+      "path": "aria_memories/logs/work_cycle_2026-02-27_2354.json",
+      "note": "Circuit breaker prevented API write - attempting direct file write"
+    }
+  },
+  "summary": "Work cycle executed with partial success. System health is good but API circuit breaker is open, preventing goal fetching, memory operations, and artifact writes. Agent audit shows 64 active sessions across 8 agent types. Recommend investigating API health and resetting circuit breakers.",
+  "issues_detected": [
+    "API circuit breaker open",
+    "Memory sync failed",
+    "Artifact write blocked"
+  ],
+  "recommendations": [
+    "Check API container health",
+    "Verify database connectivity",
+    "Reset circuit breakers if services recovered"
+  ]
+}

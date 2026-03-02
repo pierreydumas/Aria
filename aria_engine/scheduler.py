@@ -229,10 +229,13 @@ class EngineScheduler:
         while time.monotonic() < deadline:
             try:
                 async with aiohttp.ClientSession() as http:
-                    resp = await http.get(f"{_API_BASE}/api/health", timeout=aiohttp.ClientTimeout(total=5))
-                    if resp.status == 200:
-                        logger.info("aria-api is reachable")
-                        return
+                    async with http.get(
+                        f"{_API_BASE}/api/health",
+                        timeout=aiohttp.ClientTimeout(total=5),
+                    ) as resp:
+                        if resp.status == 200:
+                            logger.info("aria-api is reachable")
+                            return
             except Exception as e:
                 logger.debug("Health check attempt: %s", e)
             await asyncio.sleep(2)
@@ -489,18 +492,18 @@ class EngineScheduler:
             }
             if model:
                 session_body["model"] = model
-            create_resp = await http.post(
+            async with http.post(
                 f"{_API_BASE}/api/engine/chat/sessions",
                 json=session_body,
                 headers=_headers,
-            )
-            if create_resp.status != 201:
-                body = await create_resp.text()
-                raise SchedulerError(
-                    f"Failed to create session for job {job_id}: "
-                    f"HTTP {create_resp.status} — {body}"
-                )
-            session_data = await create_resp.json()
+            ) as create_resp:
+                if create_resp.status != 201:
+                    body = await create_resp.text()
+                    raise SchedulerError(
+                        f"Failed to create session for job {job_id}: "
+                        f"HTTP {create_resp.status} — {body}"
+                    )
+                session_data = await create_resp.json()
             session_id = session_data["id"]
 
             logger.info(
@@ -510,7 +513,7 @@ class EngineScheduler:
 
             try:
                 # 2. Send the cron payload as a message
-                msg_resp = await http.post(
+                async with http.post(
                     f"{_API_BASE}/api/engine/chat/sessions/{session_id}/messages",
                     json={
                         "content": payload,
@@ -518,19 +521,21 @@ class EngineScheduler:
                         "enable_tools": True,
                     },
                     headers=_headers,
-                )
-                if msg_resp.status != 200:
-                    body = await msg_resp.text()
-                    raise SchedulerError(
-                        f"Job {job_id} message failed: HTTP {msg_resp.status} — {body}"
-                    )
+                ) as msg_resp:
+                    if msg_resp.status != 200:
+                        body = await msg_resp.text()
+                        raise SchedulerError(
+                            f"Job {job_id} message failed: HTTP {msg_resp.status} — {body}"
+                        )
+                    result = await msg_resp.json()
             except Exception:
                 # Clean up the empty session so it doesn't become a ghost
                 try:
-                    await http.delete(
+                    async with http.delete(
                         f"{_API_BASE}/api/engine/chat/sessions/{session_id}",
                         headers=_headers,
-                    )
+                    ):
+                        pass
                     logger.info(
                         "Job %s: cleaned up empty session %s after failure",
                         job_id, session_id,
@@ -542,7 +547,6 @@ class EngineScheduler:
                     )
                 raise
 
-            result = await msg_resp.json()
             logger.info(
                 "Job %s: completed (model=%s, tokens=%s, cost=$%s)",
                 job_id,
@@ -552,10 +556,11 @@ class EngineScheduler:
             )
 
             # 3. Close the session
-            await http.delete(
+            async with http.delete(
                 f"{_API_BASE}/api/engine/chat/sessions/{session_id}",
                 headers=_headers,
-            )
+            ):
+                pass
 
             return result
 
@@ -645,7 +650,7 @@ class EngineScheduler:
                 _hb_key = os.getenv("ARIA_API_KEY", "")
                 if _hb_key:
                     _hb_headers["X-API-Key"] = _hb_key
-                await http.post(
+                async with http.post(
                     f"{_API_BASE}/api/heartbeat",
                     json={
                         "job_name": job_name,
@@ -655,7 +660,8 @@ class EngineScheduler:
                         "duration_ms": duration_ms,
                     },
                     headers=_hb_headers,
-                )
+                ):
+                    pass
         except Exception as e:
             logger.warning("Failed to write heartbeat log for %s: %s", job_name, e)
 

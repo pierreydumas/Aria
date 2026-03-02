@@ -59,9 +59,11 @@ def _estimate_max_duration(name: str) -> int:
     """Estimate max duration in seconds based on job type."""
     heavy = {"weekly_summary", "six_hour_review", "daily_reflection",
              "morning_checkin", "memory_consolidation"}
-    light = {"health_check", "db_maintenance", "memory_bridge"}
+    light = {"health_check", "memory_bridge"}
     if name in heavy:
         return 600
+    if name == "db_maintenance":
+        return 300
     if name in light:
         return 60
     return 300
@@ -79,7 +81,7 @@ def _transform_job(job: Dict[str, Any]) -> Dict[str, Any]:
         "payload_type": "prompt",
         "payload": job.get("text", ""),
         "session_mode": job.get("session", "isolated"),
-        "max_duration_seconds": _estimate_max_duration(name),
+        "max_duration_seconds": int(job.get("max_duration_seconds", _estimate_max_duration(name))),
         "retry_count": 1 if job.get("enabled", True) else 0,
     }
 

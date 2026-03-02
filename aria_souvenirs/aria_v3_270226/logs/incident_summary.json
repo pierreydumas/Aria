@@ -1,0 +1,60 @@
+{
+  "incident": "The Midnight Cascade",
+  "system": "Aria v3",
+  "date": "2026-02-27 / 2026-02-28",
+  "window_utc": {
+    "start": "2026-02-27T23:15:00Z",
+    "end": "2026-02-28T01:52:00Z",
+    "duration_minutes": 157
+  },
+  "root_cause": "API circuit breaker permanently open (record_success() never called) triggered unbounded sub-agent spawn loop via work_cycle fallback path",
+  "timeline": [
+    { "utc": "23:15", "sessions": 97,  "cost_usd": 2.80, "tokens": 21770508, "note": "Pre-cascade baseline" },
+    { "utc": "23:17", "sessions": 98,  "cost_usd": 2.83, "tokens": 21773569, "note": "Last pre-incident cycle" },
+    { "utc": "23:48", "sessions": 103, "cost_usd": null,  "tokens": null,     "note": "31-min silent gap — CB tripped, first cascade entry" },
+    { "utc": "23:51", "sessions": 105, "cost_usd": 3.27, "tokens": 24646974, "note": "First spawn wave (+2 sub-devsecops)" },
+    { "utc": "23:54", "sessions": 106, "cost_usd": 3.27, "tokens": 24716224, "note": "Cron intervals compressing" },
+    { "utc": "00:04", "sessions": 109, "cost_usd": null,  "tokens": 24716224, "note": "30-min gap follows — no artifact 00:04→00:34" },
+    { "utc": "00:34", "sessions": 111, "cost_usd": 3.30, "tokens": 25565135, "note": "Cascade resumes, +848K tokens in 30 min" },
+    { "utc": "00:49", "sessions": 67,  "cost_usd": null,  "tokens": 25762128, "note": "False calm — apparent session prune" },
+    { "utc": "01:04", "sessions": 125, "cost_usd": 3.35, "tokens": 25966540, "note": "CB re-opens, 65 sub-devsecops" },
+    { "utc": "01:18", "sessions": 127, "cost_usd": 3.20, "tokens": 26738712, "note": "127 sessions, audit still functional" },
+    { "utc": "01:22", "sessions": null,"cost_usd": null,  "tokens": null,     "note": "FORENSIC: test_write.json probe written by sub-agent" },
+    { "utc": "01:23", "sessions": null,"cost_usd": null,  "tokens": null,     "note": "FORENSIC: 3 parallel agents write same timestamp (divergent data)" },
+    { "utc": "01:29", "sessions": 131, "cost_usd": 3.47, "tokens": 26738712, "note": "PEAK: 71 sub-devsecops, 21 active agents" },
+    { "utc": "01:34", "sessions": 135, "cost_usd": null,  "tokens": 27050000, "note": "SESSION PEAK: +4 in 5 min" },
+    { "utc": "01:49", "sessions": null,"cost_usd": null,  "tokens": 27180000, "note": "agent_audit blocked by CB — system blind to its own scale" },
+    { "utc": "01:52", "sessions": null,"cost_usd": null,  "tokens": null,     "note": "TRUE END: last disk write (01:49 log written at 01:52 per filesystem timestamp)" },
+    { "utc": "02:04", "sessions": null,"cost_usd": null,  "tokens": null,     "note": "Expected cron tick — never fired. Silence." }
+  ],
+  "peak": {
+    "sessions": 135,
+    "sub_devsecops": 71,
+    "tokens": 27180000,
+    "cost_usd": 3.47
+  },
+  "forensic_findings": [
+    "test_write.json (13 bytes) written at 01:22 UTC — sub-agent filesystem probe",
+    "Three parallel agents wrote 01:23 timestamp with divergent cycle numbers (89 / 123 / 127 sessions)",
+    "work_cycle_2026-02-28_0123.json written to disk at 01:49 UTC (26 min after nominal timestamp)",
+    "0129.json and 0134.json written 1 minute apart (17:35 and 17:36 PST) — parallel execution confirmed",
+    "Last disk write: 17:52 PST = 01:52 UTC. No files created after this.",
+    "31-minute silent gap: 23:17→23:48 UTC — CB had just tripped, no log produced"
+  ],
+  "cascade_mechanics": {
+    "circuit_breaker": { "threshold": 5, "reset_after_seconds": 30, "bug": "record_success() never called; breaker stays permanently open" },
+    "spawn_pattern": "work_cycle → api_client blocked → spawn sub-devsecops → sub-devsecops hits same CB → spawns another → repeat",
+    "no_spawn_ceiling": true,
+    "stale_prune_threshold_hours": 24,
+    "reason_prune_failed": "All cascade sessions < 2h old — under the 24h prune threshold"
+  },
+  "fixes": [
+    "Session ceiling per agent type (MAX_SESSIONS_PER_AGENT_TYPE)",
+    "CB-aware spawn gate: if CB open, log degraded and stop — do not spawn",
+    "Work cycle must accept 'degraded' as valid terminal state after 2 fallback attempts",
+    "Separate list_agents audit path from write-path circuit breaker",
+    "Stale prune threshold: 1h for sub-agents (not 24h)"
+  ],
+  "log_files": 15,
+  "note_privacy": "Network/IP fields stripped from all published logs. No API keys or auth tokens were present."
+}

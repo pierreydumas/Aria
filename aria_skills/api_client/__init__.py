@@ -348,7 +348,13 @@ class AriaAPIClient(BaseSkill):
         goal_id: str,
         status: str | None = None,
         progress: int | None = None,
-        priority: int | None = None
+        priority: int | None = None,
+        board_column: str | None = None,
+        due_date: str | None = None,
+        sprint: str | None = None,
+        assigned_to: str | None = None,
+        tags: list | None = None,
+        **kwargs,
     ) -> SkillResult:
         """Update a goal."""
         try:
@@ -359,6 +365,20 @@ class AriaAPIClient(BaseSkill):
                 data["progress"] = progress
             if priority is not None:
                 data["priority"] = priority
+            if board_column is not None:
+                data["board_column"] = board_column
+            if due_date is not None:
+                data["due_date"] = due_date
+            if sprint is not None:
+                data["sprint"] = sprint
+            if assigned_to is not None:
+                data["assigned_to"] = assigned_to
+            if tags is not None:
+                data["tags"] = tags
+
+            for key, value in kwargs.items():
+                if value is not None:
+                    data[key] = value
             
             resp = await self._request_with_retry("PATCH", f"/goals/{goal_id}", json=data)
             return SkillResult.ok(resp.json())
@@ -1109,7 +1129,7 @@ class AriaAPIClient(BaseSkill):
         for attempt in range(attempts):
             try:
                 resp = await self._client.request(method, path, **kwargs)
-                if resp.status_code >= 500 and attempt < attempts - 1:
+                if (resp.status_code >= 500 or resp.status_code == 429) and attempt < attempts - 1:
                     delay = self._base_backoff_seconds * (2 ** attempt)
                     await asyncio.sleep(delay)
                     continue
@@ -1118,6 +1138,15 @@ class AriaAPIClient(BaseSkill):
                 return resp
             except Exception as exc:
                 last_error = exc
+
+                # Do not retry client-side request errors (except 429 throttling).
+                # These are usually validation/schema issues and should not open the
+                # connectivity circuit breaker.
+                if HAS_HTTPX and isinstance(exc, httpx.HTTPStatusError):
+                    status = exc.response.status_code
+                    if 400 <= status < 500 and status != 429:
+                        raise
+
                 self._record_failure()
                 if attempt < attempts - 1:
                     delay = self._base_backoff_seconds * (2 ** attempt)

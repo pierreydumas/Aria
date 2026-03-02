@@ -1,0 +1,55 @@
+{
+  "timestamp": "2026-02-27T23:17:00Z",
+  "job": "work_cycle",
+  "cycle": {
+    "health_check": {
+      "status": "healthy",
+      "python": "3.13.12",
+      "memory_percent": 58.9,
+      "disk_percent": 18.8,
+      "checks_passed": 5
+    },
+    "goal_check": {
+      "pending_goals": 2,
+      "highest_priority": 1,
+      "selected_goal": "b5f2b3f8-5029-4533-a854-6ced1757329a",
+      "action": "completed",
+      "new_goal_created": "goal-65a89f41"
+    },
+    "agent_audit": {
+      "total_sessions": 97,
+      "active_sessions": 54,
+      "stale_sessions": 0,
+      "total_tokens": 21773569,
+      "total_cost_usd": 2.8,
+      "top_agents": [
+        {
+          "agent": "sub-devsecops",
+          "sessions": 53,
+          "tokens": 9855642
+        },
+        {
+          "agent": "sub-social",
+          "sessions": 27,
+          "tokens": 8270474
+        }
+      ]
+    },
+    "memory_sync": {
+      "artifacts_total": 566,
+      "categories": 20,
+      "sync_status": "success"
+    },
+    "artifact_log": {
+      "path": "aria_memories/logs/work_cycle_2026-02-27_2317.json",
+      "written": true
+    }
+  },
+  "summary": {
+    "status": "success",
+    "goals_processed": 1,
+    "health": "healthy",
+    "next_action": "continue monitoring",
+    "notes": "System operating normally. 54 active agent sessions. Telegram skill not initialized - TELEGRAM_BOT_TOKEN missing."
+  }
+}

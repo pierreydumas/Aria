@@ -66,6 +66,15 @@ SERVICE_URLS: dict[str, tuple[str, str]] = {
     "aria-api":   (os.getenv("ARIA_API_SELF_URL", f"http://localhost:{os.getenv('API_INTERNAL_PORT', '8000')}"), "/health"),
 }
 
+OPTIONAL_SERVICE_IDS: set[str] = {
+    value.strip()
+    for value in os.getenv(
+        "ARIA_OPTIONAL_SERVICES",
+        "grafana,prometheus,pgadmin",
+    ).split(",")
+    if value.strip()
+}
+
 if MLX_ENABLED:
     SERVICE_URLS["mlx"] = (
         os.getenv("MLX_URL", f"http://{DOCKER_HOST_IP}:8080"),
