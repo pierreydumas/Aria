@@ -29,7 +29,7 @@ if HAS_PYDANTIC:
             alias="LITELLM_BASE_URL",
         )
         litellm_master_key: str = Field(default="", alias="LITELLM_MASTER_KEY")
-        default_model: str = "qwen-cpu-fallback"
+        default_model: str = "kimi"
         default_temperature: float = 0.7
         default_max_tokens: int = 4096
 
@@ -119,7 +119,7 @@ else:
         litellm_master_key: str = field(default_factory=lambda: os.environ.get(
             "LITELLM_MASTER_KEY", ""
         ))
-        default_model: str = "qwen-cpu-fallback"
+        default_model: str = "kimi"
         default_temperature: float = 0.7
         default_max_tokens: int = 4096
 
