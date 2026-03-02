@@ -237,7 +237,7 @@ class LLMGateway:
                 model=resolved_model,
                 input_tokens=getattr(usage, "prompt_tokens", 0),
                 output_tokens=getattr(usage, "completion_tokens", 0),
-                cost_usd=getattr(response, "_hidden_params", {}).get("response_cost", 0.0),
+                cost_usd=(getattr(response, "_hidden_params", {}).get("response_cost") or 0.0),
                 latency_ms=elapsed_ms,
                 finish_reason=choice.finish_reason or "",
             )

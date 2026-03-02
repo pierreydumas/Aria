@@ -415,9 +415,9 @@
       "aliases": ["kimi-k2-thinking-turbo"]
     },
     "qwen-cpu-fallback": {
-      "enabled": false,
+      "enabled": true,
       "provider": "litellm",
-      "name": "Qwen 2.5 3B (Ollama CPU Fallback)",
+      "name": "Qwen 2.5 7B (Ollama CPU Fallback)",
       "reasoning": false,
       "input": ["text"],
       "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
@@ -426,7 +426,7 @@
       "tier": "local",
       "routeSkill": "litellm",
       "litellm": {
-        "model": "ollama/qwen2.5:3b",
+        "model": "ollama/qwen2.5:7b",
         "api_base": "http://host.docker.internal:11434"
       }
     },
