@@ -22,6 +22,13 @@ for k in list(sys.modules):
 
 from aria_skills.base import SkillConfig, SkillResult, SkillStatus
 
+# Load ollama default model from models.yaml
+try:
+    from aria_models.loader import get_task_model
+    _DEFAULT_OLLAMA_MODEL = get_task_model("ollama_default")
+except Exception:
+    _DEFAULT_OLLAMA_MODEL = ""
+
 
 # ─────────────────────────────────────────────────────────────────────────
 # Test definitions per skill
@@ -141,7 +148,7 @@ TESTS = {
     ],
     "ollama": [
         ("list_models", {}),
-        ("set_model", {"model": "qwen2.5:3b"}),
+        ("set_model", {"model": _DEFAULT_OLLAMA_MODEL}),
     ],
     "sandbox": [
         ("run_code", {"code": "print('hello from sandbox')", "timeout": 10}),

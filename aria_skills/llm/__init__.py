@@ -24,15 +24,8 @@ from aria_skills.registry import SkillRegistry
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Fallback chain — loaded dynamically from aria_models/models.yaml at runtime.
-# Static list is a safe fallback when models.yaml is unavailable.
 # ─────────────────────────────────────────────────────────────────────────────
-_STATIC_FALLBACK_CHAIN: list[dict] = [
-    {"model": "litellm/qwen3-mlx",       "tier": "local",  "priority": 1},
-    {"model": "litellm/trinity-free",    "tier": "free",   "priority": 2},
-    {"model": "litellm/qwen3-next-free", "tier": "free",   "priority": 3},
-    {"model": "litellm/deepseek-free",   "tier": "free",   "priority": 4},
-    {"model": "litellm/kimi",            "tier": "paid",   "priority": 5},
-]
+_STATIC_FALLBACK_CHAIN: list[dict] = []
 
 
 def _build_fallback_chain() -> list[dict]:
@@ -76,7 +69,7 @@ def _build_fallback_chain() -> list[dict]:
                 if local_id and not any(e["model"] == local_id for e in chain):
                     chain.insert(0, {"model": local_id, "tier": "local", "priority": 0})
 
-        return chain if chain else _STATIC_FALLBACK_CHAIN
+        return chain
     except Exception:
         return _STATIC_FALLBACK_CHAIN
 

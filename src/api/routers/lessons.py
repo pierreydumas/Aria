@@ -24,7 +24,7 @@ _KNOWN_PATTERNS = [
     {"error_pattern": "api_429_rate_limit", "error_type": "rate_limit",
      "resolution": "Wait 60s, retry with different model via model_switcher"},
     {"error_pattern": "litellm_timeout", "error_type": "timeout",
-     "resolution": "Downgrade to faster model (qwen3-mlx), reduce max_tokens"},
+     "resolution": "Downgrade to faster local model, reduce max_tokens"},
     {"error_pattern": "tool_hallucinated_function", "error_type": "validation",
      "resolution": "Re-read TOOLS.md, use only documented tool names"},
     {"error_pattern": "db_connection_refused", "error_type": "connection",

@@ -16,6 +16,12 @@ from aria_skills.base import BaseSkill, SkillConfig, SkillResult, SkillStatus, l
 from aria_skills.litellm import LiteLLMSkill
 from aria_skills.registry import SkillRegistry
 
+try:
+    from aria_models.loader import get_primary_model as _get_primary_model
+except ImportError:
+    def _get_primary_model() -> str:
+        return ""
+
 SUMMARIZATION_PROMPT = """\
 Summarize this work session based on the activity log below. Respond ONLY with valid JSON.
 
@@ -163,7 +169,7 @@ class ConversationSummarySkill(BaseSkill):
 
             # S-115: Route LLM calls through litellm skill (no direct httpx)
             llm_result = await self._litellm.chat_completion(
-                model="qwen3-mlx",
+                model=_get_primary_model(),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
                 max_tokens=800,

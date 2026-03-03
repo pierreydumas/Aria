@@ -53,32 +53,19 @@ def strip_thinking_from_content(content: str) -> str:
 
 
 def build_thinking_params(model: str, enable: bool = True) -> dict[str, Any]:
-    """Build model-specific parameters for enabling thinking mode."""
-    params: dict[str, Any] = {}
+    """Build model-specific parameters for enabling thinking mode.
 
+    Reads thinking_params from models.yaml via get_thinking_config().
+    No hardcoded model family checks — YAML is the source of truth.
+    """
     if not enable:
-        return params
+        return {}
 
-    model_lower = model.lower()
-
-    # Qwen3 models
-    if "qwen" in model_lower:
-        params["extra_body"] = {"enable_thinking": True}
-
-    # DeepSeek models
-    elif "deepseek" in model_lower:
-        params["extra_body"] = {"enable_thinking": True}
-
-    # Claude models (extended thinking)
-    elif "claude" in model_lower:
-        params["extra_body"] = {
-            "thinking": {
-                "type": "enabled",
-                "budget_tokens": 4096,
-            }
-        }
-
-    return params
+    try:
+        from aria_models.loader import get_thinking_config
+        return get_thinking_config(model)
+    except ImportError:
+        return {}
 
 
 def format_thinking_for_display(thinking: str, max_length: int = 2000) -> str:

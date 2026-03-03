@@ -20,12 +20,10 @@ except ImportError:
 
 # Load default Moonshot model name from models.yaml (single source of truth)
 try:
-    from aria_models.loader import load_catalog as _load_catalog
-    _cat = _load_catalog()
-    _kimi_model = _cat.get("models", {}).get("kimi", {}).get("litellm", {}).get("model", "")
-    _DEFAULT_MOONSHOT_MODEL = _kimi_model.removeprefix("moonshot/") or "kimi-k2.5"
+    from aria_models.loader import get_task_model
+    _DEFAULT_MOONSHOT_MODEL = get_task_model("moonshot_default")
 except Exception:
-    _DEFAULT_MOONSHOT_MODEL = "kimi-k2.5"
+    _DEFAULT_MOONSHOT_MODEL = ""
 
 
 @SkillRegistry.register

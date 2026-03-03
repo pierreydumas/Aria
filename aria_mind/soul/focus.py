@@ -46,21 +46,18 @@ class FocusType(Enum):
     JOURNALIST = "journalist"        # Reporter/Investigator
 
 
-# CATASTROPHIC FALLBACK ONLY — models.yaml is truth
-_FALLBACK_MODEL_HINTS: dict[str, str] = {
-    "orchestrator": "kimi",
-    "devsecops": "qwen3-coder-free",
-    "data": "chimera-free",
-    "trader": "deepseek-free",
-    "creative": "trinity-free",
-    "social": "trinity-free",
-    "journalist": "qwen3-next-free",
-}
+# Focus defaults loaded from models.yaml (single source of truth)
+_FALLBACK_MODEL_HINTS: dict[str, str] = {}
+try:
+    _cat = load_catalog()
+    _FALLBACK_MODEL_HINTS = _cat.get("criteria", {}).get("focus_defaults", {})
+except Exception:
+    pass
 
 
 def _get_model_hint(focus_type: str) -> str:
     """
-    Get model hint from models.yaml, falling back to hardcoded defaults.
+    Get model hint from models.yaml, falling back to loaded defaults.
     
     Source of truth: aria_models/models.yaml -> criteria.focus_defaults
     """
@@ -69,9 +66,9 @@ def _get_model_hint(focus_type: str) -> str:
         if hint:
             return hint
     _focus_log.warning(
-        "Catalog lookup failed for focus '%s'; using hardcoded fallback", focus_type
+        "Catalog lookup failed for focus '%s'; using loaded fallback", focus_type
     )
-    return _FALLBACK_MODEL_HINTS.get(focus_type, "kimi")
+    return _FALLBACK_MODEL_HINTS.get(focus_type, "")
 
 
 def get_focus_default_with_profile(focus_type: str) -> tuple[str, float, int]:

@@ -29,7 +29,14 @@ except ImportError:
 
 # ── defaults ────────────────────────────────────────────────────────────────
 LITELLM_URL = os.environ.get("LITELLM_URL", "http://localhost:18793")
-DEFAULT_MODELS = ["qwen3-mlx", "trinity-free", "chimera-free"]
+try:
+    import pathlib as _pl
+    sys.path.insert(0, str(_pl.Path(__file__).resolve().parent.parent))
+    from aria_models.loader import load_catalog as _lc
+    _cat = _lc()
+    DEFAULT_MODELS = [m.removeprefix("litellm/") for m in _cat.get("routing", {}).get("fallbacks", [])[:3]]
+except Exception:
+    DEFAULT_MODELS = []
 
 # ── task categories (5 categories × 3 prompts each) ────────────────────────
 TASK_PROMPTS: Dict[str, List[str]] = {

@@ -90,14 +90,21 @@ FORBIDDEN_IMPORTS = [
     "import psycopg",
 ]
 
-FORBIDDEN_MODEL_PATTERNS = [
-    '"moonshot-v1-8k"',
-    '"kimi"',
-    '"gpt-4"',
-    '"gpt-3.5"',
-    '"claude-',
-    '"gemini-',
-]
+FORBIDDEN_MODEL_PATTERNS: list[str] = []
+try:
+    import pathlib as _pl
+    sys.path.insert(0, str(_pl.Path(__file__).resolve().parent.parent))
+    from aria_models.loader import list_all_model_ids as _lam
+    FORBIDDEN_MODEL_PATTERNS = [f'"{m}"' for m in _lam()]
+except Exception:
+    FORBIDDEN_MODEL_PATTERNS = [
+        '"moonshot-v1-8k"',
+        '"kimi"',
+        '"gpt-4"',
+        '"gpt-3.5"',
+        '"claude-',
+        '"gemini-',
+    ]
 
 # ── Checks ───────────────────────────────────────────────────────────────────
 

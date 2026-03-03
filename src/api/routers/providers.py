@@ -76,6 +76,8 @@ async def api_provider_balances():
     )
 
     balances = {}
+    # NOTE: "kimi" here is a PROVIDER label (Moonshot/Kimi), not a model name.
+    # This dict key identifies the billing provider, not a specific model.
     balances["kimi"] = kimi_result if isinstance(kimi_result, dict) else {
         "provider": "Moonshot/Kimi", "status": "error", "error": str(kimi_result)[:100]
     }

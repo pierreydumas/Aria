@@ -86,6 +86,15 @@ def _infer_provider(model: str, provider: str | None) -> str:
     """Best-effort provider inference from model name."""
     if provider:
         return provider
+    # Try YAML-based lookup first (models.yaml is source of truth)
+    try:
+        from aria_models.loader import get_provider_label
+        label = get_provider_label(model)
+        if label != "unknown":
+            return label
+    except ImportError:
+        pass
+    # Generic fallback for models not in YAML (external providers)
     model_l = (model or "").lower()
     if "gpt" in model_l or "o1" in model_l or "o3" in model_l:
         return "openai"
@@ -93,14 +102,6 @@ def _infer_provider(model: str, provider: str | None) -> str:
         return "anthropic"
     if "gemini" in model_l:
         return "google"
-    if "kimi" in model_l or "moonshot" in model_l:
-        return "moonshot"
-    if "qwen" in model_l:
-        return "alibaba"
-    if "llama" in model_l or "mistral" in model_l or "mixtral" in model_l:
-        return "ollama"
-    if "deepseek" in model_l:
-        return "deepseek"
     return "litellm"
 
 

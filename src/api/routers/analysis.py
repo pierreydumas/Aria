@@ -27,6 +27,12 @@ from db.models import (
 )
 from deps import get_db
 
+try:
+    from aria_models.loader import get_embedding_model as _get_embedding_model
+except ImportError:
+    def _get_embedding_model() -> str:
+        return ""
+
 LITELLM_URL = os.environ.get("LITELLM_URL", "http://litellm:4000")
 LITELLM_KEY = os.environ.get("LITELLM_MASTER_KEY", "")
 
@@ -42,7 +48,7 @@ async def _generate_embedding(text: str) -> list[float]:
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             f"{LITELLM_URL}/v1/embeddings",
-            json={"model": "nomic-embed-text", "input": text},
+            json={"model": _get_embedding_model(), "input": text},
             headers={"Authorization": f"Bearer {LITELLM_KEY}"},
             timeout=5,
         )

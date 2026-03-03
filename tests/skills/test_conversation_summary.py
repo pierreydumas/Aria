@@ -9,9 +9,9 @@ Covers:
 - Error handling paths
 - Close / cleanup
 
-NOTE: The skill source code passes ``message=`` to ``SkillResult()``, which is
-not a valid field. ``summarize_session`` therefore always hits the except branch
-and triggers TypeError again. Tests account for this known defect.
+Previously the skill source had a bug where it passed ``message=`` to
+``SkillResult()``, causing TypeError. That bug has been fixed — the skill now
+uses the correct ``data=`` / ``error=`` fields.
 """
 from __future__ import annotations
 
@@ -93,34 +93,29 @@ async def test_initialize():
 
 @pytest.mark.asyncio
 async def test_summarize_session_calls_api():
-    """summarize_session delegates to api.summarize_session.
-
-    The skill source wraps the result in ``SkillResult(…, message=…)``
-    which raises TypeError (``message`` is not a SkillResult field).
-    The except block also uses ``message=``, so we expect a TypeError
-    to propagate.  We verify the API was still called.
-    """
+    """summarize_session delegates to api.summarize_session."""
     skill, mock_api, _ = await _make_skill()
-    with pytest.raises(TypeError):
-        await skill.summarize_session(hours_back=12)
+    result = await skill.summarize_session(hours_back=12)
+    assert result.success is True
     mock_api.summarize_session.assert_awaited_once_with(hours_back=12)
 
 
 @pytest.mark.asyncio
 async def test_summarize_session_default_hours():
     skill, mock_api, _ = await _make_skill()
-    with pytest.raises(TypeError):
-        await skill.summarize_session()
+    result = await skill.summarize_session()
+    assert result.success is True
     mock_api.summarize_session.assert_awaited_once_with(hours_back=24)
 
 
 @pytest.mark.asyncio
-async def test_summarize_session_api_error_propagates_type_error():
-    """When api raises, the except handler also hits message= TypeError."""
+async def test_summarize_session_api_error_returns_failure():
+    """When api raises, the except handler returns a failure SkillResult."""
     skill, mock_api, _ = await _make_skill()
     mock_api.summarize_session.side_effect = RuntimeError("API down")
-    with pytest.raises(TypeError):
-        await skill.summarize_session()
+    result = await skill.summarize_session()
+    assert result.success is False
+    assert "API down" in (result.error or "")
 
 
 # ---------------------------------------------------------------------------
@@ -129,25 +124,21 @@ async def test_summarize_session_api_error_propagates_type_error():
 
 @pytest.mark.asyncio
 async def test_summarize_topic_no_memories():
-    """No memories → fast-return path that also uses message= (TypeError)."""
+    """No memories → fast-return with empty summary."""
     skill, mock_api, _ = await _make_skill()
     mock_api.search_memories_semantic.return_value = []
-    # The no-memories path uses SkillResult(..., message=) → TypeError
-    with pytest.raises(TypeError):
-        await skill.summarize_topic(topic="unknown topic")
+    result = await skill.summarize_topic(topic="unknown topic")
+    assert result.success is True
+    assert "No relevant memories" in result.data.get("summary", "")
     mock_api.search_memories_semantic.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_summarize_topic_calls_llm():
-    """With memories present the skill sends them to LLM for synthesis.
-
-    The success path also uses ``SkillResult(…, message=…)`` (TypeError),
-    but we verify the LLM was invoked with the right data.
-    """
+    """With memories present the skill sends them to LLM for synthesis."""
     skill, mock_api, mock_llm = await _make_skill()
-    with pytest.raises(TypeError):
-        await skill.summarize_topic(topic="memory architecture")
+    result = await skill.summarize_topic(topic="memory architecture")
+    assert result.success is True
     mock_api.search_memories_semantic.assert_awaited_once()
     mock_llm.chat_completion.assert_awaited_once()
 
@@ -156,9 +147,8 @@ async def test_summarize_topic_calls_llm():
 async def test_summarize_topic_llm_failure():
     skill, mock_api, mock_llm = await _make_skill()
     mock_llm.chat_completion.return_value = SkillResult(success=False, error="LLM timeout")
-    # Exception path → message= TypeError
-    with pytest.raises(TypeError):
-        await skill.summarize_topic(topic="broken")
+    result = await skill.summarize_topic(topic="broken")
+    assert result.success is False
 
 
 # ---------------------------------------------------------------------------
