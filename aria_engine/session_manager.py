@@ -518,6 +518,17 @@ class NativeSessionManager:
                 "content": m.content or "",
                 "thinking": m.thinking if hasattr(m, "thinking") else None,
                 "tool_calls": m.tool_calls if hasattr(m, "tool_calls") else None,
+                "tool_results": m.tool_results if hasattr(m, "tool_results") else None,
+                "tool_call_id": (
+                    (m.tool_results or {}).get("tool_call_id")
+                    if hasattr(m, "tool_results") and isinstance(m.tool_results, dict)
+                    else None
+                ),
+                "client_message_id": (
+                    m.client_message_id
+                    if hasattr(m, "client_message_id") and m.client_message_id
+                    else ((m.metadata_json or {}).get("client_message_id") if m.metadata_json else None)
+                ),
                 "model": m.model if hasattr(m, "model") else None,
                 "agent_id": (m.metadata_json or {}).get("agent_id"),
                 "metadata": dict(m.metadata_json) if m.metadata_json else None,
@@ -689,6 +700,7 @@ class NativeSessionManager:
                         EngineChatMessage.thinking,
                         EngineChatMessage.tool_calls,
                         EngineChatMessage.tool_results,
+                        EngineChatMessage.client_message_id,
                         EngineChatMessage.model,
                         EngineChatMessage.tokens_input,
                         EngineChatMessage.tokens_output,
@@ -706,7 +718,7 @@ class NativeSessionManager:
                     .from_select(
                         [
                             "id", "session_id", "agent_id", "role", "content", "thinking",
-                            "tool_calls", "tool_results", "model", "tokens_input", "tokens_output",
+                            "tool_calls", "tool_results", "client_message_id", "model", "tokens_input", "tokens_output",
                             "cost", "latency_ms", "embedding", "metadata", "created_at", "archived_at",
                         ],
                         message_archive_select,
@@ -877,6 +889,7 @@ class NativeSessionManager:
                         EngineChatMessage.thinking,
                         EngineChatMessage.tool_calls,
                         EngineChatMessage.tool_results,
+                        EngineChatMessage.client_message_id,
                         EngineChatMessage.model,
                         EngineChatMessage.tokens_input,
                         EngineChatMessage.tokens_output,
@@ -894,7 +907,7 @@ class NativeSessionManager:
                     .from_select(
                         [
                             "id", "session_id", "agent_id", "role", "content", "thinking",
-                            "tool_calls", "tool_results", "model", "tokens_input", "tokens_output",
+                            "tool_calls", "tool_results", "client_message_id", "model", "tokens_input", "tokens_output",
                             "cost", "latency_ms", "embedding", "metadata", "created_at", "archived_at",
                         ],
                         message_archive_select,
@@ -989,6 +1002,7 @@ class NativeSessionManager:
                         EngineChatMessage.thinking,
                         EngineChatMessage.tool_calls,
                         EngineChatMessage.tool_results,
+                        EngineChatMessage.client_message_id,
                         EngineChatMessage.model,
                         EngineChatMessage.tokens_input,
                         EngineChatMessage.tokens_output,
@@ -1006,7 +1020,7 @@ class NativeSessionManager:
                     .from_select(
                         [
                             "id", "session_id", "agent_id", "role", "content", "thinking",
-                            "tool_calls", "tool_results", "model", "tokens_input", "tokens_output",
+                            "tool_calls", "tool_results", "client_message_id", "model", "tokens_input", "tokens_output",
                             "cost", "latency_ms", "embedding", "metadata", "created_at", "archived_at",
                         ],
                         message_archive_select,

@@ -73,6 +73,9 @@ class MessageResponse(BaseModel):
     content: str = ""
     thinking: str | None = None
     tool_calls: list | dict | None = None
+    tool_results: list | dict | None = None
+    tool_call_id: str | None = None
+    client_message_id: str | None = None
     model: str | None = None
     agent_id: str | None = None
     metadata: dict[str, Any] | None = None

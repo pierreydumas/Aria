@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS aria_engine.chat_messages (
     thinking TEXT,
     tool_calls JSONB,
     tool_results JSONB,
+    client_message_id VARCHAR(128),
     model VARCHAR(200),
     tokens_input INTEGER,
     tokens_output INTEGER,
@@ -54,6 +55,12 @@ CREATE INDEX IF NOT EXISTS idx_ae_cm_session ON aria_engine.chat_messages(sessio
 CREATE INDEX IF NOT EXISTS idx_ae_cm_agent   ON aria_engine.chat_messages(agent_id);
 CREATE INDEX IF NOT EXISTS idx_ae_cm_role    ON aria_engine.chat_messages(role);
 CREATE INDEX IF NOT EXISTS idx_ae_cm_created ON aria_engine.chat_messages(created_at);
+CREATE INDEX IF NOT EXISTS idx_ae_cm_client_message_id ON aria_engine.chat_messages(client_message_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ae_cm_session_client_message_id_user
+        ON aria_engine.chat_messages(session_id, client_message_id)
+        WHERE role = 'user'
+            AND client_message_id IS NOT NULL
+            AND client_message_id <> '';
 
 -- ============================================================================
 -- Cron Jobs
@@ -313,6 +320,7 @@ CREATE TABLE IF NOT EXISTS aria_engine.chat_messages_archive (
     thinking TEXT,
     tool_calls JSONB,
     tool_results JSONB,
+    client_message_id VARCHAR(128),
     model VARCHAR(200),
     tokens_input INTEGER,
     tokens_output INTEGER,

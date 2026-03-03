@@ -56,6 +56,10 @@ if HAS_PYDANTIC:
         # WebSocket
         ws_ping_interval: int = 30
         ws_ping_timeout: int = 10
+        streaming_promised_action_repair: bool = Field(
+            default=True,
+            alias="STREAMING_PROMISED_ACTION_REPAIR",
+        )
 
         # Database pool
         db_pool_size: int = 10
@@ -145,6 +149,9 @@ else:
         # WebSocket
         ws_ping_interval: int = 30
         ws_ping_timeout: int = 10
+        streaming_promised_action_repair: bool = field(default_factory=lambda: os.environ.get(
+            "STREAMING_PROMISED_ACTION_REPAIR", "true"
+        ).lower() in ("true", "1", "yes"))
 
         # Database pool
         db_pool_size: int = 10

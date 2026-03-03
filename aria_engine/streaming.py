@@ -11,23 +11,29 @@ Bridges LLMGateway.stream() to FastAPI WebSocket connections with:
 Protocol:
   Client → Server:
     {"type": "message", "content": "Hello!", "enable_thinking": false}
+        {"type": "message", "content": "Hello!", "client_message_id": "uuid-or-key"}
     {"type": "ping"}
 
   Server → Client:
-    {"type": "token", "content": "Hello"}
+        {"type": "stream_start"}
+        {"type": "content", "content": "Hello"}
     {"type": "thinking", "content": "Let me consider..."}
     {"type": "tool_call", "name": "search", "arguments": {"q": "..."}, "id": "tc_1"}
     {"type": "tool_result", "name": "search", "content": "...", "id": "tc_1", "success": true}
-    {"type": "usage", "input_tokens": 100, "output_tokens": 50, "cost": 0.001}
-    {"type": "done", "message_id": "uuid", "finish_reason": "stop"}
+        {"type": "stream_end", "message_id": "uuid", "finish_reason": "stop"}
+    {"type": "idempotent_replay", "client_message_id": "uuid-or-key"}
     {"type": "error", "message": "..."}
     {"type": "pong"}
+
+    Note: all typed events include `protocol_version`; per-turn events include `trace_id`.
 """
 import asyncio
 import json
 import logging
+import re
 import time
 import uuid
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -41,6 +47,8 @@ from aria_engine.telemetry import log_model_usage, log_skill_invocation, _parse_
 from aria_engine.tool_registry import ToolRegistry, ToolResult
 
 logger = logging.getLogger("aria.engine.stream")
+STREAM_PROTOCOL_VERSION = "2.0"
+_stream_trace_id_ctx: ContextVar[str] = ContextVar("stream_trace_id", default="")
 
 
 @dataclass
@@ -62,6 +70,32 @@ class StreamAccumulator:
         if self.started_at:
             return int((time.monotonic() - self.started_at) * 1000)
         return 0
+
+
+@dataclass
+class TurnStateMachine:
+    """Deterministic turn-state tracker for streaming orchestration."""
+    current: str = "accepted"
+    history: list[str] = field(default_factory=lambda: ["accepted"])
+
+    _ALLOWED_TRANSITIONS: dict[str, set[str]] = field(default_factory=lambda: {
+        "accepted": {"streaming", "finalized"},
+        "streaming": {"tool_requested", "finalized"},
+        "tool_requested": {"tool_executing", "finalized"},
+        "tool_executing": {"followup_generation", "finalized"},
+        "followup_generation": {"streaming", "finalized"},
+        "finalized": set(),
+    })
+
+    def transition(self, next_state: str) -> None:
+        if next_state == self.current:
+            return
+        if next_state not in self._ALLOWED_TRANSITIONS.get(self.current, set()):
+            raise RuntimeError(
+                f"Invalid turn state transition: {self.current} -> {next_state}"
+            )
+        self.current = next_state
+        self.history.append(next_state)
 
 
 class StreamManager:
@@ -92,6 +126,32 @@ class StreamManager:
         # Per-session locks to serialize message handling and prevent DB deadlocks
         # when multiple WS connections target the same session simultaneously.
         self._session_locks: dict[str, asyncio.Lock] = {}
+        self._repair_stats: dict[str, int] = {
+            "triggered": 0,
+            "succeeded": 0,
+            "skipped_disabled": 0,
+        }
+
+    _PROMISED_ACTION_PATTERN = re.compile(
+        r"\b("
+        r"making the call now|"
+        r"getting goals now|"
+        r"trying .* now|"
+        r"executing now|"
+        r"no commentary"
+        r")\b",
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def _looks_like_promised_action_without_execution(cls, text: str) -> bool:
+        """Detect empty/procedural assistant replies that promise action but do not execute it."""
+        if not text:
+            return False
+        compact = " ".join(text.strip().split())
+        if not compact:
+            return False
+        return bool(cls._PROMISED_ACTION_PATTERN.search(compact))
 
     async def handle_connection(
         self,
@@ -161,6 +221,20 @@ class StreamManager:
 
                         enable_thinking = data.get("enable_thinking", False)
                         enable_tools = data.get("enable_tools", True)
+                        raw_client_message_id = data.get("client_message_id")
+                        client_message_id = (
+                            str(raw_client_message_id).strip()
+                            if raw_client_message_id is not None
+                            else None
+                        )
+                        if client_message_id == "":
+                            client_message_id = None
+                        if client_message_id and len(client_message_id) > 128:
+                            await self._send_json(websocket, {
+                                "type": "error",
+                                "message": "client_message_id too long (max 128)",
+                            })
+                            continue
 
                         # Acquire per-session lock to prevent concurrent DB
                         # mutations (FK ShareLock + UPDATE deadlock pattern).
@@ -174,6 +248,7 @@ class StreamManager:
                                 content=content,
                                 enable_thinking=enable_thinking,
                                 enable_tools=enable_tools,
+                                client_message_id=client_message_id,
                             )
 
                     else:
@@ -211,6 +286,7 @@ class StreamManager:
         content: str,
         enable_thinking: bool = False,
         enable_tools: bool = True,
+        client_message_id: str | None = None,
     ) -> None:
         """
         Handle a single chat message: persist user msg, stream LLM response,
@@ -220,9 +296,10 @@ class StreamManager:
 
         accumulator = StreamAccumulator(started_at=time.monotonic())
 
+        trace_token = None
         async with self._db_factory() as db:
             # Load session
-            from sqlalchemy import select
+            from sqlalchemy import select, and_, or_
             result = await db.execute(
                 select(EngineChatSession).where(
                     EngineChatSession.id == uuid.UUID(session_id)
@@ -242,9 +319,55 @@ class StreamManager:
                 session.ended_at = None
 
             accumulator.model = session.model or self.config.default_model
+            trace_id = f"tr_{uuid.uuid4().hex[:12]}"
+            trace_token = _stream_trace_id_ctx.set(trace_id)
 
             # Signal frontend to create streaming message bubble
             await self._send_json(websocket, {"type": "stream_start"})
+
+            if client_message_id:
+                existing_user_result = await db.execute(
+                    select(EngineChatMessage)
+                    .where(
+                        EngineChatMessage.session_id == uuid.UUID(session_id),
+                        EngineChatMessage.role == "user",
+                        or_(
+                            EngineChatMessage.client_message_id == client_message_id,
+                            and_(
+                                EngineChatMessage.client_message_id.is_(None),
+                                EngineChatMessage.metadata_json["client_message_id"].astext == client_message_id,
+                            ),
+                        ),
+                    )
+                    .order_by(EngineChatMessage.created_at.desc())
+                    .limit(1)
+                )
+                existing_user = existing_user_result.scalar_one_or_none()
+                if existing_user is not None:
+                    logger.info(
+                        "Idempotent replay for session=%s client_message_id=%s",
+                        session_id,
+                        client_message_id,
+                    )
+                    await self._send_json(websocket, {
+                        "type": "idempotent_replay",
+                        "client_message_id": client_message_id,
+                    })
+                    replayed = await self._replay_existing_turn(
+                        db=db,
+                        websocket=websocket,
+                        session_id=session_id,
+                        user_message=existing_user,
+                        model=session.model or self.config.default_model,
+                    )
+                    if not replayed:
+                        await self._send_json(websocket, {
+                            "type": "error",
+                            "message": "Duplicate message is still processing; retry shortly",
+                        })
+                    if trace_token is not None:
+                        _stream_trace_id_ctx.reset(trace_token)
+                    return
 
             # Persist user message (with dedup)
             now = datetime.now(timezone.utc)
@@ -265,6 +388,8 @@ class StreamManager:
                     "type": "error",
                     "message": "Duplicate message — same content sent within 5s",
                 })
+                if trace_token is not None:
+                    _stream_trace_id_ctx.reset(trace_token)
                 return
 
             user_msg_id = uuid.uuid4()
@@ -273,18 +398,81 @@ class StreamManager:
                 session_id=uuid.UUID(session_id),
                 role="user",
                 content=content,
+                client_message_id=client_message_id,
+                metadata_json=(
+                    {"client_message_id": client_message_id}
+                    if client_message_id
+                    else {}
+                ),
                 created_at=now,
             )
             db.add(user_msg)
-            await db.flush()
+            try:
+                await db.flush()
+            except Exception as flush_err:
+                from sqlalchemy.exc import IntegrityError
+
+                if not isinstance(flush_err, IntegrityError) or not client_message_id:
+                    raise
+                await db.rollback()
+                logger.info(
+                    "Idempotent race detected; replaying existing turn for session=%s client_message_id=%s",
+                    session_id,
+                    client_message_id,
+                )
+                async with self._db_factory() as db_retry:
+                    existing_user_result = await db_retry.execute(
+                        select(EngineChatMessage)
+                        .where(
+                            EngineChatMessage.session_id == uuid.UUID(session_id),
+                            EngineChatMessage.role == "user",
+                            or_(
+                                EngineChatMessage.client_message_id == client_message_id,
+                                and_(
+                                    EngineChatMessage.client_message_id.is_(None),
+                                    EngineChatMessage.metadata_json["client_message_id"].astext == client_message_id,
+                                ),
+                            ),
+                        )
+                        .order_by(EngineChatMessage.created_at.desc())
+                        .limit(1)
+                    )
+                    existing_user = existing_user_result.scalar_one_or_none()
+                    if existing_user is not None:
+                        await self._send_json(websocket, {
+                            "type": "idempotent_replay",
+                            "client_message_id": client_message_id,
+                        })
+                        replayed = await self._replay_existing_turn(
+                            db=db_retry,
+                            websocket=websocket,
+                            session_id=session_id,
+                            user_message=existing_user,
+                            model=session.model or self.config.default_model,
+                        )
+                        if replayed:
+                            if trace_token is not None:
+                                _stream_trace_id_ctx.reset(trace_token)
+                            return
+                await self._send_json(websocket, {
+                    "type": "error",
+                    "message": "Duplicate message is still processing; retry shortly",
+                })
+                if trace_token is not None:
+                    _stream_trace_id_ctx.reset(trace_token)
+                return
 
             # Build conversation context
             messages = await self._build_context(db, session, content)
             tools_for_llm = self.tools.get_tools_for_llm() if enable_tools else None
+            turn_state = TurnStateMachine()
+            turn_state.transition("streaming")
 
             # ── Stream LLM response ───────────────────────────────────────
             max_tool_iterations = 20
             max_per_tool_failures = 3
+            promise_repair_used = False
+            promise_repair_triggered = False
             tool_failure_counts: dict[str, int] = {}
             # Execution trace for UI graph reconstruction
             _exec_trace: dict[str, Any] = {
@@ -294,12 +482,80 @@ class StreamManager:
                 "edges": [],   # vis.js compatible edge list
             }
             for iteration in range(max_tool_iterations):
+                saw_tool_call_delta = False
+                streamed_tool_calls: dict[int, dict[str, Any]] = {}
+                iteration_stream_content = ""
+                iteration_stream_thinking = ""
+                iteration_input_tokens = 0
+
+                def _apply_tool_call_delta(delta: dict[str, Any]) -> None:
+                    idx_raw = delta.get("index")
+                    try:
+                        idx = int(idx_raw) if idx_raw is not None else 0
+                    except (TypeError, ValueError):
+                        idx = 0
+
+                    existing = streamed_tool_calls.setdefault(
+                        idx,
+                        {
+                            "id": None,
+                            "function": {
+                                "name": "",
+                                "arguments": "",
+                            },
+                        },
+                    )
+
+                    if delta.get("id"):
+                        existing["id"] = delta["id"]
+
+                    fn = delta.get("function") or {}
+                    fn_name = fn.get("name")
+                    if fn_name:
+                        existing["function"]["name"] = fn_name
+
+                    fn_args = fn.get("arguments")
+                    if isinstance(fn_args, str) and fn_args:
+                        existing["function"]["arguments"] += fn_args
+
+                def _finalize_streamed_tool_calls() -> list[dict[str, Any]]:
+                    calls: list[dict[str, Any]] = []
+                    for idx in sorted(streamed_tool_calls.keys()):
+                        item = streamed_tool_calls[idx]
+                        fn_name = (item.get("function") or {}).get("name") or ""
+                        fn_args = (item.get("function") or {}).get("arguments") or "{}"
+                        if not fn_name:
+                            continue
+
+                        # Keep arguments as JSON string for ToolRegistry.execute.
+                        # Validate to catch clearly incomplete fragments.
+                        try:
+                            json.loads(fn_args)
+                        except Exception:
+                            continue
+
+                        call_id = item.get("id") or f"stream_tc_{iteration}_{idx}"
+                        calls.append(
+                            {
+                                "id": call_id,
+                                "function": {
+                                    "name": fn_name,
+                                    "arguments": fn_args,
+                                },
+                            }
+                        )
+                    return calls
+
                 # Notify frontend: iteration starting
                 await self._send_json(websocket, {
                     "type": "iteration_start",
                     "iteration": iteration + 1,
                     "tool_calls_so_far": len(accumulator.tool_calls),
                 })
+                iteration_input_tokens = self.gateway.estimate_tokens_for_messages(
+                    model=session.model,
+                    messages=messages,
+                )
                 try:
                     async for chunk in self.gateway.stream(
                         messages=messages,
@@ -316,6 +572,7 @@ class StreamManager:
                         # Stream thinking tokens
                         if chunk.thinking:
                             accumulator.thinking += chunk.thinking
+                            iteration_stream_thinking += chunk.thinking
                             await self._send_json(websocket, {
                                 "type": "thinking",
                                 "content": chunk.thinking,
@@ -324,6 +581,7 @@ class StreamManager:
                         # Stream content tokens
                         if chunk.content:
                             accumulator.content += chunk.content
+                            iteration_stream_content += chunk.content
                             await self._send_json(websocket, {
                                 "type": "content",
                                 "content": chunk.content,
@@ -333,6 +591,12 @@ class StreamManager:
                         if chunk.finish_reason:
                             accumulator.finish_reason = chunk.finish_reason
 
+                        # Some providers stream tool-call deltas but do not set
+                        # finish_reason="tool_calls" reliably.
+                        if chunk.tool_call_delta:
+                            saw_tool_call_delta = True
+                            _apply_tool_call_delta(chunk.tool_call_delta)
+
                 except LLMError as e:
                     await self._send_json(websocket, {
                         "type": "error",
@@ -340,42 +604,72 @@ class StreamManager:
                     })
                     break
 
+                # Provider streaming usage is often unavailable; estimate so
+                # telemetry/session totals are not reported as zero.
+                accumulator.input_tokens += max(0, iteration_input_tokens)
+                iteration_generated = f"{iteration_stream_content}{iteration_stream_thinking}"
+                accumulator.output_tokens += self.gateway.estimate_tokens_for_text(
+                    model=session.model,
+                    text=iteration_generated,
+                )
+
                 # Notify frontend: iteration result
                 await self._send_json(websocket, {
                     "type": "iteration_end",
                     "iteration": iteration + 1,
-                    "has_tool_calls": accumulator.finish_reason == "tool_calls",
-                    "tool_count": 0,  # updated below after resolving tool_calls
+                    "has_tool_calls": accumulator.finish_reason == "tool_calls" or saw_tool_call_delta,
+                    "tool_count": len(streamed_tool_calls),
                 })
 
                 # Check for tool calls in accumulated content
                 # If the model requested tool calls, we re-call non-streaming
-                if accumulator.finish_reason == "tool_calls":
-                    # Fall back to non-streaming for tool call execution
-                    try:
-                        llm_response = await self.gateway.complete(
-                            messages=messages,
-                            model=session.model,
-                            temperature=session.temperature,
-                            max_tokens=session.max_tokens,
-                            tools=tools_for_llm,
-                            enable_thinking=enable_thinking,
-                        )
-                    except LLMError as e:
-                        await self._send_json(websocket, {
-                            "type": "error",
-                            "message": f"Tool call LLM error: {e}",
-                        })
-                        break
+                if accumulator.finish_reason == "tool_calls" or saw_tool_call_delta:
+                    turn_state.transition("tool_requested")
+                    resolved_tool_calls = _finalize_streamed_tool_calls()
 
-                    if not llm_response.tool_calls:
-                        # No tool calls after all — use the response content
-                        accumulator.content = llm_response.content
-                        accumulator.thinking = llm_response.thinking or accumulator.thinking
-                        break
+                    # Fallback only when streamed deltas were present but incomplete.
+                    if not resolved_tool_calls:
+                        try:
+                            llm_response = await self.gateway.complete(
+                                messages=messages,
+                                model=session.model,
+                                temperature=session.temperature,
+                                max_tokens=session.max_tokens,
+                                tools=tools_for_llm,
+                                enable_thinking=enable_thinking,
+                            )
+                        except LLMError as e:
+                            await self._send_json(websocket, {
+                                "type": "error",
+                                "message": f"Tool call LLM error: {e}",
+                            })
+                            break
+
+                        if not llm_response.tool_calls:
+                            # No tool calls after all — use the response content
+                            accumulator.content = llm_response.content
+                            accumulator.thinking = llm_response.thinking or accumulator.thinking
+                            break
+
+                        resolved_tool_calls = llm_response.tool_calls
+                        fallback_thinking = llm_response.thinking
+                        fallback_content = llm_response.content or ""
+                        fallback_tokens_in = llm_response.input_tokens if hasattr(llm_response, "input_tokens") else 0
+                        fallback_tokens_out = llm_response.output_tokens if hasattr(llm_response, "output_tokens") else 0
+                        fallback_cost = llm_response.cost_usd if hasattr(llm_response, "cost_usd") else 0.0
+                    else:
+                        fallback_thinking = ""
+                        fallback_content = accumulator.content or ""
+                        fallback_tokens_in = 0
+                        fallback_tokens_out = 0
+                        fallback_cost = 0.0
 
                     # Execute tool calls
-                    accumulator.tool_calls.extend(llm_response.tool_calls)
+                    turn_state.transition("tool_executing")
+                    accumulator.tool_calls.extend(resolved_tool_calls)
+                    accumulator.input_tokens += int(fallback_tokens_in or 0)
+                    accumulator.output_tokens += int(fallback_tokens_out or 0)
+                    accumulator.cost_usd += float(fallback_cost or 0.0)
 
                     # Track LLM iteration node in exec trace
                     _exec_trace["iterations"] += 1
@@ -398,13 +692,13 @@ class StreamManager:
 
                     assistant_entry: dict[str, Any] = {
                         "role": "assistant",
-                        "content": llm_response.content or "",
-                        "tool_calls": llm_response.tool_calls,
+                        "content": fallback_content,
+                        "tool_calls": resolved_tool_calls,
                     }
                     # Include thinking so models that require reasoning_content
                     # on tool-call messages (e.g. Kimi) don't reject the request
-                    if llm_response.thinking:
-                        assistant_entry["reasoning_content"] = llm_response.thinking
+                    if fallback_thinking:
+                        assistant_entry["reasoning_content"] = fallback_thinking
                     messages.append(assistant_entry)
 
                     # Persist intermediate assistant message so tool results
@@ -413,20 +707,20 @@ class StreamManager:
                         id=uuid.uuid4(),
                         session_id=uuid.UUID(session_id),
                         role="assistant",
-                        content=llm_response.content or "",
-                        thinking=llm_response.thinking or None,
-                        tool_calls=llm_response.tool_calls,
+                        content=fallback_content,
+                        thinking=fallback_thinking or None,
+                        tool_calls=resolved_tool_calls,
                         model=accumulator.model,
-                        tokens_input=llm_response.input_tokens if hasattr(llm_response, 'input_tokens') else 0,
-                        tokens_output=llm_response.output_tokens if hasattr(llm_response, 'output_tokens') else 0,
-                        cost=llm_response.cost_usd if hasattr(llm_response, 'cost_usd') else 0,
+                        tokens_input=fallback_tokens_in,
+                        tokens_output=fallback_tokens_out,
+                        cost=fallback_cost,
                         latency_ms=accumulator.latency_ms,
                         created_at=datetime.now(timezone.utc),
                     )
                     db.add(intermediate_msg)
                     await db.flush()
 
-                    for tc in llm_response.tool_calls:
+                    for tc in resolved_tool_calls:
                         fn_name = tc["function"]["name"]
 
                         # Notify client about tool call
@@ -505,10 +799,25 @@ class StreamManager:
                         ))
 
                         # Notify client about tool result
+                        parsed_content = None
+                        content_error = None
+                        try:
+                            parsed_content = json.loads(tool_result.content)
+                            if isinstance(parsed_content, dict):
+                                content_error = parsed_content.get("error")
+                        except Exception:
+                            parsed_content = tool_result.content
+
+                        status = "success" if tool_result.success else "error"
                         await self._send_json(websocket, {
                             "type": "tool_result",
                             "name": tool_result.name,
                             "content": tool_result.content,
+                            "result": parsed_content,
+                            "status": status,
+                            "error": content_error,
+                            "duration_ms": tool_result.duration_ms,
+                            "tool_call_id": tool_result.tool_call_id,
                             "id": tool_result.tool_call_id,
                             "success": tool_result.success,
                         })
@@ -538,13 +847,48 @@ class StreamManager:
                     # Reset accumulator content for next stream
                     accumulator.content = ""
                     accumulator.finish_reason = ""
+                    turn_state.transition("followup_generation")
+                    turn_state.transition("streaming")
                     continue  # Re-stream with tool results
 
                 # No tool calls — done
+                if (
+                    enable_tools
+                    and not promise_repair_used
+                    and self._looks_like_promised_action_without_execution(accumulator.content)
+                ):
+                    if not self.config.streaming_promised_action_repair:
+                        self._repair_stats["skipped_disabled"] += 1
+                        break
+
+                    promise_repair_used = True
+                    promise_repair_triggered = True
+                    self._repair_stats["triggered"] += 1
+                    logger.warning(
+                        "Repairing promised-action turn without tool execution for session %s",
+                        session_id,
+                    )
+                    messages.append({
+                        "role": "assistant",
+                        "content": accumulator.content,
+                    })
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "You said you are executing now. Execute the relevant tool call in this turn "
+                            "or provide the concrete final result immediately. Do not promise future actions."
+                        ),
+                    })
+                    accumulator.content = ""
+                    accumulator.finish_reason = ""
+                    continue
+
                 break
 
             # ── Persist assistant message ─────────────────────────────────
             # Finalize exec trace
+            if turn_state.current != "finalized":
+                turn_state.transition("finalized")
             _trace_meta: dict[str, Any] = {}
             if _exec_trace["tools"]:
                 _total_ms = accumulator.latency_ms or 0
@@ -570,6 +914,10 @@ class StreamManager:
                 for n in _exec_trace["nodes"]:
                     n.pop("_iter", None)
                 _trace_meta = {"exec_trace": _exec_trace}
+            _trace_meta.setdefault("turn_state", {
+                "current": turn_state.current,
+                "history": turn_state.history,
+            })
 
             assistant_msg_id = uuid.uuid4()
             assistant_msg = EngineChatMessage(
@@ -598,17 +946,17 @@ class StreamManager:
             # roll back the already-committed messages.
             try:
                 async with self._db_factory() as db2:
-                    from sqlalchemy import update
+                    from sqlalchemy import update, func
                     msg_count = 2 + len(accumulator.tool_results)
 
                     values: dict[str, Any] = {
-                        "message_count": (session.message_count or 0) + msg_count,
+                        "message_count": func.coalesce(EngineChatSession.message_count, 0) + msg_count,
                         "total_tokens": (
-                            (session.total_tokens or 0)
+                            func.coalesce(EngineChatSession.total_tokens, 0)
                             + accumulator.input_tokens
                             + accumulator.output_tokens
                         ),
-                        "total_cost": float(session.total_cost or 0) + accumulator.cost_usd,
+                        "total_cost": func.coalesce(EngineChatSession.total_cost, 0.0) + accumulator.cost_usd,
                         "updated_at": datetime.now(timezone.utc),
                     }
 
@@ -643,6 +991,9 @@ class StreamManager:
                 success=True,
             ))
 
+            if promise_repair_triggered and (accumulator.tool_calls or accumulator.tool_results or accumulator.content.strip()):
+                self._repair_stats["succeeded"] += 1
+
             # ── Send stream_end (combines usage + done for frontend) ────
             await self._send_json(websocket, {
                 "type": "stream_end",
@@ -652,7 +1003,87 @@ class StreamManager:
                 "tokens_input": accumulator.input_tokens,
                 "tokens_output": accumulator.output_tokens,
                 "cost": accumulator.cost_usd,
+                "repair_applied": promise_repair_triggered,
+                "usage_estimated": True,
             })
+            if trace_token is not None:
+                _stream_trace_id_ctx.reset(trace_token)
+
+    async def _replay_existing_turn(
+        self,
+        db,
+        websocket: WebSocket,
+        session_id: str,
+        user_message,
+        model: str,
+    ) -> bool:
+        """Replay a previously completed turn for idempotent client retries."""
+        from db.models import EngineChatMessage
+        from sqlalchemy import select
+
+        result = await db.execute(
+            select(EngineChatMessage)
+            .where(
+                EngineChatMessage.session_id == uuid.UUID(session_id),
+                EngineChatMessage.created_at >= user_message.created_at,
+            )
+            .order_by(EngineChatMessage.created_at.asc(), EngineChatMessage.id.asc())
+            .limit(200)
+        )
+        window = result.scalars().all()
+        assistant_msg = None
+
+        for msg in window:
+            if msg.role == "user" and msg.id != user_message.id:
+                break
+
+            if msg.role == "tool":
+                tr = msg.tool_results or {}
+                await self._send_json(websocket, {
+                    "type": "tool_result",
+                    "name": tr.get("name", "tool"),
+                    "id": tr.get("tool_call_id", ""),
+                    "success": True,
+                    "content": msg.content,
+                    "result": msg.content,
+                    "status": "success",
+                    "error": None,
+                    "duration_ms": msg.latency_ms or 0,
+                    "tool_call_id": tr.get("tool_call_id", ""),
+                })
+                continue
+
+            if msg.role == "assistant":
+                assistant_msg = msg
+                break
+
+        if assistant_msg is None:
+            return False
+
+        if assistant_msg.content:
+            await self._send_json(websocket, {
+                "type": "content",
+                "content": assistant_msg.content,
+            })
+
+        if assistant_msg.thinking:
+            await self._send_json(websocket, {
+                "type": "thinking",
+                "content": assistant_msg.thinking,
+            })
+
+        await self._send_json(websocket, {
+            "type": "stream_end",
+            "message_id": str(assistant_msg.id),
+            "finish_reason": "idempotent_replay",
+            "model": assistant_msg.model or model,
+            "tokens_input": assistant_msg.tokens_input or 0,
+            "tokens_output": assistant_msg.tokens_output or 0,
+            "cost": float(assistant_msg.cost or 0.0),
+            "repair_applied": False,
+            "usage_estimated": bool((assistant_msg.metadata_json or {}).get("usage_estimated", True)),
+        })
+        return True
 
     async def _validate_session(self, session_id: str) -> None:
         """Validate that a session exists and is active.
@@ -831,6 +1262,11 @@ class StreamManager:
     async def _send_json(websocket: WebSocket, data: dict[str, Any]) -> None:
         """Send JSON data over WebSocket, silently catching disconnection."""
         try:
+            if "type" in data:
+                data.setdefault("protocol_version", STREAM_PROTOCOL_VERSION)
+                trace_id = _stream_trace_id_ctx.get("")
+                if trace_id:
+                    data.setdefault("trace_id", trace_id)
             if websocket.client_state == WebSocketState.CONNECTED:
                 await websocket.send_text(json.dumps(data))
         except Exception as e:

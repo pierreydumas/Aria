@@ -132,14 +132,75 @@ class LLMGateway:
         return litellm_model, extra
 
     def _get_fallback_chain(self) -> list[str]:
-        """Get fallback model chain from models.yaml."""
+        """Get fallback model chain from models.yaml (alias IDs)."""
         routing = get_routing_config()
         fallbacks = routing.get("fallbacks", [])
-        return [self._resolve_model(m)[0] for m in fallbacks]
+        return [normalize_model_id(str(m)) for m in fallbacks]
+
+    def _build_model_candidates(self, primary_model: str | None) -> list[str]:
+        """Build ordered unique candidate list: primary + configured fallbacks."""
+        primary = normalize_model_id(primary_model or self.config.default_model)
+        candidates: list[str] = [primary]
+        for fallback in self._get_fallback_chain():
+            if fallback and fallback not in candidates:
+                candidates.append(fallback)
+        return candidates
+
+    @staticmethod
+    def _is_retriable_error(exc: Exception) -> bool:
+        """Best-effort retriable classification for provider/network/transient failures."""
+        msg = str(exc).lower()
+        retriable_markers = (
+            "timeout",
+            "timed out",
+            "rate limit",
+            "429",
+            "503",
+            "502",
+            "connection",
+            "temporar",
+            "overloaded",
+            "service unavailable",
+        )
+        return any(marker in msg for marker in retriable_markers)
 
     def _is_circuit_open(self) -> bool:
         """Check if circuit breaker is open."""
         return self._cb.is_open()
+
+    def estimate_tokens_for_messages(
+        self,
+        *,
+        model: str | None,
+        messages: list[dict[str, Any]],
+    ) -> int:
+        """Estimate prompt tokens for telemetry/accounting when provider usage is missing."""
+        resolved_model, _ = self._resolve_model(model or self.config.default_model)
+        try:
+            estimated = token_counter(model=resolved_model, messages=messages)
+            return int(estimated or 0)
+        except Exception:
+            text = " ".join(str(m.get("content", "")) for m in messages)
+            return max(1, int(len(text.split()) * 1.35)) if text.strip() else 0
+
+    def estimate_tokens_for_text(
+        self,
+        *,
+        model: str | None,
+        text: str,
+    ) -> int:
+        """Estimate completion tokens for plain generated text."""
+        if not text or not text.strip():
+            return 0
+        resolved_model, _ = self._resolve_model(model or self.config.default_model)
+        try:
+            estimated = token_counter(
+                model=resolved_model,
+                messages=[{"role": "assistant", "content": text}],
+            )
+            return int(estimated or 0)
+        except Exception:
+            return max(1, int(len(text.split()) * 1.35))
 
     # Default timeout for LLM calls (seconds). Override via config.
     LLM_TIMEOUT: float = 120.0
@@ -170,86 +231,109 @@ class LLMGateway:
         if self._is_circuit_open():
             raise LLMError("Circuit breaker open — too many consecutive failures")
 
-        resolved_model, model_extra = self._resolve_model(model or self.config.default_model)
+        candidates = self._build_model_candidates(model)
+        last_error: Exception | None = None
 
-        kwargs: dict[str, Any] = {
-            "model": resolved_model,
-            "messages": messages,
-            "temperature": temperature or self.config.default_temperature,
-            "max_tokens": max_tokens or self.config.default_max_tokens,
-            "drop_params": True,  # let litellm drop unsupported params per provider
-        }
-        # Per-model api_key / api_base from models.yaml
-        kwargs.update(model_extra)
+        for idx, candidate in enumerate(candidates):
+            resolved_model, model_extra = self._resolve_model(candidate)
 
-        if tools:
-            kwargs["tools"] = tools
-            kwargs["tool_choice"] = "auto"
+            kwargs: dict[str, Any] = {
+                "model": resolved_model,
+                "messages": messages,
+                "temperature": temperature or self.config.default_temperature,
+                "max_tokens": max_tokens or self.config.default_max_tokens,
+                "drop_params": True,  # let litellm drop unsupported params per provider
+            }
+            kwargs.update(model_extra)
 
-        if enable_thinking:
-            from aria_engine.thinking import build_thinking_params
-            thinking_params = build_thinking_params(resolved_model, enable=True)
-            kwargs.update(thinking_params)
+            if tools:
+                kwargs["tools"] = tools
+                kwargs["tool_choice"] = "auto"
 
-        start = time.monotonic()
+            if enable_thinking:
+                from aria_engine.thinking import build_thinking_params
+                thinking_params = build_thinking_params(resolved_model, enable=True)
+                kwargs.update(thinking_params)
 
-        try:
-            response = await asyncio.wait_for(
-                acompletion(**kwargs),
-                timeout=self.LLM_TIMEOUT,
-            )
-            elapsed_ms = int((time.monotonic() - start) * 1000)
-            self._cb.record_success()
-            self._latency_samples.append(elapsed_ms)
+            start = time.monotonic()
+            try:
+                response = await asyncio.wait_for(
+                    acompletion(**kwargs),
+                    timeout=self.LLM_TIMEOUT,
+                )
+                elapsed_ms = int((time.monotonic() - start) * 1000)
+                self._cb.record_success()
+                self._latency_samples.append(elapsed_ms)
 
-            choice = response.choices[0]
-            content = choice.message.content or ""
-            thinking = getattr(choice.message, "reasoning_content", None)
+                choice = response.choices[0]
+                content = choice.message.content or ""
+                thinking = getattr(choice.message, "reasoning_content", None)
 
-            # Also check for thinking tag extraction
-            if not thinking:
-                from aria_engine.thinking import extract_thinking_from_response
-                thinking = extract_thinking_from_response(response)
-                if thinking:
-                    from aria_engine.thinking import strip_thinking_from_content
-                    content = strip_thinking_from_content(content)
+                if not thinking:
+                    from aria_engine.thinking import extract_thinking_from_response
+                    thinking = extract_thinking_from_response(response)
+                    if thinking:
+                        from aria_engine.thinking import strip_thinking_from_content
+                        content = strip_thinking_from_content(content)
 
-            tool_calls_raw = getattr(choice.message, "tool_calls", None)
-            tool_calls = None
-            if tool_calls_raw:
-                tool_calls = [
-                    {
-                        "id": tc.id,
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments,
-                        },
-                    }
-                    for tc in tool_calls_raw
-                ]
+                tool_calls_raw = getattr(choice.message, "tool_calls", None)
+                tool_calls = None
+                if tool_calls_raw:
+                    tool_calls = [
+                        {
+                            "id": tc.id,
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments,
+                            },
+                        }
+                        for tc in tool_calls_raw
+                    ]
 
-            usage = response.usage or {}
+                usage = response.usage or {}
 
-            return LLMResponse(
-                content=content,
-                thinking=thinking,
-                tool_calls=tool_calls,
-                model=resolved_model,
-                input_tokens=getattr(usage, "prompt_tokens", 0),
-                output_tokens=getattr(usage, "completion_tokens", 0),
-                cost_usd=(getattr(response, "_hidden_params", {}).get("response_cost") or 0.0),
-                latency_ms=elapsed_ms,
-                finish_reason=choice.finish_reason or "",
-            )
+                if idx > 0:
+                    logger.warning(
+                        "LLM completion fallback succeeded on candidate %s (attempt %d/%d)",
+                        candidate,
+                        idx + 1,
+                        len(candidates),
+                    )
 
-        except asyncio.TimeoutError:
-            self._cb.record_failure()
-            logger.error("LLM call timed out after %.0fs (failures=%d)", self.LLM_TIMEOUT, self._cb.failure_count)
+                return LLMResponse(
+                    content=content,
+                    thinking=thinking,
+                    tool_calls=tool_calls,
+                    model=resolved_model,
+                    input_tokens=getattr(usage, "prompt_tokens", 0),
+                    output_tokens=getattr(usage, "completion_tokens", 0),
+                    cost_usd=(getattr(response, "_hidden_params", {}).get("response_cost") or 0.0),
+                    latency_ms=elapsed_ms,
+                    finish_reason=choice.finish_reason or "",
+                )
+
+            except Exception as e:
+                self._cb.record_failure()
+                last_error = e
+                retriable = isinstance(e, asyncio.TimeoutError) or self._is_retriable_error(e)
+                has_next = idx < len(candidates) - 1
+                logger.error(
+                    "LLM completion failed on candidate %s (attempt %d/%d, retriable=%s): %s",
+                    candidate,
+                    idx + 1,
+                    len(candidates),
+                    retriable,
+                    e,
+                )
+                if has_next and retriable:
+                    continue
+                if isinstance(e, asyncio.TimeoutError):
+                    raise LLMError(f"LLM completion timed out after {self.LLM_TIMEOUT}s")
+                raise LLMError(f"LLM completion failed: {e}") from e
+
+        if isinstance(last_error, asyncio.TimeoutError):
             raise LLMError(f"LLM completion timed out after {self.LLM_TIMEOUT}s")
-        except Exception as e:
-            self._cb.record_failure()
-            logger.error("LLM call failed (failures=%d): %s", self._cb.failure_count, e)
-            raise LLMError(f"LLM completion failed: {e}") from e
+        raise LLMError(f"LLM completion failed: {last_error}")
 
     async def stream(
         self,
@@ -268,59 +352,110 @@ class LLMGateway:
         if self._is_circuit_open():
             raise LLMError("Circuit breaker open — too many consecutive failures")
 
-        resolved_model, model_extra = self._resolve_model(model or self.config.default_model)
+        candidates = self._build_model_candidates(model)
+        last_error: Exception | None = None
 
-        kwargs: dict[str, Any] = {
-            "model": resolved_model,
-            "messages": messages,
-            "temperature": temperature or self.config.default_temperature,
-            "max_tokens": max_tokens or self.config.default_max_tokens,
-            "stream": True,
-            "drop_params": True,  # let litellm drop unsupported params per provider
-        }
-        # Per-model api_key / api_base from models.yaml
-        kwargs.update(model_extra)
+        for idx, candidate in enumerate(candidates):
+            resolved_model, model_extra = self._resolve_model(candidate)
 
-        if tools:
-            kwargs["tools"] = tools
-            kwargs["tool_choice"] = "auto"
+            kwargs: dict[str, Any] = {
+                "model": resolved_model,
+                "messages": messages,
+                "temperature": temperature or self.config.default_temperature,
+                "max_tokens": max_tokens or self.config.default_max_tokens,
+                "stream": True,
+                "drop_params": True,  # let litellm drop unsupported params per provider
+            }
+            kwargs.update(model_extra)
 
-        if enable_thinking:
-            from aria_engine.thinking import build_thinking_params
-            thinking_params = build_thinking_params(resolved_model, enable=True)
-            kwargs.update(thinking_params)
+            if tools:
+                kwargs["tools"] = tools
+                kwargs["tool_choice"] = "auto"
 
-        try:
-            response = await asyncio.wait_for(
-                acompletion(**kwargs),
-                timeout=self.LLM_TIMEOUT,
-            )
+            if enable_thinking:
+                from aria_engine.thinking import build_thinking_params
+                thinking_params = build_thinking_params(resolved_model, enable=True)
+                kwargs.update(thinking_params)
 
-            async for chunk in response:
-                delta = chunk.choices[0].delta if chunk.choices else None
-                if not delta:
-                    continue
-
-                yield StreamChunk(
-                    content=getattr(delta, "content", "") or "",
-                    thinking=getattr(delta, "reasoning_content", "") or "",
-                    tool_call_delta=None,  # TODO: streaming tool calls
-                    finish_reason=chunk.choices[0].finish_reason,
-                    is_thinking=bool(getattr(delta, "reasoning_content", "")),
+            streamed_any_chunk = False
+            try:
+                response = await asyncio.wait_for(
+                    acompletion(**kwargs),
+                    timeout=self.LLM_TIMEOUT,
                 )
 
-            self._circuit_failures = 0
+                async for chunk in response:
+                    streamed_any_chunk = True
+                    delta = chunk.choices[0].delta if chunk.choices else None
+                    if not delta:
+                        continue
 
-        except asyncio.TimeoutError:
-            self._circuit_failures += 1
-            if self._circuit_failures >= self._circuit_threshold:
-                self._circuit_opened_at = time.monotonic()
+                    tool_call_delta = None
+                    delta_tool_calls = getattr(delta, "tool_calls", None)
+                    if delta_tool_calls:
+                        first_tc = delta_tool_calls[0]
+                        tool_call_delta = {
+                            "index": getattr(first_tc, "index", None),
+                            "id": getattr(first_tc, "id", None),
+                            "function": {
+                                "name": getattr(getattr(first_tc, "function", None), "name", None),
+                                "arguments": getattr(getattr(first_tc, "function", None), "arguments", None),
+                            },
+                        }
+
+                    yield StreamChunk(
+                        content=getattr(delta, "content", "") or "",
+                        thinking=getattr(delta, "reasoning_content", "") or "",
+                        tool_call_delta=tool_call_delta,
+                        finish_reason=chunk.choices[0].finish_reason,
+                        is_thinking=bool(getattr(delta, "reasoning_content", "")),
+                    )
+
+                self._cb.record_success()
+                self._circuit_failures = 0
+                if idx > 0:
+                    logger.warning(
+                        "LLM streaming fallback succeeded on candidate %s (attempt %d/%d)",
+                        candidate,
+                        idx + 1,
+                        len(candidates),
+                    )
+                return
+
+            except Exception as e:
+                self._cb.record_failure()
+                last_error = e
+                self._circuit_failures += 1
+                if self._circuit_failures >= self._circuit_threshold:
+                    self._circuit_opened_at = time.monotonic()
+
+                retriable = isinstance(e, asyncio.TimeoutError) or self._is_retriable_error(e)
+                has_next = idx < len(candidates) - 1
+
+                # If we've already emitted any chunk, we cannot safely switch
+                # providers mid-stream without breaking turn semantics.
+                if streamed_any_chunk:
+                    if isinstance(e, asyncio.TimeoutError):
+                        raise LLMError(f"LLM streaming timed out after {self.LLM_TIMEOUT}s")
+                    raise LLMError(f"LLM streaming failed: {e}") from e
+
+                logger.error(
+                    "LLM streaming failed on candidate %s (attempt %d/%d, retriable=%s): %s",
+                    candidate,
+                    idx + 1,
+                    len(candidates),
+                    retriable,
+                    e,
+                )
+                if has_next and retriable:
+                    continue
+                if isinstance(e, asyncio.TimeoutError):
+                    raise LLMError(f"LLM streaming timed out after {self.LLM_TIMEOUT}s")
+                raise LLMError(f"LLM streaming failed: {e}") from e
+
+        if isinstance(last_error, asyncio.TimeoutError):
             raise LLMError(f"LLM streaming timed out after {self.LLM_TIMEOUT}s")
-        except Exception as e:
-            self._circuit_failures += 1
-            if self._circuit_failures >= self._circuit_threshold:
-                self._circuit_opened_at = time.monotonic()
-            raise LLMError(f"LLM streaming failed: {e}") from e
+        raise LLMError(f"LLM streaming failed: {last_error}")
 
     def get_stats(self) -> dict[str, Any]:
         """Return gateway statistics."""

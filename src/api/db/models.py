@@ -840,6 +840,7 @@ class EngineChatMessage(Base):
     thinking: Mapped[str | None] = mapped_column(Text)
     tool_calls: Mapped[dict | None] = mapped_column(JSONB)
     tool_results: Mapped[dict | None] = mapped_column(JSONB)
+    client_message_id: Mapped[str | None] = mapped_column(String(128))
     model: Mapped[str | None] = mapped_column(String(200))
     tokens_input: Mapped[int | None] = mapped_column(Integer)
     tokens_output: Mapped[int | None] = mapped_column(Integer)
@@ -855,6 +856,7 @@ class EngineChatMessage(Base):
 Index("idx_ecm_session", EngineChatMessage.session_id)
 Index("idx_ecm_role", EngineChatMessage.role)
 Index("idx_ecm_created", EngineChatMessage.created_at)
+Index("idx_ecm_client_message_id", EngineChatMessage.client_message_id)
 # Composite index for message retrieval by session (S6-perf)
 Index("idx_ecm_session_created", EngineChatMessage.session_id, EngineChatMessage.created_at)
 
@@ -915,6 +917,7 @@ class EngineChatMessageArchive(Base):
     thinking: Mapped[str | None] = mapped_column(Text)
     tool_calls: Mapped[dict | None] = mapped_column(JSONB)
     tool_results: Mapped[dict | None] = mapped_column(JSONB)
+    client_message_id: Mapped[str | None] = mapped_column(String(128))
     model: Mapped[str | None] = mapped_column(String(200))
     tokens_input: Mapped[int | None] = mapped_column(Integer)
     tokens_output: Mapped[int | None] = mapped_column(Integer)
