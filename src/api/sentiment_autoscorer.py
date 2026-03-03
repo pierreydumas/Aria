@@ -76,9 +76,9 @@ async def _track_model_usage(
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _sentiment_label(valence: float) -> str:
-    if valence >= 0.55:
+    if valence >= 0.25:
         return "positive"
-    if valence <= 0.45:
+    if valence <= -0.25:
         return "negative"
     return "neutral"
 
