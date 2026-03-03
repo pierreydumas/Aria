@@ -8,7 +8,7 @@
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS aria_engine.chat_sessions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    agent_id VARCHAR(100) NOT NULL DEFAULT 'main',
+    agent_id VARCHAR(100) NOT NULL DEFAULT 'aria',
     session_type VARCHAR(50) NOT NULL DEFAULT 'interactive',
     title VARCHAR(500),
     system_prompt TEXT,
@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS aria_engine.cron_jobs (
     id VARCHAR(100) PRIMARY KEY,
     name VARCHAR(200) NOT NULL,
     schedule VARCHAR(100) NOT NULL,
-    agent_id VARCHAR(100) DEFAULT 'main',
+    agent_id VARCHAR(100) DEFAULT 'aria',
     model VARCHAR(200) DEFAULT NULL,
     enabled BOOLEAN DEFAULT true,
     payload_type VARCHAR(50) DEFAULT 'prompt',
@@ -193,7 +193,7 @@ CREATE TABLE IF NOT EXISTS aria_engine.schedule_tick (
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS aria_engine.scheduled_jobs (
     id VARCHAR(50) PRIMARY KEY,
-    agent_id VARCHAR(50) DEFAULT 'main',
+    agent_id VARCHAR(50) DEFAULT 'aria',
     name VARCHAR(100) NOT NULL,
     enabled BOOLEAN DEFAULT true,
     schedule_kind VARCHAR(20) DEFAULT 'cron',
@@ -249,6 +249,85 @@ CREATE TABLE IF NOT EXISTS aria_engine.llm_models (
 CREATE INDEX IF NOT EXISTS idx_ae_lm_provider ON aria_engine.llm_models(provider);
 CREATE INDEX IF NOT EXISTS idx_ae_lm_tier     ON aria_engine.llm_models(tier);
 CREATE INDEX IF NOT EXISTS idx_ae_lm_enabled  ON aria_engine.llm_models(enabled);
+
+-- ============================================================================
+-- Focus Profiles — personality layers for agents
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS aria_engine.focus_profiles (
+    focus_id VARCHAR(50) PRIMARY KEY,
+    display_name VARCHAR(100) NOT NULL,
+    emoji VARCHAR(10) NOT NULL DEFAULT '🎯',
+    description TEXT,
+    tone VARCHAR(30) NOT NULL DEFAULT 'neutral',
+    style VARCHAR(30) NOT NULL DEFAULT 'directive',
+    delegation_level INTEGER NOT NULL DEFAULT 2,
+    token_budget_hint INTEGER NOT NULL DEFAULT 2000,
+    temperature_delta DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    expertise_keywords JSONB NOT NULL DEFAULT '[]',
+    system_prompt_addon TEXT,
+    model_override VARCHAR(200),
+    auto_skills JSONB NOT NULL DEFAULT '[]',
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_ae_fp_enabled ON aria_engine.focus_profiles(enabled);
+
+-- ============================================================================
+-- Chat Sessions Archive — archived engine chat sessions
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS aria_engine.chat_sessions_archive (
+    id UUID PRIMARY KEY,
+    agent_id VARCHAR(100) NOT NULL,
+    session_type VARCHAR(50) NOT NULL,
+    title VARCHAR(500),
+    system_prompt TEXT,
+    model VARCHAR(200),
+    temperature DOUBLE PRECISION NOT NULL DEFAULT 0.7,
+    max_tokens INTEGER NOT NULL DEFAULT 4096,
+    context_window INTEGER NOT NULL DEFAULT 50,
+    status VARCHAR(20) NOT NULL,
+    message_count INTEGER NOT NULL DEFAULT 0,
+    total_tokens INTEGER NOT NULL DEFAULT 0,
+    total_cost NUMERIC(10,6) NOT NULL DEFAULT 0,
+    metadata JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    ended_at TIMESTAMP WITH TIME ZONE,
+    archived_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_ae_csa_archived      ON aria_engine.chat_sessions_archive(archived_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ae_csa_session_type  ON aria_engine.chat_sessions_archive(session_type);
+CREATE INDEX IF NOT EXISTS idx_ae_csa_status        ON aria_engine.chat_sessions_archive(status);
+CREATE INDEX IF NOT EXISTS idx_ae_csa_updated       ON aria_engine.chat_sessions_archive(updated_at DESC);
+
+-- ============================================================================
+-- Chat Messages Archive — archived engine chat messages
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS aria_engine.chat_messages_archive (
+    id UUID PRIMARY KEY,
+    session_id UUID NOT NULL REFERENCES aria_engine.chat_sessions_archive(id) ON DELETE CASCADE,
+    agent_id VARCHAR(100),
+    role VARCHAR(20) NOT NULL,
+    content TEXT NOT NULL,
+    thinking TEXT,
+    tool_calls JSONB,
+    tool_results JSONB,
+    model VARCHAR(200),
+    tokens_input INTEGER,
+    tokens_output INTEGER,
+    cost NUMERIC(10,6),
+    latency_ms INTEGER,
+    embedding vector(1536),
+    metadata JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    archived_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_ae_cma_session ON aria_engine.chat_messages_archive(session_id);
+CREATE INDEX IF NOT EXISTS idx_ae_cma_role    ON aria_engine.chat_messages_archive(role);
+CREATE INDEX IF NOT EXISTS idx_ae_cma_created ON aria_engine.chat_messages_archive(created_at);
+CREATE INDEX IF NOT EXISTS idx_ae_cma_archived ON aria_engine.chat_messages_archive(archived_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ae_cma_session_created ON aria_engine.chat_messages_archive(session_id, created_at);
 
 -- ============================================================================
 -- Seed default agent

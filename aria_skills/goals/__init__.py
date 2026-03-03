@@ -59,6 +59,7 @@ class GoalSchedulerSkill(BaseSkill):
         due_date: datetime | None = None,
         parent_id: str | None = None,
         tags: list[str] | None = None,
+        **kwargs,
     ) -> SkillResult:
         """
         Create a new goal.

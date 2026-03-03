@@ -36,7 +36,7 @@
     },
     {
       "name": "create_goal",
-      "description": "Create a new goal with optional milestones and target date.",
+      "description": "Create a new goal with priority and optional deadline.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -48,20 +48,24 @@
             "type": "string",
             "description": "Detailed description"
           },
-          "category": {
-            "type": "string",
-            "description": "Category (e.g., health, work, learning, personal)"
+          "priority": {
+            "type": "integer",
+            "description": "Priority 1-5 (1 is highest)"
           },
-          "target_date": {
+          "due_date": {
             "type": "string",
-            "description": "Target completion date (ISO format)"
+            "description": "Optional deadline in ISO format"
           },
-          "milestones": {
+          "parent_id": {
+            "type": "string",
+            "description": "Optional parent goal ID for subtasks"
+          },
+          "tags": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "description": "List of milestone descriptions"
+            "description": "Optional categorization tags"
           }
         },
         "required": [
