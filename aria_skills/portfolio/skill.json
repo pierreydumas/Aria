@@ -26,27 +26,19 @@
             "type": "number",
             "description": "The quantity to trade"
           },
-          "price": {
+          "entry_price": {
             "type": "number",
             "description": "The entry price"
           },
-          "side": {
+          "notes": {
             "type": "string",
-            "description": "The side of the trade (default: long)"
-          },
-          "stop_loss": {
-            "type": "number",
-            "description": "Optional stop loss price"
-          },
-          "take_profit": {
-            "type": "number",
-            "description": "Optional take profit price"
+            "description": "Optional notes about the position"
           }
         },
         "required": [
           "symbol",
           "quantity",
-          "price"
+          "entry_price"
         ]
       }
     },
@@ -60,18 +52,17 @@
             "type": "string",
             "description": "The trading pair symbol"
           },
-          "price": {
+          "quantity": {
+            "type": "number",
+            "description": "Quantity to close (optional, closes all if omitted)"
+          },
+          "exit_price": {
             "type": "number",
             "description": "The exit price"
-          },
-          "reason": {
-            "type": "string",
-            "description": "Reason for closing (default: manual)"
           }
         },
         "required": [
-          "symbol",
-          "price"
+          "symbol"
         ]
       }
     },

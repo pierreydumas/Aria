@@ -17,31 +17,21 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "paths": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Test paths to run (default: tests)"
+          "path": {
+            "type": "string",
+            "description": "Test path to run (default: tests)"
           },
           "markers": {
             "type": "string",
             "description": "Pytest marker expression"
           },
-          "keyword": {
+          "keywords": {
             "type": "string",
             "description": "Pytest -k expression"
           },
-          "extra_args": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Additional pytest args"
-          },
-          "timeout_sec": {
-            "type": "integer",
-            "description": "Timeout in seconds"
+          "verbose": {
+            "type": "boolean",
+            "description": "Enable verbose output (default: true)"
           }
         }
       }

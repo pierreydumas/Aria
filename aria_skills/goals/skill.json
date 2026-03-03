@@ -27,9 +27,17 @@
             ],
             "description": "Filter by goal status (default: active)"
           },
-          "category": {
+          "priority": {
+            "type": "integer",
+            "description": "Filter by priority level (1-5)"
+          },
+          "tag": {
             "type": "string",
-            "description": "Filter by category"
+            "description": "Filter by tag"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of goals to return (default: 20)"
           }
         }
       }
@@ -83,13 +91,21 @@
             "type": "integer",
             "description": "Goal ID"
           },
+          "status": {
+            "type": "string",
+            "description": "New status for the goal"
+          },
           "progress": {
             "type": "integer",
             "description": "Progress percentage (0-100)"
           },
-          "note": {
+          "priority": {
+            "type": "integer",
+            "description": "Priority level (1-5)"
+          },
+          "notes": {
             "type": "string",
-            "description": "Progress note"
+            "description": "Progress notes"
           }
         },
         "required": [
@@ -135,17 +151,21 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "goal_id": {
+          "parent_id": {
             "type": "integer",
-            "description": "Goal ID"
+            "description": "Parent goal ID"
           },
           "title": {
             "type": "string",
             "description": "Subtask title"
+          },
+          "description": {
+            "type": "string",
+            "description": "Subtask description"
           }
         },
         "required": [
-          "goal_id",
+          "parent_id",
           "title"
         ]
       }
@@ -156,18 +176,18 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "goal_id": {
+          "parent_id": {
             "type": "integer",
-            "description": "Goal ID"
+            "description": "Parent goal ID"
           },
-          "subtask_index": {
-            "type": "integer",
-            "description": "Subtask index (0-based)"
+          "subtask_id": {
+            "type": "string",
+            "description": "Subtask ID to complete"
           }
         },
         "required": [
-          "goal_id",
-          "subtask_index"
+          "parent_id",
+          "subtask_id"
         ]
       }
     }

@@ -17,14 +17,9 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "status": {
-            "type": "string",
-            "enum": [
-              "active",
-              "paused",
-              "all"
-            ],
-            "description": "Filter by job status"
+          "enabled_only": {
+            "type": "boolean",
+            "description": "If true, return only enabled jobs (default: false)"
           }
         }
       }
@@ -44,12 +39,12 @@
         "type": "object",
         "properties": {
           "job_id": {
-            "type": "integer",
+            "type": "string",
             "description": "Job ID to mark as run"
           },
-          "force": {
+          "success": {
             "type": "boolean",
-            "description": "Force execution even if not due"
+            "description": "Whether the run was successful (default: true)"
           }
         },
         "required": [

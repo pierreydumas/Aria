@@ -296,3 +296,32 @@ class LLMSkill(BaseSkill):
                 "resets_in_seconds": max(0.0, round(open_until - now, 1)),
             }
         return SkillResult.ok(status)
+
+    async def complete_with_model(
+        self,
+        model: str,
+        messages: list[dict[str, str]],
+        **kwargs: Any,
+    ) -> SkillResult:
+        """Get a completion from a specific model, bypassing the fallback chain."""
+        try:
+            result = await self._complete_with_model(model, messages, **kwargs)
+            self._record_success(model)
+            result["_aria_model_used"] = model
+            return SkillResult.ok(result)
+        except Exception as exc:
+            self._record_failure(model)
+            return SkillResult.fail(f"Model {model} failed: {exc}")
+
+    async def get_fallback_chain(self) -> SkillResult:
+        """Get the current fallback chain with tier and priority info."""
+        return SkillResult.ok({"chain": LLM_FALLBACK_CHAIN})
+
+    async def reset_circuit_breakers(self) -> SkillResult:
+        """Reset all circuit breakers to closed state."""
+        self._failure_counts.clear()
+        self._circuit_open_until.clear()
+        return SkillResult.ok({
+            "reset": True,
+            "models_cleared": len(LLM_FALLBACK_CHAIN),
+        })

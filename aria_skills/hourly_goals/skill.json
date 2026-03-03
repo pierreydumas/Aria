@@ -18,35 +18,27 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "title": {
-            "type": "string",
-            "description": "Goal title"
+          "hour": {
+            "type": "integer",
+            "description": "Hour slot (0-23)"
           },
-          "description": {
+          "goal": {
             "type": "string",
-            "description": "Detailed description"
-          },
-          "target_hour": {
-            "type": "string",
-            "description": "Target hour (ISO timestamp)"
+            "description": "Goal description"
           },
           "priority": {
             "type": "string",
             "enum": [
               "low",
-              "medium",
-              "high",
-              "critical"
+              "normal",
+              "high"
             ],
-            "description": "Priority level"
-          },
-          "parent_goal_id": {
-            "type": "integer",
-            "description": "Link to parent main goal"
+            "description": "Priority level (default: normal)"
           }
         },
         "required": [
-          "title"
+          "hour",
+          "goal"
         ]
       }
     },
@@ -81,12 +73,8 @@
         "type": "object",
         "properties": {
           "goal_id": {
-            "type": "integer",
-            "description": "Goal ID to complete"
-          },
-          "notes": {
             "type": "string",
-            "description": "Completion notes"
+            "description": "Goal ID to complete"
           }
         },
         "required": [
@@ -99,12 +87,7 @@
       "description": "Get hourly goal completion statistics and day summary.",
       "parameters": {
         "type": "object",
-        "properties": {
-          "days": {
-            "type": "integer",
-            "description": "Days to analyze (default: 7)"
-          }
-        }
+        "properties": {}
       }
     },
     {
