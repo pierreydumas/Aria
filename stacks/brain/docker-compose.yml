@@ -358,6 +358,18 @@ services:
     volumes:
       - aria_data:/app/data
       - aria_logs:/app/logs
+      # Shadow baked /app code with bind mounts for live code updates
+      - ../../aria_mind:/app/aria_mind:ro
+      - ../../aria_skills:/app/aria_skills:ro
+      - ../../aria_agents:/app/aria_agents:ro
+      - ../../aria_engine:/app/aria_engine:ro
+      - ../../aria_models:/app/aria_models:ro
+      # Mount at root for cross-package imports
+      - ../../aria_mind:/aria_mind:ro
+      - ../../aria_engine:/aria_engine:ro
+      - ../../aria_skills:/aria_skills:ro
+      - ../../aria_agents:/aria_agents:ro
+      - ../../aria_memories:/app/aria_memories
     depends_on:
       aria-db:
         condition: service_healthy

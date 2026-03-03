@@ -470,17 +470,46 @@ async def telegram_poll_loop() -> None:
     session_map: dict = _tg_load_sessions()
     offset: int | None = None
 
-    logger.info("[telegram] long-poll started")
+    # ── Claim exclusive polling: force-kill stale connections ──
+    async with _httpx.AsyncClient(timeout=15) as setup_client:
+        try:
+            dw = await setup_client.post(
+                f"{tg_base}/deleteWebhook",
+                json={"drop_pending_updates": False},
+            )
+            logger.info(f"[telegram] deleteWebhook: {dw.status_code} {dw.json().get('description', '')}")
+        except Exception as exc:
+            logger.warning(f"[telegram] deleteWebhook failed (non-fatal): {exc}")
 
-    async with _httpx.AsyncClient(timeout=40) as client:
-        while True:
-            try:
+    # Pause to let Telegram fully release old connections
+    await asyncio.sleep(2)
+
+    logger.info("[telegram] long-poll started")
+    _conflict_backoff = 5  # seconds, grows on repeated 409
+
+    while True:
+        # Fresh httpx client per poll cycle to prevent connection reuse conflicts
+        try:
+            async with _httpx.AsyncClient(timeout=40) as client:
                 params: dict = {"timeout": 30, "allowed_updates": ["message"]}
                 if offset is not None:
                     params["offset"] = offset
 
                 resp = await client.get(f"{tg_base}/getUpdates", params=params)
+                _body = resp.text  # fully consume response body
+
+                # ── Handle 409 Conflict (another poller is active) ──
+                if resp.status_code == 409:
+                    logger.warning(
+                        f"[telegram] 409 Conflict — another instance is polling. "
+                        f"Retrying in {_conflict_backoff}s..."
+                    )
+                    await asyncio.sleep(_conflict_backoff)
+                    _conflict_backoff = min(_conflict_backoff * 2, 120)
+                    continue
+
                 resp.raise_for_status()
+                _conflict_backoff = 5  # reset on success
                 updates = resp.json().get("result", [])
 
                 for update in updates:
@@ -548,12 +577,12 @@ async def telegram_poll_loop() -> None:
                         except Exception as exc:
                             logger.error(f"[telegram] sendMessage error: {exc}")
 
-            except asyncio.CancelledError:
-                logger.info("[telegram] poll loop cancelled")
-                return
-            except Exception as exc:
-                logger.error(f"[telegram] poll error: {exc} — retrying in 5s")
-                await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            logger.info("[telegram] poll loop cancelled")
+            return
+        except Exception as exc:
+            logger.error(f"[telegram] poll error: {exc} — retrying in 5s")
+            await asyncio.sleep(5)
 
 
 # ---------------------------------------------------------------------------
