@@ -42,9 +42,9 @@ def test_build_thinking_params_qwen():
 
 
 def test_build_thinking_params_deepseek():
-    """DeepSeek models registered in YAML get enable_thinking flag."""
+    """DeepSeek models not in YAML return empty params (removed from catalog)."""
     params = build_thinking_params("deepseek-free", enable=True)
-    assert params["extra_body"]["enable_thinking"] is True
+    assert params == {}
 
 
 def test_build_thinking_params_unknown_model():
