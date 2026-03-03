@@ -15,13 +15,12 @@ except Exception:  # pragma: no cover - optional dependency in some runtimes
     yaml = None
 
 from aria_agents.base import AgentConfig, AgentRole
-from aria_models.loader import load_catalog
+from aria_models.loader import load_catalog, get_primary_model_full
 
 logger = logging.getLogger(__name__)
 
 # Single source of truth: models.yaml routing.primary
-_catalog = load_catalog()
-_default_model = _catalog.get("routing", {}).get("primary", "litellm/qwen3-mlx")
+_default_model = get_primary_model_full()
 
 
 class AgentLoader:

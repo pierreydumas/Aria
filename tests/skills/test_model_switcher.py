@@ -30,23 +30,21 @@ def test_build_thinking_params_disabled():
 
 
 def test_build_thinking_params_claude():
-    """Claude models get extended thinking with budget_tokens."""
+    """Claude models (not in YAML) return empty params — YAML is the source of truth."""
     params = build_thinking_params("claude-3.5-sonnet", enable=True)
-    assert "extra_body" in params
-    assert params["extra_body"]["thinking"]["type"] == "enabled"
-    assert params["extra_body"]["thinking"]["budget_tokens"] == 4096
+    assert params == {}
 
 
 def test_build_thinking_params_qwen():
-    """Qwen models get enable_thinking flag."""
-    params = build_thinking_params("qwen3-72b", enable=True)
+    """Qwen models registered in YAML get enable_thinking flag."""
+    params = build_thinking_params("qwen3-mlx", enable=True)
     assert params["extra_body"]["enable_thinking"] is True
 
 
 def test_build_thinking_params_deepseek():
-    """DeepSeek models get enable_thinking flag."""
-    params = build_thinking_params("deepseek-r1", enable=True)
-    assert params["extra_body"]["enable_thinking"] is True
+    """DeepSeek models not in YAML return empty params (removed from catalog)."""
+    params = build_thinking_params("deepseek-free", enable=True)
+    assert params == {}
 
 
 def test_build_thinking_params_unknown_model():
@@ -80,14 +78,18 @@ async def test_initialize_default_model(switcher):
     ):
         ok = await switcher.initialize()
     assert ok is True
-    assert switcher._current_model == "kimi"
+    assert switcher._current_model == ""  # YAML unavailable → empty fallback
     assert switcher._status == SkillStatus.AVAILABLE
 
 
 @pytest.mark.asyncio
 async def test_initialize_reads_models_yaml(switcher):
     """If models.yaml is loadable, the primary model is picked from routing."""
-    fake_catalog = {"routing": {"primary": "litellm/gpt-4o"}, "models": {}}
+    fake_catalog = {
+        "tasks": {"primary": "gpt-4o", "primary_full": "litellm/gpt-4o"},
+        "routing": {"primary": "litellm/gpt-4o"},
+        "models": {},
+    }
     with (
         patch("aria_skills.api_client.get_api_client", new_callable=AsyncMock, side_effect=Exception("no api")),
         patch("aria_models.loader.load_catalog", return_value=fake_catalog),
@@ -154,7 +156,7 @@ async def test_get_current_model(switcher):
 async def test_set_thinking_mode_enable(switcher):
     """Enabling thinking mode stores the flag and returns params."""
     switcher._status = SkillStatus.AVAILABLE
-    switcher._current_model = "qwen3-72b"
+    switcher._current_model = "qwen3-mlx"  # Must be in YAML with thinking_params
     result = await switcher.set_thinking_mode(enabled=True)
     assert result.success is True
     assert result.data["thinking_enabled"] is True
@@ -177,11 +179,11 @@ async def test_get_thinking_mode(switcher):
     """get_thinking_mode reflects current state."""
     switcher._status = SkillStatus.AVAILABLE
     switcher._thinking_enabled = True
-    switcher._current_model = "claude-3.5-sonnet"
+    switcher._current_model = "qwen3-mlx"  # Must be in YAML with thinking_params
     result = await switcher.get_thinking_mode()
     assert result.success is True
     assert result.data["thinking_enabled"] is True
-    assert "thinking" in result.data["thinking_params"]["extra_body"]
+    assert result.data["thinking_params"]["extra_body"]["enable_thinking"] is True
 
 
 # ---------------------------------------------------------------------------

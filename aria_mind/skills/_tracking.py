@@ -17,6 +17,13 @@ except ImportError:
 
 _tracker_log = logging.getLogger("aria.skill_tracker")
 
+# Load primary model from models.yaml (single source of truth)
+try:
+    from aria_models.loader import get_primary_model_full as _get_pf
+    _PRIMARY_MODEL_FULL = _get_pf()
+except Exception:
+    _PRIMARY_MODEL_FULL = ""
+
 
 def _is_noise_invocation(skill_name: str, function_name: str, success: bool) -> bool:
     """Filter high-frequency low-value noise from activity stream."""
@@ -153,7 +160,7 @@ async def _log_skill_invocation(
         "success": success,
         "error_type": error_msg,
         "tokens_used": 0,
-        "model_used": os.environ.get("ARIA_MODEL", "litellm/kimi"),
+        "model_used": os.environ.get("ARIA_MODEL", _PRIMARY_MODEL_FULL),
     }
     ok = await _api_post("/skills/invocations", payload)
     if not ok:

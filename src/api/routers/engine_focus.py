@@ -18,6 +18,12 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+
+try:
+    from aria_models.loader import get_focus_default as _get_focus_default
+except ImportError:
+    def _get_focus_default(focus_type: str) -> str:
+        return ""
 from sqlalchemy import select, delete, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -123,7 +129,7 @@ SEED_PROFILES: list[dict[str, Any]] = [
             "Prefer minimal diffs over rewrites. Output: code blocks + "
             "one-line rationale. Never output prose when code suffices."
         ),
-        "model_override": "qwen3-coder-free",
+        "model_override": _get_focus_default("devsecops"),
         "auto_skills": ["ci_cd", "database", "pytest_runner"],
         "enabled": True,
     },
@@ -185,7 +191,7 @@ SEED_PROFILES: list[dict[str, Any]] = [
             "Every output must be post-length: punchy, no jargon, one clear "
             "idea. Lead with impact. Never exceed 280 characters for social posts unless asked."
         ),
-        "model_override": "qwen3-mlx",
+        "model_override": _get_focus_default("social"),
         "auto_skills": ["social", "moltbook", "community", "api_client"],
         "enabled": True,
     },

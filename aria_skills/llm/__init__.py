@@ -24,15 +24,8 @@ from aria_skills.registry import SkillRegistry
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Fallback chain — loaded dynamically from aria_models/models.yaml at runtime.
-# Static list is a safe fallback when models.yaml is unavailable.
 # ─────────────────────────────────────────────────────────────────────────────
-_STATIC_FALLBACK_CHAIN: list[dict] = [
-    {"model": "litellm/qwen3-mlx",       "tier": "local",  "priority": 1},
-    {"model": "litellm/trinity-free",    "tier": "free",   "priority": 2},
-    {"model": "litellm/qwen3-next-free", "tier": "free",   "priority": 3},
-    {"model": "litellm/deepseek-free",   "tier": "free",   "priority": 4},
-    {"model": "litellm/kimi",            "tier": "paid",   "priority": 5},
-]
+_STATIC_FALLBACK_CHAIN: list[dict] = []
 
 
 def _build_fallback_chain() -> list[dict]:
@@ -76,7 +69,7 @@ def _build_fallback_chain() -> list[dict]:
                 if local_id and not any(e["model"] == local_id for e in chain):
                     chain.insert(0, {"model": local_id, "tier": "local", "priority": 0})
 
-        return chain if chain else _STATIC_FALLBACK_CHAIN
+        return chain
     except Exception:
         return _STATIC_FALLBACK_CHAIN
 
@@ -281,7 +274,7 @@ class LLMSkill(BaseSkill):
                 )
         return await self.complete_with_fallback(messages, **kwargs)
 
-    def get_circuit_status(self) -> SkillResult:
+    async def get_circuit_status(self) -> SkillResult:
         """Return circuit breaker state for all models."""
         now = time.monotonic()
         status = {}
@@ -296,3 +289,32 @@ class LLMSkill(BaseSkill):
                 "resets_in_seconds": max(0.0, round(open_until - now, 1)),
             }
         return SkillResult.ok(status)
+
+    async def complete_with_model(
+        self,
+        model: str,
+        messages: list[dict[str, str]],
+        **kwargs: Any,
+    ) -> SkillResult:
+        """Get a completion from a specific model, bypassing the fallback chain."""
+        try:
+            result = await self._complete_with_model(model, messages, **kwargs)
+            self._record_success(model)
+            result["_aria_model_used"] = model
+            return SkillResult.ok(result)
+        except Exception as exc:
+            self._record_failure(model)
+            return SkillResult.fail(f"Model {model} failed: {exc}")
+
+    async def get_fallback_chain(self) -> SkillResult:
+        """Get the current fallback chain with tier and priority info."""
+        return SkillResult.ok({"chain": LLM_FALLBACK_CHAIN})
+
+    async def reset_circuit_breakers(self) -> SkillResult:
+        """Reset all circuit breakers to closed state."""
+        self._failure_counts.clear()
+        self._circuit_open_until.clear()
+        return SkillResult.ok({
+            "reset": True,
+            "models_cleared": len(LLM_FALLBACK_CHAIN),
+        })

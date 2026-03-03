@@ -8,21 +8,10 @@ import os
 def _load_default_models() -> tuple[str, str]:
     """Load default model names from models catalog with safe fallbacks."""
     try:
-        from aria_models.loader import load_catalog as _load_catalog
-
-        catalog = _load_catalog()
-        kimi_model = catalog.get("models", {}).get("kimi", {}).get("litellm", {}).get("model", "")
-        ollama_model = (
-            catalog.get("models", {})
-            .get("qwen-cpu-fallback", {})
-            .get("litellm", {})
-            .get("model", "")
-        )
-        default_kimi = kimi_model.removeprefix("moonshot/") or "kimi-k2.5"
-        default_ollama = ollama_model.removeprefix("ollama/") or "qwen2.5:3b"
-        return default_kimi, default_ollama
+        from aria_models.loader import get_task_model
+        return get_task_model("moonshot_default"), get_task_model("ollama_default")
     except Exception:
-        return "kimi-k2.5", "qwen2.5:3b"
+        return "", ""
 
 
 _DEFAULT_KIMI_MODEL, _DEFAULT_OLLAMA_MODEL = _load_default_models()

@@ -50,7 +50,7 @@ class LiteLLMSkill(BaseSkill):
         
         api_key = self.config.config.get(
             "api_key",
-            os.environ.get("LITELLM_API_KEY", "")
+            os.environ.get("LITELLM_API_KEY", os.environ.get("LITELLM_MASTER_KEY", ""))
         )
         
         headers = {"Content-Type": "application/json"}

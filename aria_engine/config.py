@@ -11,6 +11,15 @@ try:
 except ImportError:
     HAS_PYDANTIC = False
 
+def _resolve_default_model() -> str:
+    """Resolve default model from models.yaml (avoids hardcoded name)."""
+    try:
+        from aria_models.loader import get_primary_model
+        return get_primary_model()
+    except Exception:
+        return ""
+
+
 if HAS_PYDANTIC:
     class EngineConfig(BaseSettings):
         """Runtime configuration for Aria Engine (validated via Pydantic)."""
@@ -29,7 +38,7 @@ if HAS_PYDANTIC:
             alias="LITELLM_BASE_URL",
         )
         litellm_master_key: str = Field(default="", alias="LITELLM_MASTER_KEY")
-        default_model: str = "kimi"
+        default_model: str = Field(default_factory=_resolve_default_model)
         default_temperature: float = 0.7
         default_max_tokens: int = 4096
 
@@ -123,7 +132,7 @@ else:
         litellm_master_key: str = field(default_factory=lambda: os.environ.get(
             "LITELLM_MASTER_KEY", ""
         ))
-        default_model: str = "kimi"
+        default_model: str = field(default_factory=_resolve_default_model)
         default_temperature: float = 0.7
         default_max_tokens: int = 4096
 

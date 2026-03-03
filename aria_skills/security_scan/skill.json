@@ -13,25 +13,25 @@
   "tools": [
     {
       "name": "scan_code",
-      "description": "Scan a directory recursively for security issues in code.",
+      "description": "Scan code for security issues.",
       "parameters": {
         "type": "object",
         "properties": {
-          "directory": {
+          "code": {
             "type": "string",
-            "description": "The directory to scan"
+            "description": "The code to scan for security issues"
           },
-          "extensions": {
-            "type": "array",
-            "description": "Optional file extensions to include"
+          "language": {
+            "type": "string",
+            "description": "Programming language (default: python)"
           },
-          "exclude_dirs": {
-            "type": "array",
-            "description": "Optional directories to exclude"
+          "file_name": {
+            "type": "string",
+            "description": "Optional file name for context"
           }
         },
         "required": [
-          "directory"
+          "code"
         ]
       }
     },
@@ -53,33 +53,41 @@
     },
     {
       "name": "scan_config",
-      "description": "Scan configuration files for security misconfigurations.",
+      "description": "Scan configuration for security misconfigurations.",
       "parameters": {
         "type": "object",
         "properties": {
-          "config_path": {
+          "config": {
+            "type": "object",
+            "description": "Configuration dictionary to scan"
+          },
+          "config_type": {
             "type": "string",
-            "description": "Path to the configuration file or directory"
+            "description": "Type of configuration (default: generic)"
           }
         },
         "required": [
-          "config_path"
+          "config"
         ]
       }
     },
     {
       "name": "check_dependencies",
-      "description": "Check Python dependencies for known vulnerabilities.",
+      "description": "Check dependencies for known vulnerabilities.",
       "parameters": {
         "type": "object",
         "properties": {
-          "requirements_file": {
+          "dependencies": {
+            "type": "object",
+            "description": "Dictionary of package names to version strings"
+          },
+          "ecosystem": {
             "type": "string",
-            "description": "Path to the requirements file"
+            "description": "Package ecosystem (default: python)"
           }
         },
         "required": [
-          "requirements_file"
+          "dependencies"
         ]
       }
     },

@@ -1,10 +1,16 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "notes": "SINGLE SOURCE OF TRUTH for all model definitions. To add a new model: (1) add entry here, (2) run scripts/generate_configs.py to regenerate litellm-config.yaml. That's it.",
   "model_priority_order": "local → free → paid. Use criteria.priority for the exact fallback chain. NEVER duplicate model names in .md or .py files — reference this file.",
   "validation": {
-    "schema_version": 3,
-    "required_fields": ["id", "name", "provider", "tier", "context_window"]
+    "schema_version": 4,
+    "required_fields": [
+      "id",
+      "name",
+      "provider",
+      "tier",
+      "context_window"
+    ]
   },
   "providers": {
     "litellm": {
@@ -16,33 +22,40 @@
   "routing": {
     "primary": "litellm/kimi",
     "bypass": false,
-    "tier_order": ["local", "free", "paid"],
+    "tier_order": [
+      "local",
+      "free",
+      "paid"
+    ],
     "timeout": 300,
     "retries": 2,
-    "fallbacks": ["litellm/kimi", "litellm/glm-free", "litellm/qwen3-coder-free", "litellm/deepseek-free", "litellm/qwen3-next-free", "litellm/gpt-oss-free", "litellm/trinity-free"]
+    "fallbacks": [
+      "litellm/kimi",
+      "litellm/qwen3-coder-free",
+      "litellm/qwen3-next-free",
+      "litellm/gpt-oss-free",
+      "litellm/trinity-free"
+    ]
+  },
+  "tasks": {
+    "primary": "kimi",
+    "primary_full": "litellm/kimi",
+    "embedding": "nomic-embed-text",
+    "summarization": "kimi",
+    "memory_compression": "kimi",
+    "conversation_summary": "kimi",
+    "sentiment": "qwen3-mlx",
+    "token_counting": "kimi",
+    "moonshot_default": "kimi",
+    "ollama_default": "qwen3-mlx",
+    "local_fast": "qwen3-mlx"
   },
   "agent_aliases": {
     "litellm/qwen3-mlx": "Qwen3 4B Instruct (MLX Local)",
-    "litellm/step-35-flash-free": "StepFun Step 3.5 Flash (OpenRouter FREE)",
     "litellm/trinity-free": "Trinity 400B (OpenRouter FREE)",
-    "litellm/solar-pro-3-free": "Solar Pro 3 (OpenRouter FREE)",
-    "litellm/lfm-25-thinking-free": "LFM 2.5 1.2B Thinking (OpenRouter FREE)",
-    "litellm/lfm-25-instruct-free": "LFM 2.5 1.2B Instruct (OpenRouter FREE)",
-    "litellm/chimera-free": "Chimera 671B (OpenRouter FREE)",
-    "litellm/trinity-mini-free": "Trinity Mini (OpenRouter FREE)",
-    "litellm/tng-r1t-chimera-free": "TNG R1T Chimera (OpenRouter FREE)",
-    "litellm/nemotron-nano-12b-v2-vl-free": "Nemotron Nano 12B V2 VL (OpenRouter FREE)",
     "litellm/qwen3-coder-free": "Qwen3 Coder 480B (OpenRouter FREE)",
     "litellm/qwen3-next-free": "Qwen3 Next 235B (OpenRouter FREE)",
-    "litellm/nemotron-nano-9b-v2-free": "Nemotron Nano 9B V2 (OpenRouter FREE)",
-    "litellm/glm-free": "GLM 4.5 Air (OpenRouter FREE)",
-    "litellm/deepseek-free": "DeepSeek R1 (OpenRouter FREE)",
-    "litellm/nemotron-free": "Nemotron 30B (OpenRouter FREE)",
     "litellm/gpt-oss-free": "GPT-OSS 120B (OpenRouter FREE)",
-    "litellm/gpt-oss-small-free": "GPT-OSS 20B (OpenRouter FREE)",
-    "litellm/venice-dolphin-free": "Venice Dolphin Mistral 24B (OpenRouter FREE)",
-    "litellm/gemma-3n-e2b-free": "Gemma 3n E2B (OpenRouter FREE)",
-    "litellm/gemma-3n-e4b-free": "Gemma 3n E4B (OpenRouter FREE)",
     "litellm/kimi": "Kimi K2.5 (Moonshot Paid)"
   },
   "models": {
@@ -51,8 +64,15 @@
       "name": "Qwen3 4B Instruct (MLX Local)",
       "_note": "ACTIVE: 4B (2.1GB). 8B needs 24GB+ RAM with Docker. To switch: change model + plist",
       "reasoning": false,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+      "input": [
+        "text"
+      ],
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0
+      },
       "contextWindow": 32768,
       "maxTokens": 8192,
       "tier": "local",
@@ -61,22 +81,12 @@
         "model": "openai/mlx-community/Qwen3-4B-Instruct-2507-4bit",
         "api_base": "http://host.docker.internal:8080/v1",
         "api_key": "not-needed"
-      }
-    },
-    "step-35-flash-free": {
-      "provider": "litellm",
-      "name": "StepFun Step 3.5 Flash (OpenRouter FREE)",
-      "reasoning": true,
-      "tool_calling": true,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-      "contextWindow": 256000,
-      "maxTokens": 8192,
-      "tier": "free",
-      "routeSkill": "litellm",
-      "litellm": {
-        "model": "openrouter/stepfun/step-3.5-flash:free",
-        "api_key": "os.environ/OPEN_ROUTER_KEY"
+      },
+      "provider_label": "local/mlx",
+      "thinking_params": {
+        "extra_body": {
+          "enable_thinking": true
+        }
       }
     },
     "trinity-free": {
@@ -84,8 +94,15 @@
       "name": "Trinity 400B MoE (OpenRouter FREE)",
       "reasoning": true,
       "tool_calling": true,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+      "input": [
+        "text"
+      ],
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0
+      },
       "contextWindow": 131072,
       "maxTokens": 8192,
       "tier": "free",
@@ -93,126 +110,23 @@
       "litellm": {
         "model": "openrouter/arcee-ai/trinity-large-preview:free",
         "api_key": "os.environ/OPEN_ROUTER_KEY"
-      }
-    },
-    "solar-pro-3-free": {
-      "enabled": false,
-      "provider": "litellm",
-      "name": "Solar Pro 3 (OpenRouter FREE)",
-      "reasoning": true,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-      "contextWindow": 128000,
-      "maxTokens": 8192,
-      "tier": "free",
-      "routeSkill": "litellm",
-      "litellm": {
-        "model": "openrouter/upstage/solar-pro-3:free",
-        "api_key": "os.environ/OPEN_ROUTER_KEY"
-      }
-    },
-    "lfm-25-thinking-free": {
-      "enabled": false,
-      "provider": "litellm",
-      "name": "LFM 2.5 1.2B Thinking (OpenRouter FREE)",
-      "reasoning": true,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-      "contextWindow": 32768,
-      "maxTokens": 8192,
-      "tier": "free",
-      "routeSkill": "litellm",
-      "litellm": {
-        "model": "openrouter/liquid/lfm-2.5-1.2b-thinking:free",
-        "api_key": "os.environ/OPEN_ROUTER_KEY"
-      }
-    },
-    "lfm-25-instruct-free": {
-      "enabled": false,
-      "provider": "litellm",
-      "name": "LFM 2.5 1.2B Instruct (OpenRouter FREE)",
-      "reasoning": false,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-      "contextWindow": 32768,
-      "maxTokens": 8192,
-      "tier": "free",
-      "routeSkill": "litellm",
-      "litellm": {
-        "model": "openrouter/liquid/lfm-2.5-1.2b-instruct:free",
-        "api_key": "os.environ/OPEN_ROUTER_KEY"
-      }
-    },
-    "chimera-free": {
-      "provider": "litellm",
-      "name": "Chimera 671B (OpenRouter FREE)",
-      "reasoning": true,
-      "tool_calling": false,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-      "contextWindow": 164000,
-      "maxTokens": 8192,
-      "tier": "free",
-      "routeSkill": "litellm",
-      "litellm": {
-        "model": "openrouter/tngtech/deepseek-r1t2-chimera:free",
-        "api_key": "os.environ/OPEN_ROUTER_KEY_DEEP"
-      }
-    },
-    "trinity-mini-free": {
-      "enabled": false,
-      "provider": "litellm",
-      "name": "Trinity Mini (OpenRouter FREE)",
-      "reasoning": true,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-      "contextWindow": 131072,
-      "maxTokens": 8192,
-      "tier": "free",
-      "routeSkill": "litellm",
-      "litellm": {
-        "model": "openrouter/arcee-ai/trinity-mini:free",
-        "api_key": "os.environ/OPEN_ROUTER_KEY"
-      }
-    },
-    "tng-r1t-chimera-free": {
-      "enabled": false,
-      "provider": "litellm",
-      "name": "TNG R1T Chimera (OpenRouter FREE)",
-      "reasoning": true,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-      "contextWindow": 163840,
-      "maxTokens": 8192,
-      "tier": "free",
-      "routeSkill": "litellm",
-      "litellm": {
-        "model": "openrouter/tngtech/tng-r1t-chimera:free",
-        "api_key": "os.environ/OPEN_ROUTER_KEY"
-      }
-    },
-    "nemotron-nano-12b-v2-vl-free": {
-      "enabled": false,
-      "provider": "litellm",
-      "name": "Nemotron Nano 12B V2 VL (OpenRouter FREE)",
-      "reasoning": true,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-      "contextWindow": 128000,
-      "maxTokens": 8192,
-      "tier": "free",
-      "routeSkill": "litellm",
-      "litellm": {
-        "model": "openrouter/nvidia/nemotron-nano-12b-v2-vl:free",
-        "api_key": "os.environ/OPEN_ROUTER_KEY"
-      }
+      },
+      "provider_label": "openrouter",
+      "thinking_params": {}
     },
     "qwen3-coder-free": {
       "provider": "litellm",
       "name": "Qwen3 Coder 480B (OpenRouter FREE)",
       "reasoning": true,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+      "input": [
+        "text"
+      ],
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0
+      },
       "contextWindow": 262000,
       "maxTokens": 8192,
       "tier": "free",
@@ -220,14 +134,27 @@
       "litellm": {
         "model": "openrouter/qwen/qwen3-coder:free",
         "api_key": "os.environ/OPEN_ROUTER_KEY"
+      },
+      "provider_label": "openrouter",
+      "thinking_params": {
+        "extra_body": {
+          "enable_thinking": true
+        }
       }
     },
     "qwen3-next-free": {
       "provider": "litellm",
       "name": "Qwen3 Next 235B (OpenRouter FREE)",
       "reasoning": true,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+      "input": [
+        "text"
+      ],
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0
+      },
       "contextWindow": 262000,
       "maxTokens": 8192,
       "tier": "free",
@@ -235,77 +162,27 @@
       "litellm": {
         "model": "openrouter/qwen/qwen3-next-80b-a3b-instruct:free",
         "api_key": "os.environ/OPEN_ROUTER_KEY"
-      }
-    },
-    "nemotron-nano-9b-v2-free": {
-      "enabled": false,
-      "provider": "litellm",
-      "name": "Nemotron Nano 9B V2 (OpenRouter FREE)",
-      "reasoning": true,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-      "contextWindow": 128000,
-      "maxTokens": 8192,
-      "tier": "free",
-      "routeSkill": "litellm",
-      "litellm": {
-        "model": "openrouter/nvidia/nemotron-nano-9b-v2:free",
-        "api_key": "os.environ/OPEN_ROUTER_KEY"
-      }
-    },
-    "glm-free": {
-      "provider": "litellm",
-      "name": "GLM 4.5 Air (OpenRouter FREE)",
-      "reasoning": true,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-      "contextWindow": 131072,
-      "maxTokens": 8192,
-      "tier": "free",
-      "routeSkill": "litellm",
-      "litellm": {
-        "model": "openrouter/z-ai/glm-4.5-air:free",
-        "api_key": "os.environ/OPEN_ROUTER_KEY"
-      }
-    },
-    "deepseek-free": {
-      "provider": "litellm",
-      "name": "DeepSeek R1 (OpenRouter FREE)",
-      "reasoning": true,
-      "tool_calling": false,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-      "contextWindow": 164000,
-      "maxTokens": 8192,
-      "tier": "free",
-      "routeSkill": "litellm",
-      "litellm": {
-        "model": "openrouter/deepseek/deepseek-r1-0528:free",
-        "api_key": "os.environ/OPEN_ROUTER_KEY_DEEP"
-      }
-    },
-    "nemotron-free": {
-      "provider": "litellm",
-      "name": "Nemotron 30B (OpenRouter FREE)",
-      "reasoning": true,
-      "tool_calling": false,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-      "contextWindow": 256000,
-      "maxTokens": 8192,
-      "tier": "free",
-      "routeSkill": "litellm",
-      "litellm": {
-        "model": "openrouter/nvidia/nemotron-3-nano-30b-a3b:free",
-        "api_key": "os.environ/OPEN_ROUTER_KEY_DEEP"
+      },
+      "provider_label": "openrouter",
+      "thinking_params": {
+        "extra_body": {
+          "enable_thinking": true
+        }
       }
     },
     "gpt-oss-free": {
       "provider": "litellm",
       "name": "GPT-OSS 120B (OpenRouter FREE)",
       "reasoning": true,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+      "input": [
+        "text"
+      ],
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0
+      },
       "contextWindow": 131000,
       "maxTokens": 8192,
       "tier": "free",
@@ -313,77 +190,23 @@
       "litellm": {
         "model": "openrouter/openai/gpt-oss-120b:free",
         "api_key": "os.environ/OPEN_ROUTER_KEY"
-      }
-    },
-    "gpt-oss-small-free": {
-      "provider": "litellm",
-      "name": "GPT-OSS 20B (OpenRouter FREE)",
-      "reasoning": false,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-      "contextWindow": 131000,
-      "maxTokens": 8192,
-      "tier": "free",
-      "routeSkill": "litellm",
-      "litellm": {
-        "model": "openrouter/openai/gpt-oss-20b:free",
-        "api_key": "os.environ/OPEN_ROUTER_KEY"
-      }
-    },
-    "venice-dolphin-free": {
-      "enabled": false,
-      "provider": "litellm",
-      "name": "Venice Dolphin Mistral 24B (OpenRouter FREE)",
-      "reasoning": false,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-      "contextWindow": 32768,
-      "maxTokens": 8192,
-      "tier": "free",
-      "routeSkill": "litellm",
-      "litellm": {
-        "model": "openrouter/cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
-        "api_key": "os.environ/OPEN_ROUTER_KEY"
-      }
-    },
-    "gemma-3n-e2b-free": {
-      "enabled": false,
-      "provider": "litellm",
-      "name": "Gemma 3n E2B (OpenRouter FREE)",
-      "reasoning": false,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-      "contextWindow": 8192,
-      "maxTokens": 4096,
-      "tier": "free",
-      "routeSkill": "litellm",
-      "litellm": {
-        "model": "openrouter/google/gemma-3n-e2b-it:free",
-        "api_key": "os.environ/OPEN_ROUTER_KEY"
-      }
-    },
-    "gemma-3n-e4b-free": {
-      "enabled": false,
-      "provider": "litellm",
-      "name": "Gemma 3n E4B (OpenRouter FREE)",
-      "reasoning": false,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-      "contextWindow": 8192,
-      "maxTokens": 4096,
-      "tier": "free",
-      "routeSkill": "litellm",
-      "litellm": {
-        "model": "openrouter/google/gemma-3n-e4b-it:free",
-        "api_key": "os.environ/OPEN_ROUTER_KEY"
-      }
+      },
+      "provider_label": "openrouter",
+      "thinking_params": {}
     },
     "kimi": {
       "provider": "litellm",
       "name": "Kimi K2.5 (Moonshot Paid)",
       "reasoning": true,
-      "input": ["text"],
-      "cost": { "input": 0.56, "output": 2.94, "cacheRead": 0.098, "cacheWrite": 0 },
+      "input": [
+        "text"
+      ],
+      "cost": {
+        "input": 0.56,
+        "output": 2.94,
+        "cacheRead": 0.098,
+        "cacheWrite": 0
+      },
       "contextWindow": 256000,
       "maxTokens": 16384,
       "tier": "paid",
@@ -394,109 +217,114 @@
         "api_base": "https://api.moonshot.ai/v1",
         "temperature": 1
       },
-      "aliases": ["kimi-k2.5", "kimi-local"]
-    },
-    "kimi-k2-thinking": {
-      "provider": "litellm",
-      "name": "Kimi K2 Thinking (Moonshot Paid)",
-      "reasoning": true,
-      "input": ["text"],
-      "cost": { "input": 0.56, "output": 2.24, "cacheRead": 0.14, "cacheWrite": 0 },
-      "contextWindow": 256000,
-      "maxTokens": 16384,
-      "tier": "paid",
-      "routeSkill": "litellm",
-      "litellm": {
-        "model": "moonshot/kimi-k2-thinking",
-        "api_key": "os.environ/MOONSHOT_KIMI_KEY",
-        "api_base": "https://api.moonshot.ai/v1",
-        "temperature": 1
-      },
-      "aliases": ["kimi-k2-thinking-turbo"]
-    },
-    "qwen-cpu-fallback": {
-      "enabled": true,
-      "provider": "litellm",
-      "name": "Qwen 2.5 7B (Ollama CPU Fallback)",
-      "reasoning": false,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-      "contextWindow": 32768,
-      "maxTokens": 4096,
-      "tier": "local",
-      "routeSkill": "litellm",
-      "litellm": {
-        "model": "ollama/qwen2.5:7b",
-        "api_base": "http://host.docker.internal:11434"
-      }
-    },
-    "phi4-mini-local": {
-      "enabled": false,
-      "provider": "litellm",
-      "name": "Phi-4 Mini 3.8B (Ollama Local)",
-      "reasoning": false,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-      "contextWindow": 8192,
-      "maxTokens": 4096,
-      "tier": "local",
-      "routeSkill": "litellm",
-      "use_for": ["routing", "classification", "simple_qa"],
-      "litellm": {
-        "model": "ollama/phi4-mini:3.8b",
-        "api_base": "http://host.docker.internal:11434"
-      }
-    },
-    "qwen3-local": {
-      "provider": "litellm",
-      "name": "Qwen3 8B (Ollama Local)",
-      "reasoning": false,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-      "contextWindow": 32768,
-      "maxTokens": 4096,
-      "tier": "local",
-      "routeSkill": "litellm",
-      "use_for": ["general", "code", "analysis"],
-      "litellm": {
-        "model": "ollama/qwen3:8b",
-        "api_base": "http://host.docker.internal:11434"
-      }
+      "aliases": [
+        "kimi-k2.5",
+        "kimi-local"
+      ],
+      "provider_label": "moonshot",
+      "thinking_params": {}
     },
     "nomic-embed-text": {
       "provider": "litellm",
       "name": "Nomic Embed Text (Ollama Local)",
       "type": "embedding",
       "reasoning": false,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+      "input": [
+        "text"
+      ],
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0
+      },
       "dimensions": 768,
       "contextWindow": 8192,
       "maxTokens": 0,
       "tier": "local",
       "routeSkill": "litellm",
       "purpose": "semantic memory search",
-      "use_for": ["embedding"],
+      "use_for": [
+        "embedding"
+      ],
       "litellm": {
         "model": "ollama/nomic-embed-text",
         "api_base": "http://host.docker.internal:11434"
-      }
+      },
+      "provider_label": "local/ollama",
+      "thinking_params": {}
     }
   },
   "criteria": {
-    "priority": ["kimi", "step-35-flash-free", "qwen3-next-free", "deepseek-free", "gpt-oss-free", "trinity-free", "chimera-free"],
+    "priority": [
+      "kimi",
+      "step-35-flash-free",
+      "qwen3-next-free",
+      "deepseek-free",
+      "gpt-oss-free",
+      "trinity-free",
+      "chimera-free"
+    ],
     "tiers": {
-      "local": ["qwen3-mlx", "qwen-cpu-fallback", "phi4-mini-local", "qwen3-local", "nomic-embed-text"],
-      "free": ["step-35-flash-free", "trinity-free", "solar-pro-3-free", "lfm-25-thinking-free", "lfm-25-instruct-free", "nemotron-free", "trinity-mini-free", "tng-r1t-chimera-free", "nemotron-nano-12b-v2-vl-free", "qwen3-next-free", "nemotron-nano-9b-v2-free", "gpt-oss-free", "gpt-oss-small-free", "glm-free", "qwen3-coder-free", "venice-dolphin-free", "gemma-3n-e2b-free", "chimera-free", "deepseek-free", "gemma-3n-e4b-free"],
-      "paid": ["kimi", "kimi-k2-thinking"]
+      "local": [
+        "qwen3-mlx",
+        "qwen-cpu-fallback",
+        "phi4-mini-local",
+        "qwen3-local",
+        "nomic-embed-text"
+      ],
+      "free": [
+        "step-35-flash-free",
+        "trinity-free",
+        "solar-pro-3-free",
+        "lfm-25-thinking-free",
+        "lfm-25-instruct-free",
+        "nemotron-free",
+        "trinity-mini-free",
+        "tng-r1t-chimera-free",
+        "nemotron-nano-12b-v2-vl-free",
+        "qwen3-next-free",
+        "nemotron-nano-9b-v2-free",
+        "gpt-oss-free",
+        "gpt-oss-small-free",
+        "glm-free",
+        "qwen3-coder-free",
+        "venice-dolphin-free",
+        "gemma-3n-e2b-free",
+        "chimera-free",
+        "deepseek-free",
+        "gemma-3n-e4b-free"
+      ],
+      "paid": [
+        "kimi",
+        "kimi-k2-thinking"
+      ]
     },
     "use_cases": {
-      "code_generation": ["qwen3-coder-free", "gpt-oss-free"],
-      "complex_reasoning": ["chimera-free", "deepseek-free", "kimi-k2-thinking"],
-      "creative_writing": ["trinity-free"],
-      "long_context": ["qwen3-next-free", "nemotron-free", "kimi"],
-      "fast_simple": ["gpt-oss-small-free", "kimi"],
-      "default": ["step-35-flash-free"]
+      "code_generation": [
+        "qwen3-coder-free",
+        "gpt-oss-free"
+      ],
+      "complex_reasoning": [
+        "chimera-free",
+        "deepseek-free",
+        "kimi-k2-thinking"
+      ],
+      "creative_writing": [
+        "trinity-free"
+      ],
+      "long_context": [
+        "qwen3-next-free",
+        "nemotron-free",
+        "kimi"
+      ],
+      "fast_simple": [
+        "gpt-oss-small-free",
+        "kimi"
+      ],
+      "default": [
+        "step-35-flash-free"
+      ]
     },
     "focus_defaults": {
       "orchestrator": "step-35-flash-free",
@@ -509,11 +337,35 @@
     }
   },
   "profiles": {
-    "routing":  { "model": "step-35-flash-free", "temperature": 0.3, "max_tokens": 512 },
-    "analysis": { "model": "step-35-flash-free", "temperature": 0.7, "max_tokens": 4096 },
-    "creative": { "model": "trinity-free",     "temperature": 0.9, "max_tokens": 2048 },
-    "code":     { "model": "qwen3-coder-free", "temperature": 0.2, "max_tokens": 8192 },
-    "social":     { "model": "trinity-free",     "temperature": 0.8, "max_tokens": 1024 },
-    "sentiment":  { "model": "qwen3-mlx", "temperature": 0.2, "max_tokens": 256 }
+    "routing": {
+      "model": "step-35-flash-free",
+      "temperature": 0.3,
+      "max_tokens": 512
+    },
+    "analysis": {
+      "model": "step-35-flash-free",
+      "temperature": 0.7,
+      "max_tokens": 4096
+    },
+    "creative": {
+      "model": "trinity-free",
+      "temperature": 0.9,
+      "max_tokens": 2048
+    },
+    "code": {
+      "model": "qwen3-coder-free",
+      "temperature": 0.2,
+      "max_tokens": 8192
+    },
+    "social": {
+      "model": "trinity-free",
+      "temperature": 0.8,
+      "max_tokens": 1024
+    },
+    "sentiment": {
+      "model": "qwen3-mlx",
+      "temperature": 0.2,
+      "max_tokens": 256
+    }
   }
 }

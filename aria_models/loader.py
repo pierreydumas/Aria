@@ -142,6 +142,78 @@ def get_focus_default(focus_type: str, catalog: dict[str, Any] | None = None) ->
     return focus_defaults.get(focus_type)
 
 
+# ---------------------------------------------------------------------------
+# Task-based resolvers (schema v4) — purpose→model lookups from tasks section
+# ---------------------------------------------------------------------------
+
+def get_task_model(task: str, catalog: dict[str, Any] | None = None) -> str:
+    """Return the model key assigned to a task/purpose in models.yaml.
+
+    Reads ``tasks.<task>`` from models.yaml.  Returns empty string if not found.
+    This is the PRIMARY resolver — all external code should call this
+    or one of its shortcuts (get_primary_model, get_embedding_model, etc.).
+    """
+    catalog = catalog or load_catalog()
+    tasks = catalog.get("tasks", {}) if catalog else {}
+    return tasks.get(task, "")
+
+
+def get_primary_model(catalog: dict[str, Any] | None = None) -> str:
+    """Return the primary model key (bare name, e.g. 'kimi')."""
+    return get_task_model("primary", catalog)
+
+
+def get_primary_model_full(catalog: dict[str, Any] | None = None) -> str:
+    """Return the primary model with litellm/ prefix (e.g. 'litellm/kimi')."""
+    return get_task_model("primary_full", catalog)
+
+
+def get_embedding_model(catalog: dict[str, Any] | None = None) -> str:
+    """Return the embedding model key (e.g. 'nomic-embed-text')."""
+    return get_task_model("embedding", catalog)
+
+
+def get_fallback_chain(catalog: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """Build structured fallback chain from routing.fallbacks + model tiers.
+
+    Returns list of {"model": "litellm/X", "tier": "free", "priority": 1}.
+    No hardcoded models — entirely from models.yaml.
+    """
+    catalog = catalog or load_catalog()
+    routing = catalog.get("routing", {}) if catalog else {}
+    models_def = catalog.get("models", {}) if catalog else {}
+    chain: list[dict[str, Any]] = []
+    for i, model_id in enumerate(routing.get("fallbacks", [])):
+        bare = normalize_model_id(model_id)
+        tier = models_def.get(bare, {}).get("tier", "unknown")
+        chain.append({"model": model_id, "tier": tier, "priority": i + 1})
+    return chain
+
+
+def get_provider_label(model_id: str, catalog: dict[str, Any] | None = None) -> str:
+    """Return the provider_label for a model (e.g. 'moonshot', 'openrouter').
+
+    Reads ``models.<id>.provider_label`` from models.yaml.
+    Returns 'unknown' if not found.
+    """
+    entry = get_model_entry(model_id, catalog)
+    if not entry:
+        return "unknown"
+    return entry.get("provider_label", entry.get("provider", "unknown"))
+
+
+def get_thinking_config(model_id: str, catalog: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Return thinking/reasoning extra params for a model.
+
+    Reads ``models.<id>.thinking_params`` from models.yaml.
+    Returns empty dict if model doesn't support thinking mode.
+    """
+    entry = get_model_entry(model_id, catalog)
+    if not entry:
+        return {}
+    return entry.get("thinking_params", {})
+
+
 def build_litellm_models(catalog: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     catalog = catalog or load_catalog()
     models = catalog.get("models", {}) if catalog else {}

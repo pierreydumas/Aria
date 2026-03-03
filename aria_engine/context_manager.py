@@ -81,7 +81,7 @@ class ContextManager:
         self,
         all_messages: list[dict[str, Any]],
         max_tokens: int = 8192,
-        model: str = "gpt-4",
+        model: str = "",
         reserve_tokens: int = 1024,
     ) -> list[dict[str, Any]]:
         """
@@ -174,7 +174,7 @@ class ContextManager:
         session_id,
         system_prompt: str | None = None,
         max_tokens: int = 8192,
-        model: str = "gpt-4",
+        model: str = "",
         reserve_tokens: int = 1024,
         max_messages: int = 200,
     ) -> list[dict[str, Any]]:
@@ -300,7 +300,7 @@ class ContextManager:
         return False
 
     def estimate_tokens(
-        self, messages: list[dict[str, Any]], model: str = "gpt-4"
+        self, messages: list[dict[str, Any]], model: str = ""
     ) -> int:
         """
         Estimate total tokens for a list of messages.
@@ -310,7 +310,7 @@ class ContextManager:
         return sum(self._count_tokens(m, model) for m in messages)
 
     def get_window_stats(
-        self, all_messages: list[dict[str, Any]], model: str = "gpt-4"
+        self, all_messages: list[dict[str, Any]], model: str = ""
     ) -> dict[str, Any]:
         """
         Get statistics about the context window.

@@ -21,20 +21,19 @@
             "type": "string",
             "description": "Review period (daily, weekly, monthly)"
           },
-          "score": {
-            "type": "number",
-            "description": "Performance score (0-100)"
-          },
-          "summary": {
-            "type": "string",
-            "description": "Summary of performance"
-          },
-          "strengths": {
+          "successes": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "description": "List of strengths identified"
+            "description": "List of successes"
+          },
+          "failures": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of failures"
           },
           "improvements": {
             "type": "array",
@@ -42,15 +41,13 @@
               "type": "string"
             },
             "description": "Areas for improvement"
-          },
-          "metadata": {
-            "type": "object",
-            "description": "Additional metadata"
           }
         },
         "required": [
           "period",
-          "summary"
+          "successes",
+          "failures",
+          "improvements"
         ]
       }
     },
@@ -60,13 +57,9 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "period": {
-            "type": "string",
-            "description": "Filter by period type"
-          },
           "limit": {
             "type": "integer",
-            "description": "Maximum entries to return (default: 20)"
+            "description": "Maximum entries to return (default: 10)"
           }
         }
       }
@@ -76,12 +69,7 @@
       "description": "Get performance statistics, trends, and improvement summary.",
       "parameters": {
         "type": "object",
-        "properties": {
-          "days": {
-            "type": "integer",
-            "description": "Number of days to analyze (default: 30)"
-          }
-        }
+        "properties": {}
       }
     },
     {

@@ -24,14 +24,10 @@ from aria_skills.registry import SkillRegistry
 
 # Load default compression model from models.yaml (single source of truth)
 try:
-    from aria_models.loader import load_catalog as _load_catalog
-    _cat = _load_catalog()
-    _routing = _cat.get("routing", {})
-    _primary = _routing.get("primary", "litellm/kimi")
-    # Strip "litellm/" prefix to get the bare model name for LiteLLM API
-    _DEFAULT_COMPRESSION_MODEL = _primary.removeprefix("litellm/")
+    from aria_models.loader import get_primary_model as _get_primary
+    _DEFAULT_COMPRESSION_MODEL = _get_primary()
 except Exception:
-    _DEFAULT_COMPRESSION_MODEL = "kimi"
+    _DEFAULT_COMPRESSION_MODEL = ""
 
 
 # ═══════════════════════════════════════════════════════════════════

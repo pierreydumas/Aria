@@ -17,12 +17,10 @@ except ImportError:
 
 # Load default Ollama model name from models.yaml (single source of truth)
 try:
-    from aria_models.loader import load_catalog as _load_catalog
-    _cat = _load_catalog()
-    _ollama_model = _cat.get("models", {}).get("qwen-cpu-fallback", {}).get("litellm", {}).get("model", "")
-    _DEFAULT_OLLAMA_MODEL = _ollama_model.removeprefix("ollama/") or "qwen2.5:3b"
+    from aria_models.loader import get_task_model
+    _DEFAULT_OLLAMA_MODEL = get_task_model("ollama_default")
 except Exception:
-    _DEFAULT_OLLAMA_MODEL = "qwen2.5:3b"
+    _DEFAULT_OLLAMA_MODEL = ""
 
 
 @SkillRegistry.register

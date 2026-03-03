@@ -33,11 +33,18 @@ FORBIDDEN = [
     re.compile(r"^\s*(import|from)\s+sqlalchemy\b"),
 ]
 
-HARDCODED_MODELS = [
-    "moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k",
-    "gpt-4", "gpt-3.5-turbo", "claude-3", "claude-2",
-    "deepseek-chat", "deepseek-coder",
-]
+HARDCODED_MODELS: list[str] = []
+try:
+    import pathlib as _pl
+    sys.path.insert(0, str(_pl.Path(__file__).resolve().parent.parent))
+    from aria_models.loader import list_all_model_ids
+    HARDCODED_MODELS = list_all_model_ids()
+except Exception:
+    HARDCODED_MODELS = [
+        "moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k",
+        "gpt-4", "gpt-3.5-turbo", "claude-3", "claude-2",
+        "deepseek-chat", "deepseek-coder",
+    ]
 
 SECRET_PATTERNS = [
     (r'["\']sk-[a-zA-Z0-9]{20,}["\']', "OpenAI API key"),

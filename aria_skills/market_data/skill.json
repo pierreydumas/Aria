@@ -13,17 +13,21 @@
   "tools": [
     {
       "name": "get_price",
-      "description": "Get current price for a trading pair.",
+      "description": "Get current price for a cryptocurrency.",
       "parameters": {
         "type": "object",
         "properties": {
-          "symbol": {
+          "coin_id": {
             "type": "string",
-            "description": "The trading pair symbol (e.g., BTC/USDT)"
+            "description": "The coin identifier (e.g., bitcoin, ethereum)"
+          },
+          "vs_currencies": {
+            "type": "string",
+            "description": "Currency to quote against (default: usd)"
           }
         },
         "required": [
-          "symbol"
+          "coin_id"
         ]
       }
     },

@@ -218,3 +218,9 @@ class FocusSkill(BaseSkill):
                 "status":     agent.get("status"),
             },
         )
+
+    # ── Public aliases (so schema audit finds handlers by tool name) ─────────
+    focus__list     = _list
+    focus__get      = _get
+    focus__activate = _activate
+    focus__status   = _status_check

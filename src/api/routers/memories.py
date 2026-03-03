@@ -21,6 +21,14 @@ from deps import get_db
 from pagination import paginate_query, build_paginated_response
 from schemas.requests import CreateMemory, CreateSemanticMemory, SearchByVector, SummarizeSession, UpdateMemory
 
+try:
+    from aria_models.loader import get_embedding_model as _get_embedding_model, get_primary_model as _get_primary_model
+except ImportError:
+    def _get_embedding_model() -> str:
+        return ""
+    def _get_primary_model() -> str:
+        return ""
+
 # LiteLLM connection for embeddings
 LITELLM_URL = os.environ.get("LITELLM_URL", "http://litellm:4000")
 LITELLM_KEY = os.environ.get("LITELLM_MASTER_KEY", "")
@@ -206,7 +214,7 @@ async def generate_embedding(text: str) -> list[float]:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
                 f"{LITELLM_URL}/v1/embeddings",
-                json={"model": "nomic-embed-text", "input": text},
+                json={"model": _get_embedding_model(), "input": text},
                 headers={"Authorization": f"Bearer {LITELLM_KEY}"},
                 timeout=httpx.Timeout(EMBED_REMOTE_TIMEOUT_SECONDS),
             )
@@ -460,7 +468,7 @@ async def summarize_session(
             resp = await client.post(
                 f"{LITELLM_URL}/v1/chat/completions",
                 json={
-                    "model": "kimi",
+                    "model": _get_primary_model(),
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": 500,
                     "temperature": 0.3,

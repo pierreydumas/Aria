@@ -12,34 +12,27 @@ from typing import Any
 from aria_skills.base import BaseSkill, SkillConfig, SkillResult, SkillStatus, logged_method
 from aria_skills.registry import SkillRegistry
 
+try:
+    from aria_models.loader import get_primary_model as _get_primary_model
+except ImportError:
+    def _get_primary_model() -> str:
+        return ""
+
 
 def build_thinking_params(model: str, enable: bool = True) -> dict[str, Any]:
-    """Build model-specific parameters for enabling thinking mode."""
-    params: dict[str, Any] = {}
+    """Build model-specific parameters for enabling thinking mode.
 
+    Reads thinking_params from models.yaml via get_thinking_config().
+    No hardcoded model family checks — YAML is the source of truth.
+    """
     if not enable:
-        return params
+        return {}
 
-    model_lower = model.lower()
-
-    # Qwen3 models
-    if "qwen" in model_lower:
-        params["extra_body"] = {"enable_thinking": True}
-
-    # DeepSeek models
-    elif "deepseek" in model_lower:
-        params["extra_body"] = {"enable_thinking": True}
-
-    # Claude models (extended thinking)
-    elif "claude" in model_lower:
-        params["extra_body"] = {
-            "thinking": {
-                "type": "enabled",
-                "budget_tokens": 4096,
-            }
-        }
-
-    return params
+    try:
+        from aria_models.loader import get_thinking_config
+        return get_thinking_config(model)
+    except ImportError:
+        return {}
 
 
 @SkillRegistry.register
@@ -54,7 +47,7 @@ class ModelSwitcherSkill(BaseSkill):
     def __init__(self, config: SkillConfig | None = None):
         super().__init__(config or SkillConfig(name="model_switcher"))
         self._api = None
-        self._current_model: str = "kimi"
+        self._current_model: str = _get_primary_model()
         self._thinking_enabled: bool = False
         self._switch_history: list[dict] = []
 
@@ -72,13 +65,10 @@ class ModelSwitcherSkill(BaseSkill):
 
         # Try to load current model from models.yaml routing config
         try:
-            from aria_models.loader import load_catalog
-            catalog = load_catalog()
-            routing = catalog.get("routing", {})
-            primary = routing.get("primary", "litellm/kimi")
-            self._current_model = primary.split("/")[-1] if "/" in primary else primary
+            from aria_models.loader import get_primary_model
+            self._current_model = get_primary_model()
         except Exception:
-            self._current_model = "kimi"
+            self._current_model = ""
 
         self._status = SkillStatus.AVAILABLE
         self.logger.info(f"Model switcher initialized (current: {self._current_model})")
