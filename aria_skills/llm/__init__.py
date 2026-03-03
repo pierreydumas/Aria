@@ -281,7 +281,7 @@ class LLMSkill(BaseSkill):
                 )
         return await self.complete_with_fallback(messages, **kwargs)
 
-    def get_circuit_status(self) -> SkillResult:
+    async def get_circuit_status(self) -> SkillResult:
         """Return circuit breaker state for all models."""
         now = time.monotonic()
         status = {}

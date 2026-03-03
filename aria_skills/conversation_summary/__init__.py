@@ -103,15 +103,14 @@ class ConversationSummarySkill(BaseSkill):
             result = await self._api.summarize_session(hours_back=hours_back)
             return SkillResult(
                 success=True,
-                data=result,
-                message=f"Session summarized ({hours_back}h window)",
+                data={"result": result, "info": f"Session summarized ({hours_back}h window)"},
             )
         except Exception as exc:
             self.logger.error("Session summarization failed: %s", exc)
             return SkillResult(
                 success=False,
                 data={"error": str(exc)},
-                message=f"Summarization failed: {exc}",
+                error=f"Summarization failed: {exc}",
             )
 
     @logged_method()
@@ -133,13 +132,22 @@ class ConversationSummarySkill(BaseSkill):
                 query=topic,
                 limit=max_memories,
             )
-            memories = search_results if isinstance(search_results, list) else search_results.get("items", [])
+            # Handle both raw dict and SkillResult from api_client
+            if hasattr(search_results, 'data'):
+                raw = search_results.data
+            else:
+                raw = search_results
+            if isinstance(raw, list):
+                memories = raw
+            elif isinstance(raw, dict):
+                memories = raw.get("memories", raw.get("items", []))
+            else:
+                memories = []
 
             if not memories:
                 return SkillResult(
                     success=True,
-                    data={"summary": "No relevant memories found.", "key_facts": [], "open_questions": []},
-                    message=f"No memories found for topic: {topic}",
+                    data={"summary": "No relevant memories found.", "key_facts": [], "open_questions": [], "info": f"No memories found for topic: {topic}"},
                 )
 
             # Format memories for the prompt
@@ -161,7 +169,7 @@ class ConversationSummarySkill(BaseSkill):
                 max_tokens=800,
             )
             if not llm_result.success:
-                raise Exception(llm_result.message)
+                raise Exception(llm_result.error or "LLM call failed")
             llm_data = llm_result.data
 
             raw_text = llm_data["choices"][0]["message"]["content"]
@@ -178,7 +186,6 @@ class ConversationSummarySkill(BaseSkill):
             return SkillResult(
                 success=True,
                 data=parsed,
-                message=f"Synthesized {len(memories)} memories about '{topic}'",
             )
 
         except Exception as exc:
@@ -186,5 +193,5 @@ class ConversationSummarySkill(BaseSkill):
             return SkillResult(
                 success=False,
                 data={"error": str(exc)},
-                message=f"Topic summarization failed: {exc}",
+                error=f"Topic summarization failed: {exc}",
             )

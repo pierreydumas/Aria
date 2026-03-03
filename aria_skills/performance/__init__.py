@@ -131,3 +131,8 @@ class PerformanceSkill(BaseSkill):
             "top_improvements": sorted_improvements[:10],
             "total_reviews": len(logs),
         })
+    
+    @logged_method()
+    async def get_metrics(self, **kwargs) -> SkillResult:
+        """Get skill usage metrics as a SkillResult (async-safe override)."""
+        return SkillResult.ok(super().get_metrics(**kwargs))
