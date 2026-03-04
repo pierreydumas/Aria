@@ -21,8 +21,16 @@
             "type": "string",
             "enum": [
               "active",
+              "in_progress",
               "completed",
               "paused",
+              "on_hold",
+              "backlog",
+              "todo",
+              "doing",
+              "done",
+              "archived",
+              "archive",
               "all"
             ],
             "description": "Filter by goal status (default: active)"

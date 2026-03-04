@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine, async_sessi
 
 from aria_engine.config import EngineConfig
 from aria_engine.exceptions import SchedulerError
+from aria_engine.metrics import METRICS
 from db.models import EngineCronJob, ActivityLog
 
 # aria-api base URL (inside Docker network) — dynamic port via env var
@@ -534,13 +535,26 @@ class EngineScheduler:
                     async with http.delete(
                         f"{_API_BASE}/api/engine/chat/sessions/{session_id}",
                         headers=_headers,
-                    ):
-                        pass
+                    ) as cleanup_resp:
+                        if cleanup_resp.status >= 400:
+                            cleanup_body = await cleanup_resp.text()
+                            METRICS.scheduler_session_close_failures_total.labels(
+                                job_id=job_id,
+                                phase="cleanup",
+                            ).inc()
+                            logger.warning(
+                                "Job %s: cleanup session %s returned HTTP %s: %s",
+                                job_id, session_id, cleanup_resp.status, cleanup_body,
+                            )
                     logger.info(
                         "Job %s: cleaned up empty session %s after failure",
                         job_id, session_id,
                     )
                 except Exception as cleanup_err:
+                    METRICS.scheduler_session_close_failures_total.labels(
+                        job_id=job_id,
+                        phase="cleanup",
+                    ).inc()
                     logger.warning(
                         "Job %s: failed to cleanup session %s: %s",
                         job_id, session_id, cleanup_err,
@@ -559,8 +573,20 @@ class EngineScheduler:
             async with http.delete(
                 f"{_API_BASE}/api/engine/chat/sessions/{session_id}",
                 headers=_headers,
-            ):
-                pass
+            ) as close_resp:
+                if close_resp.status >= 400:
+                    close_body = await close_resp.text()
+                    METRICS.scheduler_session_close_failures_total.labels(
+                        job_id=job_id,
+                        phase="close",
+                    ).inc()
+                    logger.warning(
+                        "Job %s: failed to close session %s: HTTP %s — %s",
+                        job_id,
+                        session_id,
+                        close_resp.status,
+                        close_body,
+                    )
 
             return result
 

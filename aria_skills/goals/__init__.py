@@ -226,6 +226,28 @@ class GoalSchedulerSkill(BaseSkill):
         Returns:
             SkillResult with goal list
         """
+        normalized_status = (status or "").strip().lower() or None
+        board_column_statuses = {"backlog", "todo", "doing", "on_hold", "done"}
+
+        def _normalize_goal_list(payload: Any) -> list[dict[str, Any]]:
+            if isinstance(payload, list):
+                return [g for g in payload if isinstance(g, dict)]
+            if isinstance(payload, dict):
+                if isinstance(payload.get("goals"), list):
+                    return [g for g in payload["goals"] if isinstance(g, dict)]
+                if isinstance(payload.get("items"), list):
+                    return [g for g in payload["items"] if isinstance(g, dict)]
+            return []
+
+        def _priority_value(goal: dict[str, Any]) -> int:
+            try:
+                return int(goal.get("priority", 3) or 3)
+            except Exception:
+                return 3
+
+        def _date_value(goal: dict[str, Any]) -> str:
+            return str(goal.get("updated_at") or goal.get("created_at") or "")
+
         try:
             params: dict[str, Any] = {"limit": limit}
             if status:
@@ -234,13 +256,75 @@ class GoalSchedulerSkill(BaseSkill):
                 params["priority"] = priority
             if tag:
                 params["tag"] = tag
+
             resp = await self._api.get("/goals", params=params)
             if not resp:
                 raise Exception(resp.error)
-            api_data = resp.data
-            if isinstance(api_data, list):
-                return SkillResult.ok({"goals": api_data, "total": len(api_data), "filters_applied": params})
-            return SkillResult.ok(api_data)
+
+            api_goals = _normalize_goal_list(resp.data)
+
+            board_columns: dict[str, list[dict[str, Any]]] = {}
+            archive_goals: list[dict[str, Any]] = []
+
+            board_resp = await self._api.get_goal_board("current")
+            if board_resp and board_resp.success and isinstance(board_resp.data, dict):
+                raw_columns = board_resp.data.get("columns") or {}
+                if isinstance(raw_columns, dict):
+                    for col in ("backlog", "todo", "doing", "on_hold", "done"):
+                        board_columns[col] = _normalize_goal_list(raw_columns.get(col))
+
+            archive_resp = await self._api.get_goal_archive(page=1, limit=max(limit, 100))
+            if archive_resp and archive_resp.success:
+                archive_goals = _normalize_goal_list(archive_resp.data)
+
+            goals: list[dict[str, Any]]
+            if normalized_status in board_column_statuses and board_columns:
+                goals = list(board_columns.get(normalized_status or "", []))
+            elif normalized_status in {"archived", "archive"}:
+                goals = list(archive_goals)
+            elif normalized_status in {"active", "in_progress"} and board_columns:
+                goals = [
+                    *board_columns.get("backlog", []),
+                    *board_columns.get("todo", []),
+                    *board_columns.get("doing", []),
+                    *board_columns.get("on_hold", []),
+                ]
+            elif normalized_status == "all" and board_columns:
+                goals = [
+                    *board_columns.get("backlog", []),
+                    *board_columns.get("todo", []),
+                    *board_columns.get("doing", []),
+                    *board_columns.get("on_hold", []),
+                    *board_columns.get("done", []),
+                    *archive_goals,
+                ]
+            else:
+                goals = list(api_goals)
+
+            if priority is not None:
+                goals = [g for g in goals if _priority_value(g) == int(priority)]
+
+            if tag:
+                goals = [g for g in goals if tag in (g.get("tags") or [])]
+
+            goals.sort(key=lambda g: (_priority_value(g), _date_value(g)), reverse=False)
+            goals = goals[:limit]
+
+            board_counts = {
+                "backlog": len(board_columns.get("backlog", [])),
+                "todo": len(board_columns.get("todo", [])),
+                "doing": len(board_columns.get("doing", [])),
+                "on_hold": len(board_columns.get("on_hold", [])),
+                "done": len(board_columns.get("done", [])),
+                "archived": len(archive_goals),
+            }
+
+            return SkillResult.ok({
+                "goals": goals,
+                "total": len(goals),
+                "filters_applied": {"status": status, "priority": priority, "tag": tag, "limit": limit},
+                "board_counts": board_counts,
+            })
         except Exception as e:
             self.logger.warning(f"API list_goals failed, using fallback: {e}")
             goals = list(self._goals.values())
@@ -350,6 +434,26 @@ class GoalSchedulerSkill(BaseSkill):
                 raise Exception(result.error)
             api_data = result.data
             goals = api_data if isinstance(api_data, list) else api_data.get("goals", [])
+
+            board_counts = {
+                "backlog": 0,
+                "todo": 0,
+                "doing": 0,
+                "on_hold": 0,
+                "done": 0,
+                "archived": 0,
+            }
+            board_resp = await self._api.get_goal_board("current")
+            if board_resp and board_resp.success and isinstance(board_resp.data, dict):
+                cols = board_resp.data.get("columns") or {}
+                if isinstance(cols, dict):
+                    for col in ("backlog", "todo", "doing", "on_hold", "done"):
+                        values = cols.get(col)
+                        board_counts[col] = len(values) if isinstance(values, list) else 0
+            archive_resp = await self._api.get_goal_archive(page=1, limit=1)
+            if archive_resp and archive_resp.success and isinstance(archive_resp.data, dict):
+                board_counts["archived"] = int(archive_resp.data.get("total") or 0)
+
             return SkillResult.ok({
                 "total": len(goals),
                 "by_status": {
@@ -358,6 +462,7 @@ class GoalSchedulerSkill(BaseSkill):
                     "paused": sum(1 for g in goals if g.get("status") == "paused"),
                     "cancelled": sum(1 for g in goals if g.get("status") == "cancelled"),
                 },
+                "by_board_column": board_counts,
                 "by_priority": {
                     p: sum(1 for g in goals if g.get("priority") == p) for p in range(1, 6)
                 },

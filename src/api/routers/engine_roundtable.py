@@ -861,12 +861,14 @@ async def start_swarm_async(
         f"swarm:{body.topic}:{','.join(body.agent_ids)}".encode()
     ).hexdigest()[:16]
 
+    _swarm_running[key] = {
+        "status": "running",
+        "topic": body.topic,
+        "participants": body.agent_ids,
+    }
+
     async def _run():
         try:
-            _swarm_running[key] = {
-                "status": "running", "topic": body.topic,
-                "participants": body.agent_ids,
-            }
             result = await swarm.execute(
                 topic=body.topic, agent_ids=body.agent_ids,
                 max_iterations=body.max_iterations,

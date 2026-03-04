@@ -221,6 +221,13 @@ class AriaMetrics:
             registry=reg,
         )
 
+        self.scheduler_session_close_failures_total = Counter(
+            "aria_scheduler_session_close_failures_total",
+            "Total scheduler session close/cleanup failures",
+            ["job_id", "phase"],
+            registry=reg,
+        )
+
         # -- Skill metrics --
         self.skill_execution_total = Counter(
             "aria_skill_executions_total",

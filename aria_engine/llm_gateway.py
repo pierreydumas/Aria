@@ -168,6 +168,36 @@ class LLMGateway:
         """Check if circuit breaker is open."""
         return self._cb.is_open()
 
+    @staticmethod
+    def _normalize_messages_for_provider(
+        messages: list[dict[str, Any]],
+        *,
+        enable_thinking: bool,
+    ) -> list[dict[str, Any]]:
+        """Normalize outbound messages for provider compatibility.
+
+        Moonshot/Kimi rejects assistant tool-call messages when thinking mode is
+        enabled and ``reasoning_content`` is absent. We defensively ensure that
+        field exists for every assistant tool-call message.
+        """
+        normalized: list[dict[str, Any]] = []
+        for message in messages:
+            if not isinstance(message, dict):
+                normalized.append(message)
+                continue
+
+            entry: dict[str, Any] = dict(message)
+            if entry.get("role") == "assistant" and entry.get("tool_calls"):
+                entry.setdefault("content", "")
+                # Kimi/Moonshot requires reasoning_content on assistant
+                # tool-call messages when thinking is enabled.
+                if enable_thinking and "reasoning_content" not in entry:
+                    entry["reasoning_content"] = entry.get("thinking") or ""
+
+            normalized.append(entry)
+
+        return normalized
+
     def estimate_tokens_for_messages(
         self,
         *,
@@ -237,9 +267,14 @@ class LLMGateway:
         for idx, candidate in enumerate(candidates):
             resolved_model, model_extra = self._resolve_model(candidate)
 
+            provider_messages = self._normalize_messages_for_provider(
+                messages,
+                enable_thinking=enable_thinking,
+            )
+
             kwargs: dict[str, Any] = {
                 "model": resolved_model,
-                "messages": messages,
+                "messages": provider_messages,
                 "temperature": temperature or self.config.default_temperature,
                 "max_tokens": max_tokens or self.config.default_max_tokens,
                 "drop_params": True,  # let litellm drop unsupported params per provider
@@ -358,9 +393,14 @@ class LLMGateway:
         for idx, candidate in enumerate(candidates):
             resolved_model, model_extra = self._resolve_model(candidate)
 
+            provider_messages = self._normalize_messages_for_provider(
+                messages,
+                enable_thinking=enable_thinking,
+            )
+
             kwargs: dict[str, Any] = {
                 "model": resolved_model,
-                "messages": messages,
+                "messages": provider_messages,
                 "temperature": temperature or self.config.default_temperature,
                 "max_tokens": max_tokens or self.config.default_max_tokens,
                 "stream": True,

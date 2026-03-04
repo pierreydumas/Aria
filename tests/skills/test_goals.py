@@ -236,6 +236,62 @@ async def test_list_goals_with_filters(mock_api):
     assert result.success
 
 
+@pytest.mark.asyncio
+async def test_list_goals_board_column_status(mock_api):
+    skill = _make_skill()
+    skill._api = mock_api
+    skill._status = SkillStatus.AVAILABLE
+
+    mock_api.get = AsyncMock(return_value=SkillResult.ok({"items": []}))
+    mock_api.get_goal_board = AsyncMock(return_value=SkillResult.ok({
+        "columns": {
+            "backlog": [{"id": "g1", "board_column": "backlog", "priority": 2}],
+            "todo": [{"id": "g2", "board_column": "todo", "priority": 1}],
+            "doing": [{"id": "g3", "board_column": "doing", "priority": 3}],
+            "on_hold": [],
+            "done": [{"id": "g4", "board_column": "done", "priority": 4}],
+        }
+    }))
+    mock_api.get_goal_archive = AsyncMock(return_value=SkillResult.ok({"items": [], "total": 0}))
+
+    result = await skill.list_goals(status="doing", limit=10)
+    assert result.success
+    assert result.data["total"] == 1
+    assert result.data["goals"][0]["id"] == "g3"
+    assert result.data["board_counts"]["backlog"] == 1
+
+
+@pytest.mark.asyncio
+async def test_get_summary_includes_board_column_counts(mock_api):
+    skill = _make_skill()
+    skill._api = mock_api
+    skill._status = SkillStatus.AVAILABLE
+
+    mock_api.get = AsyncMock(return_value=SkillResult.ok({
+        "goals": [
+            {"id": "g1", "status": "active", "priority": 1},
+            {"id": "g2", "status": "completed", "priority": 2},
+        ]
+    }))
+    mock_api.get_goal_board = AsyncMock(return_value=SkillResult.ok({
+        "columns": {
+            "backlog": [{"id": "g1"}],
+            "todo": [{"id": "g2"}],
+            "doing": [],
+            "on_hold": [],
+            "done": [{"id": "g3"}],
+        }
+    }))
+    mock_api.get_goal_archive = AsyncMock(return_value=SkillResult.ok({"total": 7, "items": []}))
+
+    result = await skill.get_summary()
+    assert result.success
+    assert result.data["by_board_column"]["backlog"] == 1
+    assert result.data["by_board_column"]["todo"] == 1
+    assert result.data["by_board_column"]["done"] == 1
+    assert result.data["by_board_column"]["archived"] == 7
+
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------

@@ -17,7 +17,9 @@ The browser URL is resolved from env:
 import base64
 import os
 import logging
+import re
 from typing import Any
+from urllib.parse import urlparse
 
 from aria_skills.base import BaseSkill, SkillConfig, SkillResult, SkillStatus, logged_method
 from aria_skills.registry import SkillRegistry
@@ -55,6 +57,67 @@ class BrowserSkill(BaseSkill):
     @property
     def canonical_name(self) -> str:
         return "aria-browser"
+
+    def _build_goto_options(self, url: str, timeout: int = 30000) -> dict[str, Any]:
+        """Build browserless goto options resilient to consent/long-poll pages."""
+        normalized = (url or "").lower()
+
+        # Consent/interstitial pages (Google, some news sites) often never reach
+        # network idle due to ongoing scripts/polling; use DOM ready instead.
+        if "google." in normalized or "news.google." in normalized or "consent.google." in normalized:
+            return {"waitUntil": "domcontentloaded", "timeout": min(timeout, 20000)}
+
+        return {"waitUntil": "networkidle2", "timeout": timeout}
+
+    def _downgrade_https_url(self, url: str) -> str:
+        try:
+            parsed = urlparse(url)
+            if parsed.scheme == "https" and parsed.hostname and parsed.hostname.startswith(("192.168.", "10.", "172.")):
+                return url.replace("https://", "http://", 1)
+        except Exception:
+            pass
+        return url
+
+    def _extract_from_html(self, html: str, selectors: list[str]) -> dict[str, list[dict[str, Any]]]:
+        out: dict[str, list[dict[str, Any]]] = {}
+        low_html = html or ""
+
+        for sel in selectors:
+            sel_low = (sel or "").lower().strip()
+            hits: list[dict[str, Any]] = []
+
+            if sel_low == "title":
+                m = re.search(r"<title[^>]*>(.*?)</title>", low_html, flags=re.IGNORECASE | re.DOTALL)
+                if m:
+                    hits.append({"text": re.sub(r"\s+", " ", m.group(1)).strip()})
+            elif sel_low in {"h1", "h2", "h3", "p"}:
+                for m in re.finditer(rf"<{sel_low}[^>]*>(.*?)</{sel_low}>", low_html, flags=re.IGNORECASE | re.DOTALL):
+                    txt = re.sub(r"<[^>]+>", "", m.group(1))
+                    txt = re.sub(r"\s+", " ", txt).strip()
+                    if txt:
+                        hits.append({"text": txt})
+                        if len(hits) >= 20:
+                            break
+            elif sel_low in {"a[href]", "a"}:
+                for m in re.finditer(r"<a\s+[^>]*href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>", low_html, flags=re.IGNORECASE | re.DOTALL):
+                    txt = re.sub(r"<[^>]+>", "", m.group(2))
+                    txt = re.sub(r"\s+", " ", txt).strip()
+                    hits.append({"text": txt, "attributes": {"href": m.group(1)}})
+                    if len(hits) >= 20:
+                        break
+            elif sel_low == ".column-title":
+                for m in re.finditer(r'<[^>]*class=[\"\'][^\"\']*column-title[^\"\']*[\"\'][^>]*>(.*?)</[^>]+>', low_html, flags=re.IGNORECASE | re.DOTALL):
+                    txt = re.sub(r"<[^>]+>", "", m.group(1))
+                    txt = re.sub(r"\s+", " ", txt).strip()
+                    if txt:
+                        hits.append({"text": txt})
+                        if len(hits) >= 20:
+                            break
+
+            if hits:
+                out[sel] = hits
+
+        return out
 
     # ── Lifecycle ───────────────────────────────────────────────────────
 
@@ -138,7 +201,7 @@ class BrowserSkill(BaseSkill):
         if wait_for:
             payload["waitForSelector"] = {"selector": wait_for, "timeout": timeout}
         else:
-            payload["gotoOptions"] = {"waitUntil": "networkidle2", "timeout": timeout}
+            payload["gotoOptions"] = self._build_goto_options(url, timeout)
 
         try:
             resp = await self._client.post("/content", json=payload)
@@ -188,12 +251,39 @@ class BrowserSkill(BaseSkill):
 
         elements = [{"selector": s} for s in selectors]
 
+        target_url = url
+
         try:
             resp = await self._client.post("/scrape", json={
-                "url": url,
+                "url": target_url,
                 "elements": elements,
-                "gotoOptions": {"waitUntil": "networkidle2", "timeout": 30000},
+                "gotoOptions": self._build_goto_options(target_url, 30000),
             })
+
+            if resp.status_code == 500 and "ERR_CERT_AUTHORITY_INVALID" in (resp.text or ""):
+                downgraded = self._downgrade_https_url(target_url)
+                if downgraded != target_url:
+                    target_url = downgraded
+                    resp = await self._client.post("/scrape", json={
+                        "url": target_url,
+                        "elements": elements,
+                        "gotoOptions": self._build_goto_options(target_url, 30000),
+                    })
+
+            if resp.status_code in (408,):
+                content_resp = await self._client.post("/content", json={
+                    "url": target_url,
+                    "gotoOptions": self._build_goto_options(target_url, 30000),
+                })
+                html = content_resp.text if content_resp.status_code == 200 else ""
+                fallback = self._extract_from_html(html, selectors)
+                total_items = sum(len(v) for v in fallback.values())
+                return SkillResult.ok({
+                    "url": target_url,
+                    "elements": fallback,
+                    "total_elements": total_items,
+                    "fallback": "content_extraction",
+                })
 
             if resp.status_code != 200:
                 return SkillResult.fail(
@@ -203,7 +293,7 @@ class BrowserSkill(BaseSkill):
             data = resp.json()
 
             # Build a structured summary
-            snapshot: dict[str, Any] = {"url": url, "elements": {}}
+            snapshot: dict[str, Any] = {"url": target_url, "elements": {}}
             for item in data.get("data", []):
                 sel = item.get("selector", "?")
                 results = item.get("results", [])
@@ -254,7 +344,7 @@ class BrowserSkill(BaseSkill):
                     "fullPage": full_page,
                     "type": "png",
                 },
-                "gotoOptions": {"waitUntil": "networkidle2", "timeout": 30000},
+                "gotoOptions": self._build_goto_options(url, 30000),
             }
 
             resp = await self._client.post("/screenshot", json=payload)
@@ -296,12 +386,43 @@ class BrowserSkill(BaseSkill):
         if not elements:
             return SkillResult.fail("No elements/selectors provided")
 
+        target_url = url
+
         try:
             resp = await self._client.post("/scrape", json={
-                "url": url,
+                "url": target_url,
                 "elements": elements,
-                "gotoOptions": {"waitUntil": "networkidle2", "timeout": 30000},
+                "gotoOptions": self._build_goto_options(target_url, 30000),
             })
+
+            if resp.status_code == 500 and "ERR_CERT_AUTHORITY_INVALID" in (resp.text or ""):
+                downgraded = self._downgrade_https_url(target_url)
+                if downgraded != target_url:
+                    target_url = downgraded
+                    resp = await self._client.post("/scrape", json={
+                        "url": target_url,
+                        "elements": elements,
+                        "gotoOptions": self._build_goto_options(target_url, 30000),
+                    })
+
+            if resp.status_code in (408,):
+                content_resp = await self._client.post("/content", json={
+                    "url": target_url,
+                    "gotoOptions": self._build_goto_options(target_url, 30000),
+                })
+                if content_resp.status_code != 200:
+                    return SkillResult.fail(
+                        f"Scrape timeout and content fallback failed: HTTP {content_resp.status_code}"
+                    )
+                selector_list = [e.get("selector", "") for e in elements if isinstance(e, dict)]
+                fallback = self._extract_from_html(content_resp.text, selector_list)
+                total = sum(len(v) for v in fallback.values())
+                return SkillResult.ok({
+                    "url": target_url,
+                    "results": fallback,
+                    "total_matches": total,
+                    "fallback": "content_extraction",
+                })
 
             if resp.status_code != 200:
                 return SkillResult.fail(
@@ -331,7 +452,7 @@ class BrowserSkill(BaseSkill):
 
             total = sum(len(v) for v in results.values())
             return SkillResult.ok({
-                "url": url,
+                "url": target_url,
                 "results": results,
                 "total_matches": total,
             })

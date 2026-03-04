@@ -68,10 +68,15 @@ async def list_goals(
 ):
     base = select(Goal).order_by(Goal.priority.desc(), Goal.created_at.desc())
     if status:
-        # 'active' is a legacy alias — DB stores 'in_progress'
-        if status == "active":
-            status = "in_progress"
-        base = base.where(Goal.status == status)
+        normalized = status.strip().lower()
+        status_aliases: dict[str, tuple[str, ...]] = {
+            "active": ("active", "in_progress"),
+            "in_progress": ("active", "in_progress"),
+            "on_hold": ("on_hold", "paused"),
+            "paused": ("on_hold", "paused"),
+        }
+        allowed_statuses = status_aliases.get(normalized, (normalized,))
+        base = base.where(Goal.status.in_(allowed_statuses))
 
     count_stmt = select(func.count()).select_from(base.subquery())
     total = (await db.execute(count_stmt)).scalar() or 0

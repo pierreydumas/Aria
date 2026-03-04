@@ -132,6 +132,17 @@ class StreamManager:
             "skipped_disabled": 0,
         }
 
+    MAX_DELEGATION_FAILURES = 4
+    DELEGATION_TOOL_PREFIXES = ("agent_manager__",)
+    DELEGATION_FAILURE_MARKERS = (
+        "circuit open",
+        "temporarily unavailable",
+        "no response",
+        "timed out",
+        "connection refused",
+        "task send failed",
+    )
+
     _PROMISED_ACTION_PATTERN = re.compile(
         r"\b("
         r"making the call now|"
@@ -152,6 +163,47 @@ class StreamManager:
         if not compact:
             return False
         return bool(cls._PROMISED_ACTION_PATTERN.search(compact))
+
+    @classmethod
+    def _is_delegation_tool(cls, tool_name: str) -> bool:
+        return any(tool_name.startswith(prefix) for prefix in cls.DELEGATION_TOOL_PREFIXES)
+
+    @staticmethod
+    def _extract_tool_error(tool_content: str) -> str:
+        if not tool_content:
+            return ""
+        try:
+            parsed = json.loads(tool_content)
+            if isinstance(parsed, dict):
+                err = parsed.get("error")
+                if isinstance(err, str):
+                    return err
+        except Exception:
+            pass
+        return tool_content[:200]
+
+    @classmethod
+    def _is_blocking_delegation_failure(cls, error_text: str) -> bool:
+        lowered = (error_text or "").lower()
+        return any(marker in lowered for marker in cls.DELEGATION_FAILURE_MARKERS)
+
+    @classmethod
+    def _filter_tools_for_turn(
+        cls,
+        tools: list[dict[str, Any]] | None,
+        *,
+        delegation_blocked: bool,
+    ) -> list[dict[str, Any]] | None:
+        if not tools or not delegation_blocked:
+            return tools
+        filtered: list[dict[str, Any]] = []
+        for tool in tools:
+            function = tool.get("function") if isinstance(tool, dict) else None
+            name = function.get("name") if isinstance(function, dict) else ""
+            if isinstance(name, str) and cls._is_delegation_tool(name):
+                continue
+            filtered.append(tool)
+        return filtered
 
     async def handle_connection(
         self,
@@ -474,6 +526,12 @@ class StreamManager:
             promise_repair_used = False
             promise_repair_triggered = False
             tool_failure_counts: dict[str, int] = {}
+            delegation_failures = 0
+            delegation_blocked_reason: str | None = None
+            delegation_guidance_added = False
+            total_tool_failures = 0
+            max_total_tool_failures = 8
+            intermediate_assistant_count = 0
             # Execution trace for UI graph reconstruction
             _exec_trace: dict[str, Any] = {
                 "iterations": 0,
@@ -482,6 +540,24 @@ class StreamManager:
                 "edges": [],   # vis.js compatible edge list
             }
             for iteration in range(max_tool_iterations):
+                active_tools = tools_for_llm
+                if delegation_blocked_reason:
+                    active_tools = self._filter_tools_for_turn(
+                        tools_for_llm,
+                        delegation_blocked=True,
+                    )
+                    if not delegation_guidance_added:
+                        messages.append({
+                            "role": "system",
+                            "content": (
+                                "Delegation/sub-agent channel is unavailable in this turn. "
+                                f"Reason: {delegation_blocked_reason}. "
+                                "Do not call agent_manager tools again. Continue with direct tools "
+                                "and provide a concrete final answer now."
+                            ),
+                        })
+                        delegation_guidance_added = True
+
                 saw_tool_call_delta = False
                 streamed_tool_calls: dict[int, dict[str, Any]] = {}
                 iteration_stream_content = ""
@@ -562,7 +638,7 @@ class StreamManager:
                         model=session.model,
                         temperature=session.temperature,
                         max_tokens=session.max_tokens,
-                        tools=tools_for_llm,
+                        tools=active_tools,
                         enable_thinking=enable_thinking,
                     ):
                         if not await self._is_connected(websocket):
@@ -635,7 +711,7 @@ class StreamManager:
                                 model=session.model,
                                 temperature=session.temperature,
                                 max_tokens=session.max_tokens,
-                                tools=tools_for_llm,
+                                tools=active_tools,
                                 enable_thinking=enable_thinking,
                             )
                         except LLMError as e:
@@ -697,8 +773,8 @@ class StreamManager:
                     }
                     # Include thinking so models that require reasoning_content
                     # on tool-call messages (e.g. Kimi) don't reject the request
-                    if fallback_thinking:
-                        assistant_entry["reasoning_content"] = fallback_thinking
+                    if fallback_thinking or accumulator.thinking:
+                        assistant_entry["reasoning_content"] = fallback_thinking or accumulator.thinking
                     messages.append(assistant_entry)
 
                     # Persist intermediate assistant message so tool results
@@ -719,6 +795,7 @@ class StreamManager:
                     )
                     db.add(intermediate_msg)
                     await db.flush()
+                    intermediate_assistant_count += 1
 
                     for tc in resolved_tool_calls:
                         fn_name = tc["function"]["name"]
@@ -732,7 +809,19 @@ class StreamManager:
                         })
 
                         # Per-tool failure cap
-                        if tool_failure_counts.get(fn_name, 0) >= max_per_tool_failures:
+                        if delegation_blocked_reason and self._is_delegation_tool(fn_name):
+                            tool_result = ToolResult(
+                                tool_call_id=tc["id"],
+                                name=fn_name,
+                                content=json.dumps({
+                                    "error": (
+                                        "Delegation is disabled for this turn due to previous failures: "
+                                        f"{delegation_blocked_reason}. Use direct tools and conclude."
+                                    )
+                                }),
+                                success=False,
+                            )
+                        elif tool_failure_counts.get(fn_name, 0) >= max_per_tool_failures:
                             logger.warning(
                                 "Tool %s failed %d times in stream %s — blocking",
                                 fn_name, tool_failure_counts[fn_name], session_id,
@@ -761,6 +850,27 @@ class StreamManager:
                             tool_failure_counts.pop(fn_name, None)
                         else:
                             tool_failure_counts[fn_name] = tool_failure_counts.get(fn_name, 0) + 1
+                            total_tool_failures += 1
+                            if self._is_delegation_tool(fn_name):
+                                delegation_failures += 1
+                                err_text = self._extract_tool_error(tool_result.content)
+                                if (
+                                    delegation_blocked_reason is None
+                                    and (
+                                        delegation_failures >= self.MAX_DELEGATION_FAILURES
+                                        or self._is_blocking_delegation_failure(err_text)
+                                    )
+                                ):
+                                    delegation_blocked_reason = (
+                                        err_text
+                                        or "delegation/sub-agent communication unavailable"
+                                    )
+                                    logger.warning(
+                                        "Streaming session %s delegation blocked after %d failure(s): %s",
+                                        session_id,
+                                        delegation_failures,
+                                        delegation_blocked_reason,
+                                    )
 
                         accumulator.tool_results.append({
                             "tool_call_id": tool_result.tool_call_id,
@@ -847,6 +957,13 @@ class StreamManager:
                     # Reset accumulator content for next stream
                     accumulator.content = ""
                     accumulator.finish_reason = ""
+                    if total_tool_failures >= max_total_tool_failures:
+                        logger.warning(
+                            "Streaming session %s reached %d tool failures; stopping tool loop",
+                            session_id,
+                            total_tool_failures,
+                        )
+                        break
                     turn_state.transition("followup_generation")
                     turn_state.transition("streaming")
                     continue  # Re-stream with tool results
@@ -884,6 +1001,46 @@ class StreamManager:
                     continue
 
                 break
+
+            if (
+                delegation_blocked_reason is not None
+                or total_tool_failures >= max_total_tool_failures
+                or self._looks_like_promised_action_without_execution(accumulator.content)
+            ):
+                try:
+                    if delegation_blocked_reason:
+                        messages.append({
+                            "role": "system",
+                            "content": (
+                                "End this turn now with a direct answer. "
+                                "Delegation is unavailable. "
+                                "State limits explicitly and do not promise future actions."
+                            ),
+                        })
+                    summary_response = await self.gateway.complete(
+                        messages=messages,
+                        model=session.model,
+                        temperature=session.temperature,
+                        max_tokens=session.max_tokens,
+                        tools=None,
+                        enable_thinking=False,
+                    )
+                    if summary_response.content:
+                        accumulator.content = summary_response.content
+                    accumulator.thinking = summary_response.thinking or accumulator.thinking
+                    accumulator.finish_reason = summary_response.finish_reason or accumulator.finish_reason
+                    accumulator.input_tokens += int(summary_response.input_tokens or 0)
+                    accumulator.output_tokens += int(summary_response.output_tokens or 0)
+                    accumulator.cost_usd += float(summary_response.cost_usd or 0.0)
+                except Exception as summary_err:
+                    logger.warning("Streaming summary fallback failed for %s: %s", session_id, summary_err)
+
+            if not (accumulator.content or "").strip() and delegation_blocked_reason:
+                accumulator.content = (
+                    "I could not delegate this task because the sub-agent channel is unavailable "
+                    f"({delegation_blocked_reason}). I continued with direct tools in this session. "
+                    "Please retry delegation in a new turn after the agent channel recovers."
+                )
 
             # ── Persist assistant message ─────────────────────────────────
             # Finalize exec trace
@@ -947,7 +1104,7 @@ class StreamManager:
             try:
                 async with self._db_factory() as db2:
                     from sqlalchemy import update, func
-                    msg_count = 2 + len(accumulator.tool_results)
+                    msg_count = 2 + len(accumulator.tool_results) + intermediate_assistant_count
 
                     values: dict[str, Any] = {
                         "message_count": func.coalesce(EngineChatSession.message_count, 0) + msg_count,

@@ -853,6 +853,7 @@
 .session-type-badge.cron        { background: rgba(136,136,136,0.12); color: #888; }
 .session-type-badge.swarm       { background: rgba(255,182,72,0.12); color: #ffb648; }
 .session-type-badge.subagent    { background: rgba(255,182,72,0.10); color: #e6a030; }
+.session-type-badge.archived    { background: rgba(136,136,136,0.12); color: #888; }
 
 /* Ghost session */
 .session-item.ghost-session { opacity: 0.5; }
@@ -864,12 +865,13 @@
     position: absolute;
     top: 6px;
     right: 6px;
-    display: none;
+    display: flex;
     gap: 3px;
+    opacity: 0.65;
 }
 
 .session-item:hover .session-item-actions {
-    display: flex;
+    opacity: 1;
 }
 
 .session-action-btn {
@@ -1010,6 +1012,10 @@
                 <label class="sidebar-toggle-label">
                     <input type="checkbox" id="showAgentSessions" onchange="loadSessions()">
                     Cron/RT
+                </label>
+                <label class="sidebar-toggle-label">
+                    <input type="checkbox" id="showArchivedSessions" onchange="filterSessions()">
+                    Archived
                 </label>
             </div>
         </div>
@@ -2087,9 +2093,36 @@
             const qs = showAgent
                 ? 'limit=200&sort=updated_at&order=desc'
                 : 'limit=200&sort=updated_at&order=desc&exclude_agent_sessions=true';
-            const resp = await fetch(`/api/engine/sessions?${qs}`);
-            const data = await resp.json();
-            allSessions = data.sessions || data.items || data || [];
+            const [liveResp, archivedResp] = await Promise.all([
+                fetch(`/api/engine/sessions?${qs}`),
+                fetch('/api/engine/sessions/archived?limit=200&offset=0'),
+            ]);
+
+            const liveData = await liveResp.json();
+            const archivedData = archivedResp.ok ? await archivedResp.json() : { sessions: [] };
+
+            const liveSessions = (liveData.sessions || liveData.items || liveData || []).map(s => ({
+                ...s,
+                id: s.id || s.session_id,
+                session_id: s.session_id || s.id,
+            }));
+            const archivedSessions = (archivedData.sessions || []).map(s => ({
+                ...s,
+                id: s.id || s.session_id,
+                session_id: s.session_id || s.id,
+                status: 'archived',
+                source_table: 'archive',
+            }));
+
+            const merged = [...liveSessions, ...archivedSessions];
+            const deduped = new Map();
+            for (const s of merged) {
+                const id = s.id || s.session_id;
+                if (!id) continue;
+                if (!deduped.has(id)) deduped.set(id, s);
+            }
+
+            allSessions = Array.from(deduped.values());
             filterSessions();
         } catch(e) {
             console.error('Failed to load sessions:', e);
@@ -2154,19 +2187,21 @@
         const dateFull = dateRaw ? new Date(dateRaw).toLocaleString() : '';
         const msgCount = s.message_count || 0;
         const isActive = s.id === sessionId;
-        const isArchived = (s.status === 'archived');
+        const isArchived = (s.status === 'archived' || s.source_table === 'archive');
         const titleClass = isGhost ? 'session-item-title ghost-label' : 'session-item-title';
         const typeLabel = TYPE_LABELS[stype] !== undefined ? TYPE_LABELS[stype] : stype;
         const typeBadge = typeLabel ? `<span class="session-type-badge ${escapeAttr(stype)}">${escapeHtml(typeLabel)}</span>` : '';
+        const archivedBadge = isArchived ? '<span class="session-type-badge archived">archived</span>' : '';
 
         return `
             <div class="session-item ${isActive ? 'active' : ''} ${isArchived ? 'archived' : ''} ${isGhost ? 'ghost-session' : ''}"
                  onclick="switchSession('${s.id}')" data-id="${s.id}"
                  data-agent="${agent}" data-title="${escapeAttr(rawTitle || title)}">
-                <div class="${titleClass}">${isArchived ? '📦 ' : ''}${isGhost ? `<em>${escapeHtml(title)}</em>` : escapeHtml(title)}</div>
+                <div class="${titleClass}">${isGhost ? `<em>${escapeHtml(title)}</em>` : escapeHtml(title)}</div>
                 <div class="session-item-meta">
                     <span class="agent-badge">${escapeHtml(agent)}</span>
                     ${typeBadge}
+                    ${archivedBadge}
                     <span class="msg-count">${msgCount ? msgCount + ' msg' : ''}</span>
                     <span class="time-label" title="${escapeAttr(dateFull)}">${dateStr}</span>
                 </div>
@@ -2214,12 +2249,18 @@
         const agentFilter = document.getElementById('agentSelector').value;
         const searchQuery = document.getElementById('sessionSearch').value.toLowerCase().trim();
         const showAgentSessions = document.getElementById('showAgentSessions')?.checked;
+        const showArchivedSessions = document.getElementById('showArchivedSessions')?.checked;
 
         let filtered = allSessions;
 
         // Hide cron/swarm/agent session types unless toggle is on
         if (!showAgentSessions) {
             filtered = filtered.filter(s => !AGENT_SESSION_TYPES.has(s.session_type));
+        }
+
+        // Hide archived sessions unless toggle is on
+        if (!showArchivedSessions) {
+            filtered = filtered.filter(s => s.status !== 'archived' || s.id === sessionId);
         }
 
         // Hide ghost sessions (0 messages) unless searching

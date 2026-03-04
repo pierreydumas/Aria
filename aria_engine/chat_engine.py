@@ -99,6 +99,17 @@ class ChatEngine:
     # Per-tool consecutive failure cap — after this many failures of the
     # *same* tool in one turn, we inject a rejection so the LLM stops retrying.
     MAX_PER_TOOL_FAILURES = 3
+    MAX_DELEGATION_FAILURES = 4
+
+    DELEGATION_TOOL_PREFIXES = ("agent_manager__",)
+    DELEGATION_FAILURE_MARKERS = (
+        "circuit open",
+        "temporarily unavailable",
+        "no response",
+        "timed out",
+        "connection refused",
+        "task send failed",
+    )
 
     # Window (seconds) for deduplicating identical user messages
     DEDUP_WINDOW_SECONDS = 5
@@ -391,6 +402,10 @@ class ChatEngine:
             accumulated_tool_results: list[dict[str, Any]] = []
             # Per-tool failure tracking (P0 — prevent infinite retry loops)
             tool_failure_counts: dict[str, int] = {}
+            delegation_failures = 0
+            delegation_blocked_reason: str | None = None
+            delegation_guidance_added = False
+            intermediate_assistant_count = 0
             total_input_tokens = 0
             total_output_tokens = 0
             total_cost = 0.0
@@ -406,13 +421,31 @@ class ChatEngine:
             }
 
             for iteration in range(self.MAX_TOOL_ITERATIONS):
+                active_tools = tools_for_llm
+                if delegation_blocked_reason:
+                    active_tools = self._filter_tools_for_turn(
+                        tools_for_llm,
+                        delegation_blocked=True,
+                    )
+                    if not delegation_guidance_added:
+                        messages.append({
+                            "role": "system",
+                            "content": (
+                                "Delegation/sub-agent channel is unavailable in this turn. "
+                                f"Reason: {delegation_blocked_reason}. "
+                                "Do not call agent_manager tools again. Continue with direct tools "
+                                "available in this session and provide a concrete final answer now."
+                            ),
+                        })
+                        delegation_guidance_added = True
+
                 try:
                     llm_response: LLMResponse = await self.gateway.complete(
                         messages=messages,
                         model=session.model,
                         temperature=session.temperature,
                         max_tokens=session.max_tokens,
-                        tools=tools_for_llm,
+                        tools=active_tools,
                         enable_thinking=enable_thinking,
                     )
                 except LLMError as e:
@@ -474,8 +507,8 @@ class ChatEngine:
                 }
                 # Include thinking so models that require reasoning_content
                 # on tool-call messages (e.g. Kimi) don't reject the request
-                if llm_response.thinking:
-                    assistant_entry["reasoning_content"] = llm_response.thinking
+                if llm_response.thinking or final_thinking:
+                    assistant_entry["reasoning_content"] = llm_response.thinking or final_thinking
                 messages.append(assistant_entry)
 
                 # Persist intermediate assistant message so tool results
@@ -496,12 +529,26 @@ class ChatEngine:
                 )
                 db.add(intermediate_msg)
                 await db.flush()
+                intermediate_assistant_count += 1
 
                 for tc in llm_response.tool_calls:
                     fn_name = tc["function"]["name"]
 
+                    if delegation_blocked_reason and self._is_delegation_tool(fn_name):
+                        tool_result = ToolResult(
+                            tool_call_id=tc["id"],
+                            name=fn_name,
+                            content=json.dumps({
+                                "error": (
+                                    "Delegation is disabled for this turn due to previous failures: "
+                                    f"{delegation_blocked_reason}. Use direct tools and conclude."
+                                )
+                            }),
+                            success=False,
+                        )
+
                     # ── Per-tool failure cap ──────────────────────────────
-                    if tool_failure_counts.get(fn_name, 0) >= self.MAX_PER_TOOL_FAILURES:
+                    elif tool_failure_counts.get(fn_name, 0) >= self.MAX_PER_TOOL_FAILURES:
                         logger.warning(
                             "Tool %s failed %d times in session %s — blocking further calls",
                             fn_name, tool_failure_counts[fn_name], sid,
@@ -576,6 +623,26 @@ class ChatEngine:
                         tool_failure_counts.pop(fn_name, None)
                     else:
                         tool_failure_counts[fn_name] = tool_failure_counts.get(fn_name, 0) + 1
+                        if self._is_delegation_tool(fn_name):
+                            delegation_failures += 1
+                            err_text = self._extract_tool_error(tool_result.content)
+                            if (
+                                delegation_blocked_reason is None
+                                and (
+                                    delegation_failures >= self.MAX_DELEGATION_FAILURES
+                                    or self._is_blocking_delegation_failure(err_text)
+                                )
+                            ):
+                                delegation_blocked_reason = (
+                                    err_text
+                                    or "delegation/sub-agent communication unavailable"
+                                )
+                                logger.warning(
+                                    "Session %s delegation blocked after %d failure(s): %s",
+                                    sid,
+                                    delegation_failures,
+                                    delegation_blocked_reason,
+                                )
 
                     # Telemetry → aria_data.skill_invocations
                     asyncio.ensure_future(log_skill_invocation(
@@ -608,12 +675,26 @@ class ChatEngine:
 
             # ── 4b. If loop exhausted (hit MAX_TOOL_ITERATIONS) or final
             #        content is empty, force one plain summary call ─────────
-            if not final_content or (final_content.rstrip().endswith(":") and accumulated_tool_calls):
+            if (
+                delegation_blocked_reason is not None
+                or not final_content
+                or (final_content.rstrip().endswith(":") and accumulated_tool_calls)
+                or self._looks_like_promised_action_without_execution(final_content)
+            ):
                 logger.warning(
-                    "Session %s: forcing summary call (content=%r, iterations=%d)",
-                    sid, final_content[:60] if final_content else "", iteration + 1,
+                    "Session %s: forcing summary call (content=%r, iterations=%d, delegation_blocked=%s)",
+                    sid, final_content[:60] if final_content else "", iteration + 1, bool(delegation_blocked_reason),
                 )
                 try:
+                    if delegation_blocked_reason:
+                        messages.append({
+                            "role": "system",
+                            "content": (
+                                "End this turn now with a direct answer. "
+                                "Delegation is unavailable. "
+                                "State limits explicitly and do not promise future actions."
+                            ),
+                        })
                     summary_response: LLMResponse = await self.gateway.complete(
                         messages=messages,
                         model=session.model,
@@ -631,10 +712,17 @@ class ChatEngine:
                 except Exception as e:
                     logger.error("Summary call failed in session %s: %s", sid, e)
                 if not (final_content or "").strip():
-                    final_content = (
-                        "I completed the requested actions, but the final summary content was empty. "
-                        "Please continue and I will provide a concise recap in the next turn."
-                    )
+                    if delegation_blocked_reason:
+                        final_content = (
+                            "I could not delegate this task because the sub-agent channel is unavailable "
+                            f"({delegation_blocked_reason}). I continued with direct tools in this session. "
+                            "Please retry delegation in a new turn after the agent channel recovers."
+                        )
+                    else:
+                        final_content = (
+                            "I completed the requested actions, but the final summary content was empty. "
+                            "Please continue and I will provide a concise recap in the next turn."
+                        )
 
             final_content = self._apply_tool_result_consistency_guards(
                 final_content,
@@ -689,7 +777,7 @@ class ChatEngine:
             db.add(assistant_msg)
 
             # ── 6. Update session counters ────────────────────────────────
-            new_msg_count = 2  # user + assistant
+            new_msg_count = 2 + intermediate_assistant_count  # user + intermediate assistants + final assistant
             if accumulated_tool_results:
                 new_msg_count += len(accumulated_tool_results)
 
@@ -1076,6 +1164,65 @@ class ChatEngine:
             )
 
         return content
+
+    @classmethod
+    def _is_delegation_tool(cls, tool_name: str) -> bool:
+        return any(tool_name.startswith(prefix) for prefix in cls.DELEGATION_TOOL_PREFIXES)
+
+    @staticmethod
+    def _extract_tool_error(tool_content: str) -> str:
+        if not tool_content:
+            return ""
+        try:
+            parsed = json.loads(tool_content)
+            if isinstance(parsed, dict):
+                err = parsed.get("error")
+                if isinstance(err, str):
+                    return err
+        except Exception:
+            pass
+        return tool_content[:200]
+
+    @classmethod
+    def _is_blocking_delegation_failure(cls, error_text: str) -> bool:
+        lowered = (error_text or "").lower()
+        return any(marker in lowered for marker in cls.DELEGATION_FAILURE_MARKERS)
+
+    @classmethod
+    def _filter_tools_for_turn(
+        cls,
+        tools: list[dict[str, Any]] | None,
+        *,
+        delegation_blocked: bool,
+    ) -> list[dict[str, Any]] | None:
+        if not tools or not delegation_blocked:
+            return tools
+        filtered: list[dict[str, Any]] = []
+        for tool in tools:
+            function = tool.get("function") if isinstance(tool, dict) else None
+            name = function.get("name") if isinstance(function, dict) else ""
+            if isinstance(name, str) and cls._is_delegation_tool(name):
+                continue
+            filtered.append(tool)
+        return filtered
+
+    @classmethod
+    def _looks_like_promised_action_without_execution(cls, text: str) -> bool:
+        if not text:
+            return False
+        lowered = " ".join(text.strip().lower().split())
+        if not lowered:
+            return False
+        markers = (
+            "let me",
+            "i will",
+            "i'll",
+            "checking",
+            "trying",
+            "searching",
+            "getting",
+        )
+        return any(m in lowered for m in markers) and lowered.endswith((":", "..."))
 
     @staticmethod
     def _session_to_dict(session) -> dict[str, Any]:

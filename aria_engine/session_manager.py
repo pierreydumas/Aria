@@ -156,30 +156,69 @@ class NativeSessionManager:
             .group_by(EngineChatSession.id)
         )
 
+        archive_stmt = (
+            select(
+                EngineChatSessionArchive,
+                func.count(EngineChatMessageArchive.id).label("message_count"),
+                func.max(EngineChatMessageArchive.created_at).label("last_message_at"),
+            )
+            .outerjoin(
+                EngineChatMessageArchive,
+                EngineChatMessageArchive.session_id == EngineChatSessionArchive.id,
+            )
+            .where(EngineChatSessionArchive.id == session_id)
+            .group_by(EngineChatSessionArchive.id)
+        )
+
         async with self._async_session() as session:
             result = await session.execute(stmt)
             row = result.first()
 
-        if not row:
+            if row:
+                s = row[0]
+                return {
+                    "session_id": str(s.id),
+                    "title": s.title or "Untitled",
+                    "agent_id": s.agent_id or "unknown",
+                    "session_type": s.session_type,
+                    "model": s.model,
+                    "status": s.status or "active",
+                    "metadata": dict(s.metadata_json) if s.metadata_json else None,
+                    "message_count": row.message_count,
+                    "created_at": s.created_at.isoformat(),
+                    "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+                    "last_message_at": (
+                        row.last_message_at.isoformat()
+                        if row.last_message_at
+                        else None
+                    ),
+                    "source_table": "working",
+                }
+
+            archive_result = await session.execute(archive_stmt)
+            archive_row = archive_result.first()
+
+        if not archive_row:
             return None
 
-        s = row[0]
+        s = archive_row[0]
         return {
             "session_id": str(s.id),
             "title": s.title or "Untitled",
             "agent_id": s.agent_id or "unknown",
             "session_type": s.session_type,
             "model": s.model,
-            "status": s.status or "active",
+            "status": s.status or "archived",
             "metadata": dict(s.metadata_json) if s.metadata_json else None,
-            "message_count": row.message_count,
-            "created_at": s.created_at.isoformat(),
+            "message_count": archive_row.message_count,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
             "updated_at": s.updated_at.isoformat() if s.updated_at else None,
             "last_message_at": (
-                row.last_message_at.isoformat()
-                if row.last_message_at
+                archive_row.last_message_at.isoformat()
+                if archive_row.last_message_at
                 else None
             ),
+            "source_table": "archive",
         }
 
     async def list_sessions(
@@ -506,9 +545,30 @@ class NativeSessionManager:
             .offset(offset)
         )
 
+        archive_filters = [EngineChatMessageArchive.session_id == session_id]
+        if since:
+            archive_filters.append(EngineChatMessageArchive.created_at > since)
+
+        archive_stmt = (
+            select(EngineChatMessageArchive)
+            .where(and_(*archive_filters))
+            .order_by(EngineChatMessageArchive.created_at.asc())
+            .limit(min(limit, 500))
+            .offset(offset)
+        )
+
         async with self._async_session() as session:
             result = await session.execute(stmt)
             messages = result.scalars().all()
+
+            if not messages:
+                working_exists_stmt = select(EngineChatSession.id).where(
+                    EngineChatSession.id == session_id
+                )
+                working_exists = (await session.execute(working_exists_stmt)).scalar_one_or_none()
+                if working_exists is None:
+                    archive_result = await session.execute(archive_stmt)
+                    messages = archive_result.scalars().all()
 
         return [
             {

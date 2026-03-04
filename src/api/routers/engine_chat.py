@@ -388,7 +388,7 @@ async def send_message(
             message_id=response.message_id,
             session_id=response.session_id,
             content=response.content,
-            thinking=response.thinking,
+            thinking=response.thinking if body.enable_thinking else None,
             tool_calls=response.tool_calls,
             tool_results=response.tool_results,
             model=response.model,
