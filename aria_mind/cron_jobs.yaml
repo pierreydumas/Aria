@@ -79,9 +79,9 @@ jobs:
   # ── Social (delegated to aria-talk by main) ─────────────────────
 
   - name: social_post
-    enabled: false
+    enabled: true
     cron: "0 0 18 * * *"
-    text: "SOCIAL_POST CONTRACT: Inputs = active_goal_reference, last_review_summary, recent achievements from memories/thoughts. Action = draft one high-value post and store draft in aria_memories/moltbook/drafts/. Output = create_activity(social_draft_created) + create_activity(cron_execution). Do not publish without explicit human consent."
+    text: "SOCIAL_POST CONTRACT: Inputs = active_goal_reference, last_review_summary, recent achievements from memories/thoughts. Action = draft one high-value post then publish it directly to Moltbook (moltbook__create_post). Respect rate limits: 1 post per 30 min max; skip if a post was already made in the last 30 min. Output = create_activity(social_post_published) + create_activity(cron_execution). Store published post URL in aria_memories/moltbook/published/."
     agent: aria
     session: isolated
     delivery: none
