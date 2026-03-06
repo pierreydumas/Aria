@@ -97,13 +97,13 @@ SAFE_STRINGS = [
 
 @pytest.mark.parametrize("text", ATTACK_STRINGS)
 def test_injection_pattern_detects_attack(text):
-    matched = any(p.search(text) for p in INJECTION_PATTERNS)
+    matched = any(p.search(text) for p, _ in INJECTION_PATTERNS)
     assert matched, f"Expected injection pattern to match: {text!r}"
 
 
 @pytest.mark.parametrize("text", SAFE_STRINGS)
 def test_injection_pattern_passes_safe_content(text):
-    matched = any(p.search(text) for p in INJECTION_PATTERNS)
+    matched = any(p.search(text) for p, _ in INJECTION_PATTERNS)
     assert not matched, f"Expected injection pattern NOT to match: {text!r}"
 
 

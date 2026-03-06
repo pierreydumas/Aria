@@ -56,39 +56,41 @@ CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 # Patterns are regex heuristics layered under the L0 InputGuardSkill ML gate.
 # Log-only (never block) — false positives are possible; human review recommended.
 # To add patterns: append re.compile(..., re.I) entries.
-INJECTION_PATTERNS = [
+# Each entry is (compiled_pattern, threat_type_str) so that matches can be
+# persisted to aria_data.security_events with a meaningful type label.
+INJECTION_PATTERNS: list[tuple[re.Pattern, str]] = [
     # ── Classic instruction override ────────────────────────────────────────
-    re.compile(r"ignore\s+(all\s+)?previous\s+instructions", re.I),
-    re.compile(r"disregard\s+(all\s+|your\s+|the\s+)?(?:prior|previous|above|earlier)\s+instructions", re.I),
-    re.compile(r"forget\s+(everything|all)\s+(you\s+know|above|before|prior)", re.I),
-    re.compile(r"override\s+(your\s+)?(?:previous\s+)?instructions\b", re.I),
-    re.compile(r"new\s+instructions?\s*[:;]", re.I),
+    (re.compile(r"ignore\s+(all\s+)?previous\s+instructions", re.I), "prompt_injection"),
+    (re.compile(r"disregard\s+(all\s+|your\s+|the\s+)?(?:prior|previous|above|earlier)\s+instructions", re.I), "prompt_injection"),
+    (re.compile(r"forget\s+(everything|all)\s+(you\s+know|above|before|prior)", re.I), "prompt_injection"),
+    (re.compile(r"override\s+(your\s+)?(?:previous\s+)?instructions\b", re.I), "prompt_injection"),
+    (re.compile(r"new\s+instructions?\s*[:;]", re.I), "prompt_injection"),
 
     # ── Role / persona hijack ────────────────────────────────────────────────
-    re.compile(r"you\s+are\s+now\s+(?:a\s+)?(?:evil|malicious|jailbr|free|unrestricted|dan\b)", re.I),
-    re.compile(r"act\s+as\s+(if\s+you\s+are\s+)?(?:a\s+)?(?:evil|jailbreak|dan|unfiltered|unrestricted)", re.I),
-    re.compile(r"pretend\s+(to\s+be|you\s+are)\s+(?:a\s+)?(?:malicious|evil|unethical|harmful)", re.I),
-    re.compile(r"\bDAN\b", re.I),  # "Do Anything Now" jailbreak shorthand
-    re.compile(r"jailbreak", re.I),
+    (re.compile(r"you\s+are\s+now\s+(?:a\s+)?(?:evil|malicious|jailbr|free|unrestricted|dan\b)", re.I), "roleplay_override"),
+    (re.compile(r"act\s+as\s+(if\s+you\s+are\s+)?(?:a\s+)?(?:evil|jailbreak|dan|unfiltered|unrestricted)", re.I), "roleplay_override"),
+    (re.compile(r"pretend\s+(to\s+be|you\s+are)\s+(?:a\s+)?(?:malicious|evil|unethical|harmful)", re.I), "roleplay_override"),
+    (re.compile(r"\bDAN\b", re.I), "jailbreak"),  # "Do Anything Now"
+    (re.compile(r"jailbreak", re.I), "jailbreak"),
 
     # ── System prompt injection ──────────────────────────────────────────────
-    re.compile(r"system\s*:\s*you\s+are", re.I),
-    re.compile(r"<\s*system\s*>", re.I),
-    re.compile(r"\[SYSTEM\]", re.I),
+    (re.compile(r"system\s*:\s*you\s+are", re.I), "system_prompt_injection"),
+    (re.compile(r"<\s*system\s*>", re.I), "system_prompt_injection"),
+    (re.compile(r"\[SYSTEM\]", re.I), "system_prompt_injection"),
 
     # ── Model control token injection ────────────────────────────────────────
-    re.compile(r"\[INST\]|\[/INST\]|<\|im_start\|>|<\|im_end\|>", re.I),
-    re.compile(r"<s>.*</s>", re.I),
-    re.compile(r"<\|\s*system\s*\|>", re.I),
+    (re.compile(r"\[INST\]|\[/INST\]|<\|im_start\|>|<\|im_end\|>", re.I), "token_injection"),
+    (re.compile(r"<s>.*</s>", re.I), "token_injection"),
+    (re.compile(r"<\|\s*system\s*\|>", re.I), "token_injection"),
 
     # ── Confidentiality extraction ───────────────────────────────────────────
-    re.compile(r"(reveal|print|show|output|repeat|tell\s+me)\s+(your\s+)?(system\s+prompt|instructions|secret|api\s+key|password|token)", re.I),
-    re.compile(r"what\s+(are|were)\s+your\s+(original\s+)?instructions", re.I),
-    re.compile(r"ignore\s+(safety|ethics|guidelines|rules|restrictions|constraints)", re.I),
+    (re.compile(r"(reveal|print|show|output|repeat|tell\s+me)\s+(your\s+)?(system\s+prompt|instructions|secret|api\s+key|password|token)", re.I), "prompt_leak"),
+    (re.compile(r"what\s+(are|were)\s+your\s+(original\s+)?instructions", re.I), "prompt_leak"),
+    (re.compile(r"ignore\s+(safety|ethics|guidelines|rules|restrictions|constraints)", re.I), "safety_bypass"),
 
     # ── Harmful capability unlock ────────────────────────────────────────────
-    re.compile(r"(how\s+to|steps?\s+to|guide\s+(me\s+)?to)\s+(make|build|create|synthesize)\s+(a\s+)?(bomb|weapon|malware|virus|exploit)", re.I),
-    re.compile(r"(bypass|disable|turn\s+off)\s+(the\s+)?(safety|filter|restriction|guardrail|moderation)", re.I),
+    (re.compile(r"(how\s+to|steps?\s+to|guide\s+(me\s+)?to)\s+(make|build|create|synthesize)\s+(a\s+)?(bomb|weapon|malware|virus|exploit)", re.I), "harmful_content"),
+    (re.compile(r"(bypass|disable|turn\s+off)\s+(the\s+)?(safety|filter|restriction|guardrail|moderation)", re.I), "safety_bypass"),
 ]
 
 # ── Errors ────────────────────────────────────────────────────
@@ -329,8 +331,18 @@ class SessionProtection:
         # 3. Sanitize content
         content = self.sanitize_content(content)
 
-        # 4. Check prompt injection (log only, don't block)
-        self._check_injection(content, session_id, agent_id)
+        # 4. Check prompt injection — log + persist to security_events (non-blocking)
+        injection_match = self._check_injection(content, session_id, agent_id)
+        if injection_match:
+            asyncio.create_task(
+                self._log_security_event(
+                    threat_type=injection_match[0],
+                    threat_pattern=injection_match[1],
+                    content_preview=content,
+                    session_id=session_id,
+                    agent_id=agent_id,
+                )
+            )
 
         # 5. Rate limiting — per session
         session_window = self._session_windows[session_id]
@@ -416,22 +428,82 @@ class SessionProtection:
         content: str,
         session_id: str,
         agent_id: str,
-    ) -> None:
-        """
-        Check for prompt injection patterns.
+    ) -> tuple[str, str] | None:
+        """Check for prompt injection patterns.
 
         Logs a warning but does not block — human review recommended.
+
+        Returns:
+            ``(threat_type, pattern_str)`` on first match, ``None`` otherwise.
         """
-        for pattern in INJECTION_PATTERNS:
+        for pattern, threat_type in INJECTION_PATTERNS:
             if pattern.search(content):
                 logger.warning(
                     "Potential prompt injection detected in "
-                    "session=%s agent=%s: matched pattern '%s'",
+                    "session=%s agent=%s type=%s: matched pattern '%s'",
                     session_id,
                     agent_id,
+                    threat_type,
                     pattern.pattern[:50],
                 )
-                return  # Log only once per message
+                return (threat_type, pattern.pattern)  # first match only
+        return None
+
+    async def _log_security_event(
+        self,
+        threat_type: str,
+        threat_pattern: str,
+        content_preview: str,
+        session_id: str,
+        agent_id: str,
+    ) -> None:
+        """Persist a security event to ``aria_data.security_events``.
+
+        Fire-and-forget — callers use ``asyncio.create_task`` around this.
+        Maps injection type → threat level:
+          - jailbreak / harmful_content / safety_bypass → high
+          - prompt_injection / roleplay_override / system_prompt_injection → medium
+          - everything else → low
+        """
+        # Late import to avoid coupling aria_engine → src/api at module level
+        try:
+            from db.models import SecurityEvent  # type: ignore[import]
+        except ImportError:
+            return  # Running outside api context — skip silently
+
+        LEVEL_MAP = {
+            "jailbreak": "high",
+            "harmful_content": "high",
+            "safety_bypass": "high",
+            "prompt_injection": "medium",
+            "roleplay_override": "medium",
+            "system_prompt_injection": "medium",
+        }
+        level = LEVEL_MAP.get(threat_type, "low")
+        preview = content_preview[:300] if content_preview else ""
+
+        try:
+            import uuid as _uuid
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+            stmt = (
+                pg_insert(SecurityEvent)
+                .values(
+                    id=_uuid.uuid4(),
+                    threat_level=level,
+                    threat_type=threat_type,
+                    threat_patterns=[threat_pattern],
+                    input_preview=preview,
+                    source="engine_chat",
+                    user_id=agent_id,
+                    blocked=False,
+                    details={"session_id": session_id},
+                )
+            )
+            async with self._db.begin() as conn:
+                await conn.execute(stmt)
+        except Exception as exc:
+            logger.debug("security_event persist failed (non-fatal): %s", exc)
 
     async def _get_session_message_count(
         self,
