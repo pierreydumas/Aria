@@ -111,11 +111,15 @@ class ToolRegistry:
             return False, "safe"
 
         # External posting / outward actions
+        # Social presence (moltbook, social, telegram) posting/reading is NOT
+        # destructive — Aria is allowed to post autonomously without consent.
+        # Destructive operations on those platforms (delete, wipe, purge, etc.)
+        # fall through to the destructive_tokens check below so they remain gated.
+        _social_destructive = ("delete", "remove", "drop", "wipe", "purge", "destroy", "reset", "cleanup")
         if fn.startswith("social__") or fn.startswith("moltbook__") or fn.startswith("telegram__"):
-            posting_safe = ("get_", "list", "search", "draft", "preview")
-            if any(token in fn for token in posting_safe):
+            if not any(token in fn for token in _social_destructive):
                 return False, "safe"
-            return True, "external_posting"
+            # fall through → picked up by destructive_tokens check
 
         # Raw SQL executor is high-impact
         if fn == "database__execute":
