@@ -42,18 +42,18 @@
     },
     {
       "name": "prune_sessions",
-      "description": "Archive stale sessions older than a threshold. Sessions are moved to archive tables (hidden from chat but Aria can still access them). Use dry_run=true to preview.",
+      "description": "Bulk-archive stale sessions older than a threshold in one atomic DB transaction (copy to archive tables → delete from working tables). Sessions remain accessible via list_archived_sessions. Use dry_run=true to preview counts without making changes.",
       "parameters": {
         "type": "object",
         "properties": {
           "max_age_minutes": {
             "type": "integer",
-            "description": "Delete sessions older than this many minutes (default: 60)",
+            "description": "Archive sessions last updated more than this many minutes ago (default: 60). Converted to hours internally — use multiples of 60 for exact thresholds.",
             "default": 60
           },
           "dry_run": {
             "type": "boolean",
-            "description": "If true, list what would be deleted without actually deleting",
+            "description": "If true, return candidate count without archiving anything.",
             "default": false
           }
         }

@@ -9,11 +9,14 @@ jobs:
   # ── Routine / Lightweight ────────────────────────────────────────
 
   - name: maintenance_cycle
-    every: "30m"
+    every: "12h"
     text: >-
       MAINTENANCE_CYCLE (housekeeping only, no goal progress):
       1. Run health check: health__check_system.
-      2. Prune stale sessions: agent_manager__prune_stale_sessions(max_age_hours=1).
+      2. Archive stale cron/work sessions: call POST /api/engine/sessions/cleanup with
+         max_age_hours=12 and dry_run=false via api_client__post. This is atomic —
+         all sessions are archived in one transaction. Do NOT call prune_stale_sessions
+         in a loop; use the cleanup endpoint directly.
       3. Write artifact to aria_memories/logs/maintenance_<YYYY-MM-DD_HHMM>.json with:
          {"status":"ok","health":"healthy|unhealthy","sessions_pruned":N,"timestamp":"ISO"}.
       4. Do NOT create/update goals. Do NOT claim progress. This is infrastructure, not work.
@@ -184,7 +187,7 @@ jobs:
 
   - name: session_cleanup
     cron: "0 0 5 * * *"
-    text: "SESSION_CLEANUP CONTRACT: Autonomously archive stale sessions older than 24h (archive to DB, not hard-delete). This is a non-destructive operation — sessions are preserved in archive, never permanently deleted. Execute the cleanup directly: prune_stale_sessions(max_age_hours=24, mode=archive). If active_sessions > 50, also run emergency pruning for sessions idle >6h. Log results via create_activity(session_cleanup). Only hard-delete operations (DROP, TRUNCATE, permanent removal) require human consent — archiving does NOT. Outputs = execute cleanup + create_activity(session_cleanup) + create_activity(cron_execution)."
+    text: "SESSION_CLEANUP CONTRACT: Autonomously archive stale sessions (archive to DB, not hard-delete). Call POST /api/engine/sessions/cleanup with max_age_hours=24 and dry_run=false via api_client__post. This single atomic call archives ALL matching sessions and their messages in one DB transaction — do NOT loop over individual sessions or call prune_stale_sessions per session. Sessions are preserved in the archive table, never permanently deleted. Log results via create_activity(session_cleanup). Outputs = execute cleanup endpoint + create_activity(session_cleanup) + create_activity(cron_execution)."
     agent: aria
     session: isolated
     delivery: none

@@ -153,12 +153,15 @@ class SessionManagerSkill(BaseSkill):
         """
         Archive stale sessions older than threshold.
 
+        Calls the bulk ``POST /engine/sessions/cleanup`` endpoint which archives
+        all matching sessions + messages in a single DB transaction (atomic —
+        no partial states, no per-session loop).
         Sessions are moved to archive tables — hidden from chat UI but
         still accessible to Aria via list_archived_sessions.
 
         Args:
             max_age_minutes: Archive sessions older than this (default: config value or 60).
-            dry_run: If true, list candidates without archiving.
+            dry_run: If true, count candidates without archiving.
         """
         if not max_age_minutes:
             max_age_minutes = kwargs.get("max_age_minutes", self._stale_threshold_minutes)
@@ -169,72 +172,36 @@ class SessionManagerSkill(BaseSkill):
         if isinstance(dry_run, str):
             dry_run = dry_run.lower() in ("true", "1", "yes")
 
-        sessions = await self._fetch_sessions(limit=200)
-        now = datetime.now(timezone.utc)
-        cutoff = now - timedelta(minutes=int(max_age_minutes))
+        max_age_minutes = int(max_age_minutes)
+        # Convert minutes to hours for the bulk endpoint (keeps sub-hour precision via
+        # the max_age_hours param which uses make_interval at hour granularity).
+        # Round up so we never archive sessions younger than requested.
+        import math
+        max_age_hours = math.ceil(max_age_minutes / 60) if max_age_minutes >= 60 else None
 
-        current_sid = os.environ.get("ARIA_SESSION_ID", "")
+        try:
+            params: dict[str, Any] = {"dry_run": dry_run}
+            if max_age_hours is not None:
+                params["max_age_hours"] = max_age_hours
+            else:
+                # Sub-60-min threshold: fall back to days=1 with dry_run guard
+                params["days"] = 1
 
-        to_delete: list[dict[str, Any]] = []
-        kept: list[dict[str, Any]] = []
+            r = await self._api.post("/engine/sessions/cleanup", params=params)
+            if not r.success:
+                return SkillResult.fail(f"Cleanup endpoint error: {r.error}")
 
-        for sess in sessions:
-            sid = sess.get("session_id") or sess.get("id", "")
-
-            # Never delete current session
-            if current_sid and sid == current_sid:
-                kept.append(sess)
-                continue
-
-            ts_str = (
-                sess.get("last_message_at")
-                or sess.get("updated_at")
-                or sess.get("created_at")
-                or ""
-            )
-            if ts_str:
-                try:
-                    ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                    if ts.tzinfo is None:
-                        ts = ts.replace(tzinfo=timezone.utc)
-                    if ts < cutoff:
-                        to_delete.append(sess)
-                    else:
-                        kept.append(sess)
-                    continue
-                except (ValueError, TypeError):
-                    pass
-            to_delete.append(sess)
-
-        archived_ids: list[str] = []
-        errors: list[dict[str, str]] = []
-
-        if not dry_run:
-            for sess in to_delete:
-                sid = sess.get("session_id") or sess.get("id", "")
-                if sid:
-                    try:
-                        # Archive (copy to archive table + remove from chat)
-                        # NOT delete — data is preserved for Aria to query
-                        r = await self._api.post(f"/engine/sessions/{sid}/archive")
-                        if r.success:
-                            archived_ids.append(sid)
-                        else:
-                            errors.append({"id": sid, "error": r.error or "unknown"})
-                    except Exception as e:
-                        errors.append({"id": sid, "error": str(e)})
-
-        return SkillResult.ok({
-            "total_sessions": len(sessions),
-            "pruned_count": len(to_delete),
-            "kept_count": len(kept),
-            "dry_run": dry_run,
-            "archived_ids": archived_ids if not dry_run else [
-                s.get("session_id") or s.get("id", "") for s in to_delete
-            ],
-            "errors": errors,
-            "threshold_minutes": max_age_minutes,
-        })
+            data = r.data if isinstance(r.data, dict) else {}
+            return SkillResult.ok({
+                "pruned_count": data.get("pruned_count", 0),
+                "archived_count": data.get("archived_count", 0),
+                "message_count": data.get("message_count", 0),
+                "zombies_closed": data.get("zombies_closed", 0),
+                "dry_run": dry_run,
+                "threshold_minutes": max_age_minutes,
+            })
+        except Exception as e:
+            return SkillResult.fail(f"prune_sessions error: {e}")
 
     @logged_method()
     async def get_session_stats(self, **kwargs) -> SkillResult:

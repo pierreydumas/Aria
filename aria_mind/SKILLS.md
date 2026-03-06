@@ -103,8 +103,8 @@ aria-api-client.health_check({})
 | `goals` | `create_goal`, `list_goals`, `update_progress`, `complete_goal` | Task tracking, priorities |
 | `schedule` | `list_jobs`, `create_task`, `trigger`, `sync_jobs` | Scheduled tasks, automation |
 | `health` | `health_check_all`, `health_check_service`, `get_metrics`, `run_diagnostics` | System monitoring & self-diagnostic (v1.1) |
-| `agent_manager` | `list_agents`, `spawn_agent`, `stop_agent`, `get_status` | Agent lifecycle management (v1.1) |
-| `session_manager` | `list_sessions`, `delete_session`, `prune_sessions`, `get_session_stats`, `cleanup_after_delegation` | Two-layer session management: filesystem delete + PG history (v2.0) |
+| `agent_manager` | `list_agents`, `spawn_agent`, `terminate_agent`, `get_agent_stats`, `prune_stale_sessions`, `spawn_focused_agent`, `send_to_agent`, `get_performance_report`, `get_agent_health` | Agent lifecycle management; `prune_stale_sessions(max_age_hours)` archives atomically via DB (v2.0) |
+| `session_manager` | `list_sessions`, `delete_session`, `prune_sessions`, `get_session_stats`, `list_archived_sessions`, `cleanup_after_delegation`, `cleanup_orphans` | Bulk-archive via single DB transaction; `prune_sessions(max_age_minutes)` calls `POST /engine/sessions/cleanup` atomically (v2.1) |
 | `ci_cd` | `generate_workflow`, `generate_dockerfile`, `lint_workflow` | CI/CD automation |
 | `pytest_runner` | `run_pytest`, `collect_pytest` | Test execution |
 | `database` | `fetch_all`, `fetch_one`, `execute`, `log_thought`, `store_memory` | PostgreSQL operations |

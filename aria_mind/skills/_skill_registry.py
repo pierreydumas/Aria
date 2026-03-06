@@ -87,16 +87,17 @@ SKILL_REGISTRY = {
         },
     ),
     # === LLM & Model Management ===
+    # LLMSkill = resilient fallback chain (S-45 Phase 3)
     "llm": (
         "aria_skills.llm",
-        "OllamaSkill",
+        "LLMSkill",
         lambda: {
             "host": os.environ.get("OLLAMA_URL", "http://host.docker.internal:11434"),
             "model": os.environ.get("OLLAMA_MODEL", _DEFAULT_OLLAMA_MODEL),
         },
     ),
     "moonshot": (
-        "aria_skills.llm",
+        "aria_skills.moonshot",
         "MoonshotSkill",
         lambda: {
             "api_key": os.environ.get("MOONSHOT_API_KEY") or os.environ.get("MOONSHOT_KIMI_KEY"),
@@ -334,8 +335,17 @@ SKILL_REGISTRY = {
             "default_chat_id": os.environ.get("TELEGRAM_CHAT_ID", ""),
         },
     ),
+    # === Focus Profile Introspection ===
+    "focus": (
+        "aria_skills.focus",
+        "FocusSkill",
+        lambda: {
+            "api_url": os.environ.get("ARIA_API_URL", "http://aria-api:8000/api"),
+        },
+    ),
     # === Raw Database — LAST on purpose: prefer api_client for data ops ===
-    "database": ("aria_skills.database", "DatabaseSkill", lambda: {"dsn": os.environ.get("DATABASE_URL")}),
+    # NOTE: aria_skills.database has no implementation yet — removed until built.
+    # "database": ("aria_skills.database", "DatabaseSkill", lambda: {"dsn": os.environ.get("DATABASE_URL")}),
 }
 
 

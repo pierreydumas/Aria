@@ -255,50 +255,35 @@ class AgentManagerSkill(BaseSkill):
             return SkillResult.fail(f"Failed to get agent stats: {e}")
 
     async def prune_stale_sessions(self, max_age_hours: int = 6) -> SkillResult:
-        """Terminate sessions older than max_age_hours that are still active.
+        """Archive sessions older than max_age_hours into the archive tables.
+
+        Uses the engine cleanup endpoint which archives atomically in a single
+        DB transaction (copy to archive tables → delete from working tables).
+        No per-session loop — safe to call with hundreds of sessions.
 
         Args:
-            max_age_hours: Maximum age in hours before session is considered stale.
+            max_age_hours: Archive sessions last updated more than this many hours ago.
         """
         if not self._api:
             return SkillResult.fail("Not initialized")
 
         try:
-            # Fetch active sessions
-            result = await self._api.get(
-                "/sessions",
-                params={"status": "active", "limit": 200},
+            result = await self._api.post(
+                "/engine/sessions/cleanup",
+                params={"max_age_hours": int(max_age_hours), "dry_run": False},
             )
-            if not result:
+            if not result.success:
                 raise Exception(result.error)
-            sessions = result.data.get("sessions", [])
 
-            cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
-            pruned = []
-
-            for s in sessions:
-                started = s.get("started_at")
-                if not started:
-                    continue
-                # Parse ISO timestamp
-                try:
-                    started_dt = datetime.fromisoformat(started.replace("Z", "+00:00"))
-                except (ValueError, TypeError):
-                    continue
-
-                if started_dt < cutoff:
-                    # Terminate stale session
-                    term_result = await self._api.patch(
-                        f"/sessions/{s['id']}",
-                        data={"status": "terminated"},
-                    )
-                    if term_result.success:
-                        pruned.append(s["id"])
-
-            self._log_usage("prune_stale_sessions", True, pruned_count=len(pruned))
+            data = result.data if isinstance(result.data, dict) else {}
+            pruned = data.get("pruned_count", 0)
+            archived = data.get("archived_count", 0)
+            self._log_usage("prune_stale_sessions", True, pruned_count=pruned)
             return SkillResult.ok({
-                "pruned": len(pruned),
-                "session_ids": pruned,
+                "pruned": pruned,
+                "archived": archived,
+                "zombies_closed": data.get("zombies_closed", 0),
+                "message_count": data.get("message_count", 0),
                 "cutoff_hours": max_age_hours,
             })
         except Exception as e:

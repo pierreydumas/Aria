@@ -57,11 +57,11 @@
     },
     {
       "name": "prune_stale_sessions",
-      "description": "Bulk cleanup of stale agent sessions.",
+      "description": "Bulk-archive sessions older than max_age_hours in one atomic DB transaction (all sessions + messages copied to archive tables then deleted from working tables). Always returns actual pruned/archived counts — never silently no-ops.",
       "input_schema": {
         "type": "object",
         "properties": {
-          "max_age_hours": { "type": "number", "description": "Max age in hours (default: 24)" }
+          "max_age_hours": { "type": "number", "description": "Archive sessions last updated more than this many hours ago (default: 6)." }
         }
       }
     },

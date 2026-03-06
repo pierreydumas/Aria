@@ -351,21 +351,24 @@ async def purge_ghost_sessions(
 @router.post("/cleanup")
 async def cleanup_sessions(
     days: int = Query(default=30, ge=1, le=365, description="Prune sessions inactive for this many days"),
+    max_age_hours: int | None = Query(default=None, ge=0, description="When set, overrides 'days' with hour-level precision (e.g. 1, 6, 24)"),
     dry_run: bool = Query(default=True, description="If true, only count — don't delete"),
 ):
     """
-    Archive + prune stale sessions older than N days (S-67 session auto-cleanup).
+    Archive + prune stale sessions (S-67 session auto-cleanup).
+
+    Pass max_age_hours for sub-day thresholds (e.g. 1h maintenance, 6h cron cleanup).
+    When max_age_hours is set it takes precedence over days.
 
     Behavior:
-    - stale sessions/messages are copied into internal archive tables
-    - only then removed from working tables
-    - archive tables are not exposed via API/UI yet
+    - all matching sessions + messages are copied to archive tables atomically
+    - only then removed from working tables (single transaction — no partial states)
     """
     mgr = await _get_manager()
-    result = await mgr.prune_old_sessions(days=days, dry_run=dry_run)
+    result = await mgr.prune_old_sessions(days=days, dry_run=dry_run, max_age_hours=max_age_hours)
     logger.info(
-        "Session cleanup: %s (days=%d, dry_run=%s)",
-        result, days, dry_run,
+        "Session cleanup: %s (max_age_hours=%s, days=%d, dry_run=%s)",
+        result, max_age_hours, days, dry_run,
     )
     return result
 

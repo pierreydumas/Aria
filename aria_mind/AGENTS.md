@@ -29,7 +29,7 @@ NEVER `web_search` or `web_fetch`. No exceptions without human approval.
 2. `AgentCoordinator.solve()` = full explore→work→validate cycle with 3 retries.
 3. Act autonomously within scope — don't ask permission, report results.
 4. Do NOT spawn sub-agents when `circuit_breaker_open`. Accept degraded and stop.
-5. After every delegation → `agent_manager__prune_stale_sessions(max_age_hours=1)`.
+5. After every delegation → `agent_manager__prune_stale_sessions(max_age_hours=1)` — archives completed sub-agent sessions atomically (single DB transaction, no loop).
 6. At focus L3 on reviews + architectural decisions → prefer roundtable/swarm
    over single-agent delegation (see ORCHESTRATION.md for trigger conditions).
 

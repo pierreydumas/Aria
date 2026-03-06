@@ -639,9 +639,10 @@ class NativeSessionManager:
         self,
         days: int = 30,
         dry_run: bool = False,
+        max_age_hours: int | None = None,
     ) -> dict[str, Any]:
         """
-        Archive + delete sessions older than N days.
+        Archive + delete sessions older than N days (or hours if max_age_hours given).
 
         Also auto-closes any scoped/cron sessions that are still marked
         'active' but have not been updated in the last 2 hours (zombie sessions
@@ -650,6 +651,8 @@ class NativeSessionManager:
         Args:
             days: Sessions inactive for this many days are pruned.
             dry_run: If True, only count without deleting.
+            max_age_hours: When set, overrides `days` with hour-level precision
+                           (useful for sub-day cleanup thresholds like 1h or 6h).
 
         Returns:
             Dict with 'pruned_count', 'archived_count', 'message_count', and
@@ -679,7 +682,10 @@ class NativeSessionManager:
             if zombies_closed:
                 logger.info("prune_old_sessions: closed %d zombie sessions", zombies_closed)
 
-        cutoff = func.now() - func.make_interval(0, 0, 0, days)
+        if max_age_hours is not None:
+            cutoff = func.now() - func.make_interval(0, 0, 0, 0, max_age_hours)
+        else:
+            cutoff = func.now() - func.make_interval(0, 0, 0, days)
 
         # Find stale working sessions.
         stale_stmt = (
