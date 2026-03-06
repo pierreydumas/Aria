@@ -20,6 +20,7 @@ from db.models import EngineAgentState
 
 from aria_engine.config import EngineConfig
 from aria_engine.exceptions import EngineError
+from aria_agents.scoring import compute_pheromone as _compute_pheromone
 
 logger = logging.getLogger("aria.engine.routing")
 
@@ -131,10 +132,11 @@ def compute_pheromone_score(records: list[dict[str, Any]]) -> float:
     """
     Compute pheromone score from performance records.
 
-    Ported from aria_agents/scoring.py compute_pheromone().
-
-    Score formula: success_rate * 0.6 + speed_score * 0.3 + cost_score * 0.1
-    With time-decay: DECAY_FACTOR^age_days per record.
+    Thin wrapper around ``aria_agents.scoring.compute_pheromone`` so that
+    both the file-backed coordinator path and the DB-backed routing path
+    share a single formula (A-01 unification).  The only difference is that
+    routing.py calls this with records loaded from ``aria_engine.agent_state``
+    rather than from the in-memory JSON file.
 
     Args:
         records: List of performance records.
@@ -142,34 +144,7 @@ def compute_pheromone_score(records: list[dict[str, Any]]) -> float:
     Returns:
         Float score between 0.0 and 1.0.
     """
-    if not records:
-        return COLD_START_SCORE
-
-    score = 0.0
-    weight_sum = 0.0
-    now = datetime.now(timezone.utc)
-
-    for r in records:
-        created = r.get("created_at", now)
-        if isinstance(created, str):
-            created = datetime.fromisoformat(
-                created.replace("Z", "+00:00")
-            )
-        if created.tzinfo is None:
-            created = created.replace(tzinfo=timezone.utc)
-
-        age_days = max((now - created).total_seconds() / 86400, 0)
-        decay = DECAY_FACTOR**age_days
-
-        s = (
-            float(r.get("success", False)) * 0.6
-            + r.get("speed_score", 0.5) * 0.3
-            + r.get("cost_score", 0.5) * 0.1
-        )
-        score += s * decay
-        weight_sum += decay
-
-    return score / weight_sum if weight_sum > 0 else COLD_START_SCORE
+    return _compute_pheromone(records)
 
 
 class EngineRouter:

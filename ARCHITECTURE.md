@@ -198,6 +198,68 @@ Focuses are defined in `aria_mind/soul/focus.py`. Agent roles and delegation pat
 
 ---
 
+## Engine Safety & Resilience Layer
+
+*Added February–March 2026. These modules sit inside `aria_engine/` between the LLM gateway and the session storage.*
+
+### Session Isolation (`aria_engine/session_isolation.py`)
+
+Every agent operates inside its own `AgentSessionScope`. The scope binds a `session_id` to a specific `agent_id` and carries the agent's `EngineConfig`. The `SessionIsolationFactory` manages a registry of scopes so the engine can retrieve any agent's context by ID and guarantee no cross-agent message bleed.
+
+```
+SessionIsolationFactory
+  └── AgentSessionScope(agent_id, session_id, config, db)
+        ├── add_message(role, content)
+        └── get_messages() → List[dict]
+```
+
+### Session Protection (`aria_engine/session_protection.py`)
+
+All inbound messages are validated and rate-limited before being written to the DB.
+
+| Check | Mechanism |
+|---|---|
+| Content length | 1–100 KB enforced |
+| Role validation | Must be in `{user, assistant, system, tool, function}` |
+| Control-char strip | CONTROL_CHAR_RE removes `\x00`–`\x1f` except `\n`, `\t`, `\r` |
+| Injection detection | 20+ `INJECTION_PATTERNS` regex heuristics (log-only, no block) |
+| Sliding-window rate limit | Per-session **and** per-agent; limits persist across restarts in `aria_engine.rate_limit_windows` via SQLAlchemy |
+| Session size cap | 500 messages max per session |
+| Advisory locking | `asyncio.Lock` per session_id prevents concurrent writes |
+
+Injection detection is **log-only** (never blocks). The canonical ML-level gate is `InputGuardSkill` (L0 skill layer).
+
+### Auto Session Management (`aria_engine/auto_session.py`)
+
+Handles automatic title generation and session rotation:
+
+- `generate_auto_title(content)` — derives a ≤100-char title from the first line of the message.
+- `_needs_rotation(session)` — returns True when session is ended, over the message-count limit, or older than the idle timeout.
+- `close_idle_sessions()` — background sweep that ends stale sessions.
+
+### Swarm Consensus (`aria_engine/swarm.py`)
+
+When a single agent isn't enough, `SwarmOrchestrator` runs a multi-agent consensus loop:
+
+```
+SwarmOrchestrator.execute(prompt, agents=["aria-analyst", "aria-creator", ...])
+  │
+  ├── Phase: EXPLORE  → each agent proposes independently
+  ├── Phase: CONVERGE → agents see each other's votes and iterate
+  ├── Phase: FINALIZE → Orchestrator synthesizes the consensus trail
+  │
+  └── SwarmResult
+        ├── consensus (final answer string)
+        ├── votes: List[SwarmVote]  (agree / disagree / extend / pivot)
+        └── trail (pheromone-ordered reasoning chain)
+```
+
+Votes are parsed from structured `[VOTE: …] [CONFIDENCE: …]` tags. If tags are absent, a word-count heuristic infers agreement. Consensus is weighted by confidence and falls back to the highest-confidence single vote when no majority forms.
+
+Requires 2–12 agents; raises `EngineError` outside that range.
+
+---
+
 ## Memory Architecture
 
 *Based on Aria's own analysis — February 15, 2026.*
@@ -246,10 +308,12 @@ Focuses are defined in `aria_mind/soul/focus.py`. Agent roles and delegation pat
 | Database | Schema | Purpose |
 |----------|--------|---------|
 | `aria_warehouse` | `aria_data` | Knowledge, memories, goals, activities, social, logs, performance — all domain data (26 tables) |
-| `aria_warehouse` | `aria_engine` | Chat sessions, messages, cron jobs, agent state, config, LLM models, agent tools — engine infrastructure (13 tables) |
+| `aria_warehouse` | `aria_engine` | Chat sessions, messages, cron jobs, agent state, config, LLM models, agent tools, circuit-breaker state, rate-limit windows — engine infrastructure (15 tables) |
 | `litellm` | `public` | LiteLLM Prisma tables (isolated to prevent migration conflicts) |
 
-All 39 ORM models have explicit schema annotations in `src/api/db/models.py`. No tables in `public` schema.
+All 41 ORM models have explicit schema annotations in `src/api/db/models.py`. No tables in `public` schema.
+
+New tables added March 2026: `aria_engine.circuit_breaker_state` (R-01) and `aria_engine.rate_limit_windows` (R-02) — both created by `ensure_schema()` on startup and populated via SQLAlchemy ORM; no Alembic dependency.
 
 Implementation details: `aria_mind/memory.py`, `aria_skills/working_memory/`, `aria_skills/knowledge_graph/`
 

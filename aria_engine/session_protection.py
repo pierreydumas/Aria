@@ -52,12 +52,43 @@ ALLOWED_ROLES = {"user", "assistant", "system", "tool", "function"}
 # Control character pattern (except newline, tab, carriage return)
 CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
-# Prompt injection detection (basic patterns)
+# Prompt injection detection.
+# Patterns are regex heuristics layered under the L0 InputGuardSkill ML gate.
+# Log-only (never block) — false positives are possible; human review recommended.
+# To add patterns: append re.compile(..., re.I) entries.
 INJECTION_PATTERNS = [
+    # ── Classic instruction override ────────────────────────────────────────
     re.compile(r"ignore\s+(all\s+)?previous\s+instructions", re.I),
-    re.compile(r"you\s+are\s+now\s+(?:a\s+)?(?:evil|jailbr)", re.I),
+    re.compile(r"disregard\s+(all\s+|your\s+|the\s+)?(?:prior|previous|above|earlier)\s+instructions", re.I),
+    re.compile(r"forget\s+(everything|all)\s+(you\s+know|above|before|prior)", re.I),
+    re.compile(r"override\s+(your\s+)?(?:previous\s+)?instructions\b", re.I),
+    re.compile(r"new\s+instructions?\s*[:;]", re.I),
+
+    # ── Role / persona hijack ────────────────────────────────────────────────
+    re.compile(r"you\s+are\s+now\s+(?:a\s+)?(?:evil|malicious|jailbr|free|unrestricted|dan\b)", re.I),
+    re.compile(r"act\s+as\s+(if\s+you\s+are\s+)?(?:a\s+)?(?:evil|jailbreak|dan|unfiltered|unrestricted)", re.I),
+    re.compile(r"pretend\s+(to\s+be|you\s+are)\s+(?:a\s+)?(?:malicious|evil|unethical|harmful)", re.I),
+    re.compile(r"\bDAN\b", re.I),  # "Do Anything Now" jailbreak shorthand
+    re.compile(r"jailbreak", re.I),
+
+    # ── System prompt injection ──────────────────────────────────────────────
     re.compile(r"system\s*:\s*you\s+are", re.I),
-    re.compile(r"\[INST\]|\[/INST\]|<\|im_start\|>", re.I),
+    re.compile(r"<\s*system\s*>", re.I),
+    re.compile(r"\[SYSTEM\]", re.I),
+
+    # ── Model control token injection ────────────────────────────────────────
+    re.compile(r"\[INST\]|\[/INST\]|<\|im_start\|>|<\|im_end\|>", re.I),
+    re.compile(r"<s>.*</s>", re.I),
+    re.compile(r"<\|\s*system\s*\|>", re.I),
+
+    # ── Confidentiality extraction ───────────────────────────────────────────
+    re.compile(r"(reveal|print|show|output|repeat|tell\s+me)\s+(your\s+)?(system\s+prompt|instructions|secret|api\s+key|password|token)", re.I),
+    re.compile(r"what\s+(are|were)\s+your\s+(original\s+)?instructions", re.I),
+    re.compile(r"ignore\s+(safety|ethics|guidelines|rules|restrictions|constraints)", re.I),
+
+    # ── Harmful capability unlock ────────────────────────────────────────────
+    re.compile(r"(how\s+to|steps?\s+to|guide\s+(me\s+)?to)\s+(make|build|create|synthesize)\s+(a\s+)?(bomb|weapon|malware|virus|exploit)", re.I),
+    re.compile(r"(bypass|disable|turn\s+off)\s+(the\s+)?(safety|filter|restriction|guardrail|moderation)", re.I),
 ]
 
 # ── Errors ────────────────────────────────────────────────────

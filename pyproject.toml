@@ -122,7 +122,9 @@ addopts = [
     "--strict-markers",
 ]
 testpaths = ["tests"]
-pythonpath = ["."]
+# "." for repo-root packages; "src/api" makes `db` importable locally
+# (mirrors the Docker volume mount src/api/db:/db with PYTHONPATH=/)
+pythonpath = [".", "src/api"]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "unit: fast unit tests",

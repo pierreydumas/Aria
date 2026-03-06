@@ -30,8 +30,23 @@ from aria_engine.exceptions import SchedulerError
 from aria_engine.metrics import METRICS
 from db.models import EngineCronJob, ActivityLog
 
-# aria-api base URL (inside Docker network) — dynamic port via env var
-_API_BASE = os.getenv("ENGINE_API_BASE_URL", "http://aria-api:8000")
+# aria-api base URL.
+# Inside Docker: ENGINE_API_BASE_URL is unset, so the default "http://aria-api:8000"
+# resolves via the Docker-internal hostname.  Locally you MUST export
+# ENGINE_API_BASE_URL=http://localhost:8000 (or whatever port aria-api maps to)
+# or scheduler job HTTP callbacks will silently fail because "aria-api" is not
+# resolvable outside the container network.
+_ENGINE_API_BASE_OVERRIDE = os.getenv("ENGINE_API_BASE_URL")
+_API_BASE = _ENGINE_API_BASE_OVERRIDE or "http://aria-api:8000"
+if not _ENGINE_API_BASE_OVERRIDE and not os.getenv("RUNNING_IN_DOCKER"):
+    # Only warn once at module import; not in Docker where the default is correct.
+    import logging as _logging
+    _logging.getLogger("aria.engine.scheduler").warning(
+        "ENGINE_API_BASE_URL is not set and RUNNING_IN_DOCKER is not set. "
+        "Scheduler HTTP callbacks will target http://aria-api:8000 which is "
+        "only resolvable inside the Docker network. "
+        "Set ENGINE_API_BASE_URL=http://localhost:8000 for local development."
+    )
 
 logger = logging.getLogger("aria.engine.scheduler")
 
