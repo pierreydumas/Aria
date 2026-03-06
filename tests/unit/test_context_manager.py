@@ -15,10 +15,11 @@ Tests cover:
 """
 from __future__ import annotations
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 
+from aria_engine.config import EngineConfig
 from aria_engine.context_manager import ContextManager, MIN_RECENT_MESSAGES, FALLBACK_TOKENS_PER_MESSAGE
 
 
@@ -26,9 +27,8 @@ from aria_engine.context_manager import ContextManager, MIN_RECENT_MESSAGES, FAL
 
 
 def _make_cm() -> ContextManager:
-    """Return a ContextManager with a stubbed db engine."""
-    mock_engine = MagicMock()
-    return ContextManager(db_engine=mock_engine)
+    """Return a ContextManager with a default (no-pydantic) config."""
+    return ContextManager(config=EngineConfig())
 
 
 def _user(content: str) -> dict:
@@ -79,8 +79,8 @@ def test_all_fit_within_budget_returns_all():
     cm = _make_cm()
     _patch_tokens(cm)
     messages = [_system("sys"), _user("hi"), _assistant("hello")]
-    # 3 messages × 10 tokens = 30 tokens; budget is 100
-    result = cm.build_context(all_messages=messages, max_tokens=100, model="")
+    # 3 messages x 10 tokens = 30 tokens; budget 100, reserve 0
+    result = cm.build_context(all_messages=messages, max_tokens=100, model="", reserve_tokens=0)
     assert len(result) == 3
 
 
@@ -160,8 +160,8 @@ def test_tool_message_receives_importance_boost():
         _tool_msg("tool result: critical data"),
         _assistant("final answer"),  # pinned (last MIN_RECENT_MESSAGES)
     ]
-    # Budget fits 4 out of 5 → the plain assistant in the middle should be evicted
-    result = cm.build_context(all_messages=messages, max_tokens=40, model="")
+    # Budget fits 4 out of 5, reserve=0 so budget = 40 tokens = 4 messages
+    result = cm.build_context(all_messages=messages, max_tokens=40, model="", reserve_tokens=0)
     contents = [m.get("content", "") for m in result]
     assert "tool result: critical data" in contents
 

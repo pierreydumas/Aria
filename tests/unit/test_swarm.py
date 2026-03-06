@@ -112,7 +112,17 @@ def test_swarm_result_vote_count():
 
 
 def test_swarm_result_vote_count_zero():
-    r = _make_result([])
+    r = SwarmResult(
+        session_id="sess-1",
+        topic="Test topic",
+        participants=[],
+        iterations=0,
+        votes=[],
+        consensus="",
+        consensus_score=0.0,
+        converged=False,
+        total_duration_ms=0,
+    )
     assert r.vote_count == 0
 
 
@@ -213,7 +223,8 @@ def test_parse_vote_no_tag_defaults_to_extend():
 
 def test_parse_vote_invalid_confidence_falls_back():
     orch = _make_orchestrator()
-    _, conf = orch._parse_vote("[VOTE: agree] [CONFIDENCE: not-a-number]")
+    # Use extend tag (no heuristic agree/disagree words) with a non-numeric confidence
+    _, conf = orch._parse_vote("[VOTE: extend] [CONFIDENCE: xyz-invalid]")
     assert conf == 0.5
 
 
