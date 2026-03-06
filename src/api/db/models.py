@@ -1174,3 +1174,80 @@ class LlmModelEntry(Base):
 Index("idx_llm_models_provider", LlmModelEntry.provider)
 Index("idx_llm_models_tier", LlmModelEntry.tier)
 Index("idx_llm_models_enabled", LlmModelEntry.enabled)
+
+
+# ── Engine Resilience State (R-01 / R-02) ────────────────────────────────────
+# Persisted to aria_engine schema via SQLAlchemy — no Redis, no raw SQL.
+
+
+class EngineCircuitBreakerState(Base):
+    """Persisted circuit-breaker state for cross-restart recovery (R-01).
+
+    Written by ``CircuitBreaker.persist(db)`` and read by
+    ``CircuitBreaker.restore(name, db)``.  The in-memory hot-path is
+    unchanged; DB writes are fire-and-forget upserts.
+    """
+
+    __tablename__ = "circuit_breaker_state"
+    __table_args__ = {"schema": "aria_engine"}
+
+    name: Mapped[str] = mapped_column(
+        String(100), primary_key=True,
+        comment="Breaker identity key, e.g. 'llm' or 'skill:api_client'",
+    )
+    failures: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    opened_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        comment="Wall-clock UTC instant when breaker was opened; NULL when closed",
+    )
+    state: Mapped[str] = mapped_column(
+        String(20), server_default=text("'closed'"),
+        comment="closed | open | half-open",
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("NOW()"),
+        onupdate=text("NOW()"),
+    )
+
+
+Index("idx_ecb_state", EngineCircuitBreakerState.state)
+Index("idx_ecb_updated", EngineCircuitBreakerState.updated_at.desc())
+
+
+class EngineRateLimitWindow(Base):
+    """Persisted sliding-window event log for rate limiting (R-02).
+
+    Each row is keyed by ``(window_key, window_type)`` and stores a JSONB
+    array of ISO-8601 UTC timestamps representing recent events.
+    Old timestamps are pruned on every write — rows stay small.
+
+    ``window_type`` is one of ``'session'`` or ``'agent'``.
+    ``window_key``  is a session UUID string or an agent_id string.
+    """
+
+    __tablename__ = "rate_limit_windows"
+    __table_args__ = (
+        UniqueConstraint("window_key", "window_type", name="uq_rlw_key_type"),
+        {"schema": "aria_engine"},
+    )
+
+    id: Mapped[Any] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"),
+    )
+    window_key: Mapped[str] = mapped_column(String(200), nullable=False)
+    window_type: Mapped[str] = mapped_column(
+        String(10), nullable=False,
+        comment="'session' or 'agent'",
+    )
+    events: Mapped[list] = mapped_column(
+        JSONB, server_default=text("'[]'::jsonb"),
+        comment="ISO-8601 UTC timestamps of rate-limit events within the last hour",
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("NOW()"),
+        onupdate=text("NOW()"),
+    )
+
+
+Index("idx_rlw_key_type", EngineRateLimitWindow.window_key, EngineRateLimitWindow.window_type)
+Index("idx_rlw_updated", EngineRateLimitWindow.updated_at.desc())

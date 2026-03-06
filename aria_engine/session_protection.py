@@ -15,6 +15,7 @@ import re
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select, func
@@ -87,19 +88,50 @@ class SessionFullError(EngineError):
 
 @dataclass
 class SlidingWindow:
-    """Sliding window rate limiter for a single key."""
+    """Sliding window rate limiter for a single key.
+
+    Timestamps are wall-clock POSIX floats (``time.time()``) so they can be
+    serialised to ISO-8601 strings and persisted to
+    ``aria_engine.rate_limit_windows`` via SQLAlchemy.
+    """
 
     timestamps: list = field(default_factory=list)
 
     def add(self) -> None:
-        self.timestamps.append(time.monotonic())
+        """Record an event at the current wall-clock time."""
+        self.timestamps.append(time.time())
 
     def count_in_window(self, window_seconds: float) -> int:
-        cutoff = time.monotonic() - window_seconds
-        self.timestamps = [
-            t for t in self.timestamps if t > cutoff
-        ]
+        cutoff = time.time() - window_seconds
+        self.timestamps = [t for t in self.timestamps if t > cutoff]
         return len(self.timestamps)
+
+    def prune(self, max_age_seconds: float = 3600.0) -> None:
+        """Drop timestamps older than *max_age_seconds*."""
+        cutoff = time.time() - max_age_seconds
+        self.timestamps = [t for t in self.timestamps if t > cutoff]
+
+    def to_iso_list(self) -> list[str]:
+        """Serialise to a list of ISO-8601 UTC strings for JSONB storage."""
+        self.prune()
+        return [
+            datetime.fromtimestamp(t, tz=timezone.utc).isoformat()
+            for t in self.timestamps
+        ]
+
+    @classmethod
+    def from_iso_list(cls, iso_list: list[str]) -> "SlidingWindow":
+        """Rebuild a window from a persisted ISO list."""
+        sw = cls()
+        cutoff = time.time() - 3600.0
+        for s in iso_list:
+            try:
+                ts = datetime.fromisoformat(s).timestamp()
+                if ts > cutoff:
+                    sw.timestamps.append(ts)
+            except (ValueError, TypeError):
+                pass
+        return sw
 
 
 class SessionProtection:
@@ -139,6 +171,7 @@ class SessionProtection:
         self._max_per_session = max_per_session
 
         # In-memory rate limiters (per session + per agent)
+        # Timestamps are wall-clock so they survive serialisation to PG.
         self._session_windows: dict[str, SlidingWindow] = defaultdict(
             SlidingWindow
         )
@@ -148,6 +181,70 @@ class SessionProtection:
 
         # Advisory lock set (track which sessions are locked)
         self._locks: dict[str, asyncio.Lock] = {}
+
+    # ── Persistence (aria_engine.rate_limit_windows) ──────────────
+
+    async def load_windows(self) -> None:
+        """Hydrate in-memory windows from ``aria_engine.rate_limit_windows``.
+
+        Call once after process start to restore rate-limit state across
+        restarts.  Uses SQLAlchemy ORM — no raw SQL.
+        """
+        from db.models import EngineRateLimitWindow
+
+        async with self._db.connect() as conn:
+            result = await conn.execute(select(EngineRateLimitWindow))
+            rows = result.mappings().all()
+
+        for row in rows:
+            window = SlidingWindow.from_iso_list(row["events"] or [])
+            if not window.timestamps:
+                continue
+            if row["window_type"] == "session":
+                self._session_windows[row["window_key"]] = window
+            elif row["window_type"] == "agent":
+                self._agent_windows[row["window_key"]] = window
+
+        logger.debug("Loaded %d persisted rate-limit windows", len(rows))
+
+    async def _save_window(
+        self,
+        window_key: str,
+        window_type: str,
+        window: SlidingWindow,
+    ) -> None:
+        """Upsert one sliding window to ``aria_engine.rate_limit_windows``.
+
+        Fire-and-forget — callers use ``asyncio.create_task`` around this.
+        """
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        from db.models import EngineRateLimitWindow
+
+        iso_events = window.to_iso_list()
+        now = datetime.now(timezone.utc)
+        stmt = (
+            pg_insert(EngineRateLimitWindow)
+            .values(
+                window_key=window_key,
+                window_type=window_type,
+                events=iso_events,
+                updated_at=now,
+            )
+            .on_conflict_do_update(
+                constraint="uq_rlw_key_type",
+                set_=dict(events=iso_events, updated_at=now),
+            )
+        )
+        try:
+            async with self._db.begin() as conn:
+                await conn.execute(stmt)
+        except Exception:
+            logger.debug(
+                "rate_limit_windows persist failed for %s/%s",
+                window_type,
+                window_key,
+            )
 
     async def validate_and_check(
         self,
@@ -251,6 +348,16 @@ class SessionProtection:
         session_window.add()
         agent_window.add()
 
+        # Fire-and-forget persistence to aria_engine.rate_limit_windows
+        asyncio.create_task(
+            self._save_window(session_id, "session", session_window),
+            name=f"rlw-session-{session_id[:8]}",
+        )
+        asyncio.create_task(
+            self._save_window(agent_id, "agent", agent_window),
+            name=f"rlw-agent-{agent_id}",
+        )
+
         return content
 
     def sanitize_content(self, content: str) -> str:
@@ -322,30 +429,27 @@ class SessionProtection:
 
     def cleanup_windows(self, max_age_seconds: int = 7200) -> int:
         """
-        Clean up stale rate limiter windows.
+        Clean up stale in-memory rate limiter windows.
 
         Should be called periodically to prevent memory leaks.
+        DB rows keep their own TTL via ``to_iso_list()`` pruning on every
+        write — this only cleans the in-process dict.
 
         Returns:
             Number of windows cleaned up.
         """
-        cutoff = time.monotonic() - max_age_seconds
         cleaned = 0
 
         for key in list(self._session_windows.keys()):
             window = self._session_windows[key]
-            window.timestamps = [
-                t for t in window.timestamps if t > cutoff
-            ]
+            window.prune(max_age_seconds)
             if not window.timestamps:
                 del self._session_windows[key]
                 cleaned += 1
 
         for key in list(self._agent_windows.keys()):
             window = self._agent_windows[key]
-            window.timestamps = [
-                t for t in window.timestamps if t > cutoff
-            ]
+            window.prune(max_age_seconds)
             if not window.timestamps:
                 del self._agent_windows[key]
                 cleaned += 1

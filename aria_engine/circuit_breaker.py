@@ -21,6 +21,11 @@ Usage:
 """
 import logging
 import time
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncEngine
 
 logger = logging.getLogger("aria.engine.circuit_breaker")
 
@@ -135,6 +140,85 @@ class CircuitBreaker:
         """Force-reset the circuit breaker to CLOSED state."""
         self._failures = 0
         self._opened_at = None
+
+    # ── Persistence (aria_engine.circuit_breaker_state) ──────────
+
+    async def persist(self, db: "AsyncEngine") -> None:
+        """Upsert current state to ``aria_engine.circuit_breaker_state``.
+
+        The in-memory hot-path is unchanged; call this after
+        ``record_failure()`` / ``record_success()`` / ``reset()`` to make
+        state durable across restarts.  Uses SQLAlchemy ORM — no raw SQL.
+        """
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        from db.models import EngineCircuitBreakerState
+
+        # Convert monotonic offset → UTC wall-clock
+        opened: datetime | None = None
+        if self._opened_at is not None:
+            wall = time.time() - time.monotonic() + self._opened_at
+            opened = datetime.fromtimestamp(wall, tz=timezone.utc)
+
+        now = datetime.now(timezone.utc)
+        stmt = (
+            pg_insert(EngineCircuitBreakerState)
+            .values(
+                name=self.name,
+                failures=self._failures,
+                opened_at=opened,
+                state=self.state,
+                updated_at=now,
+            )
+            .on_conflict_do_update(
+                index_elements=["name"],
+                set_=dict(
+                    failures=self._failures,
+                    opened_at=opened,
+                    state=self.state,
+                    updated_at=now,
+                ),
+            )
+        )
+        async with db.begin() as conn:
+            await conn.execute(stmt)
+
+    @classmethod
+    async def restore(
+        cls,
+        name: str,
+        db: "AsyncEngine",
+        threshold: int = 5,
+        reset_after: float = 30.0,
+    ) -> "CircuitBreaker":
+        """Load a CircuitBreaker from persisted state, or return a fresh one.
+
+        Uses ``aria_engine.circuit_breaker_state`` via SQLAlchemy ORM.
+        If no row exists the returned breaker starts in CLOSED state.
+        """
+        from sqlalchemy import select
+
+        from db.models import EngineCircuitBreakerState
+
+        cb = cls(name=name, threshold=threshold, reset_after=reset_after)
+        async with db.connect() as conn:
+            result = await conn.execute(
+                select(EngineCircuitBreakerState).where(
+                    EngineCircuitBreakerState.name == name
+                )
+            )
+            rec = result.mappings().first()
+
+        if rec is None:
+            return cb
+
+        cb._failures = rec["failures"]
+        if rec["opened_at"] is not None:
+            # Convert UTC datetime back to a monotonic-equivalent float
+            wall_offset = time.time() - time.monotonic()
+            cb._opened_at = rec["opened_at"].timestamp() - wall_offset
+
+        return cb
 
     def __repr__(self) -> str:
         return (

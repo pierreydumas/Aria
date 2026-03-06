@@ -158,27 +158,27 @@ def test_sliding_window_add_and_count():
 def test_sliding_window_expires_old_events(monkeypatch):
     """Events older than the window should not be counted."""
     w = SlidingWindow()
-    t0 = time.monotonic()
+    t0 = time.time()
 
     # Add an event at t0
-    monkeypatch.setattr(time, "monotonic", lambda: t0)
+    monkeypatch.setattr(time, "time", lambda: t0)
     w.add()
 
     # Advance time past the 60-second window
-    monkeypatch.setattr(time, "monotonic", lambda: t0 + 61.0)
+    monkeypatch.setattr(time, "time", lambda: t0 + 61.0)
     assert w.count_in_window(60) == 0
 
 
 def test_sliding_window_counts_within_window(monkeypatch):
     w = SlidingWindow()
-    t0 = time.monotonic()
+    t0 = time.time()
 
-    monkeypatch.setattr(time, "monotonic", lambda: t0)
+    monkeypatch.setattr(time, "time", lambda: t0)
     w.add()
     w.add()
 
     # Move 30 seconds forward — still within the 60-second window
-    monkeypatch.setattr(time, "monotonic", lambda: t0 + 30.0)
+    monkeypatch.setattr(time, "time", lambda: t0 + 30.0)
     assert w.count_in_window(60) == 2
 
 
