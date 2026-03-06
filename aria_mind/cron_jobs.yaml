@@ -104,7 +104,16 @@ jobs:
       6. Review pending consent queue. Select next priority.
       7. Autonomous continuity: if no actionable in_progress goal exists, create one new goal
          from sprint tickets (plans/sprint/) and set as active_goal_reference.
-      8. Outputs: set_memory(last_review_summary) with audit stats, refresh active_goal_reference,
+      8. LEAN BOARD RESPONSE: count productive goals (status=in_progress or todo, NOT health/maintenance).
+         If productive goal count < 2 OR no experiment/learning goal exists:
+           a. BRAINSTORM: call brainstorm__start_session on the current bottleneck or top-priority topic.
+              Call brainstorm__add_idea 2 times with concrete ideas. Create one new goal from the
+              best idea (must name a specific deliverable, not a vague task).
+           b. EXPERIMENT: if no experiment goal is in_progress, call experiment__create_experiment
+              with a testable hypothesis tied to the sprint focus. Log it as a goal.
+         Goal: the board must be lean (minimal WIP) but NEVER empty. Always maintain forward motion
+         through brainstorming and experimentation when real work goals dry up.
+      9. Outputs: set_memory(last_review_summary) with audit stats, refresh active_goal_reference,
          create_activity(six_hour_review), create_activity(cron_execution).
       Use api_client tools only (no raw SQL).
     agent: aria
@@ -126,6 +135,15 @@ jobs:
       5. GOAL SEEDING: Ensure at least 2 actionable goals exist in doing/todo columns.
          If fewer than 2: create goals from sprint tickets (plans/sprint/) or from
          backlog items. Goals must name a specific deliverable file or code change.
+         LEAN BOARD RESPONSE (only when fewer than 2 actionable goals exist after seeding):
+           a. BRAINSTORM: call brainstorm__start_session with today's top-priority topic.
+              Call brainstorm__add_idea 2–3 times to seed concrete, actionable ideas.
+              Convert the best idea into a new goal (must name a specific deliverable).
+           b. EXPERIMENT: call experiment__create_experiment with a small, falsifiable
+              hypothesis tied to the current sprint focus (e.g. "Adding X will reduce Y").
+              Log the experiment as a learning goal in the todo column.
+           c. Both steps are MANDATORY when the board is lean. Skip only if the board
+              already has 2+ actionable goals after standard seeding.
       6. Set active_goal_reference to highest-priority actionable goal.
       7. Outputs: set_memory(last_review_summary), set_memory(active_goal_reference),
          create_activity(morning_checkin), create_activity(cron_execution).

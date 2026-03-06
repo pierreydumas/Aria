@@ -58,6 +58,11 @@
     .page-controls button:hover { opacity: 0.9; }
     .empty-state { text-align: center; padding: 50px 20px; color: var(--text-secondary); background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 12px; }
 
+    .cluster-card { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 25px; }
+    .cluster-card h4 { font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; }
+    .cluster-card .chart-note { font-size: 11px; color: var(--text-muted); margin-bottom: 12px; }
+    .cluster-card canvas { max-height: 320px; }
+
     @media (max-width: 768px) { .charts-row { grid-template-columns: 1fr; } }
 </style>
 {% endblock %}
@@ -65,7 +70,7 @@
 {% block content %}
 <div class="page-header">
     <h1>🔍 Pattern Recognition</h1>
-    <p>Detect recurring themes, temporal behaviours, emerging interests, and knowledge gaps</p>
+    <p>Detect recurring themes, temporal behaviors, emerging interests, and knowledge gaps</p>
 </div>
 
 <div class="stats-grid">
@@ -103,6 +108,12 @@
     </div>
 </div>
 
+<div class="cluster-card">
+    <h4>🫧 Pattern Cluster — Confidence over Time</h4>
+    <div class="chart-note">Each bubble = one pattern · Y = confidence % · Bubble size = occurrence frequency · Color = type · Responds to type filter</div>
+    <canvas id="bubbleChart"></canvas>
+</div>
+
 <div class="page-controls">
     <select id="typeFilter">
         <option value="">All Types</option>
@@ -126,7 +137,7 @@
 const API = window.ARIA_API_BASE_URL || '';
 let allPatterns = [];
 let allMemories = 0;  // total memories in the system
-let typeChart, confidenceChart;
+let typeChart, confidenceChart, bubbleChart;
 
 const TYPE_COLORS = {
     topic_recurrence: '#3b82f6',
@@ -201,6 +212,7 @@ async function loadPatterns() {
 
         updateStats();
         updateCharts();
+        renderBubbleChart();
         renderList();
     } catch(e) {
         document.getElementById('patternList').innerHTML =
@@ -303,6 +315,90 @@ function updateCharts() {
     }
 }
 
+function renderBubbleChart() {
+    const filter = document.getElementById('typeFilter').value;
+    const filtered = filter
+        ? allPatterns.filter(p => (p.metadata || {}).pattern_type === filter)
+        : allPatterns;
+
+    const datasets = {};
+    filtered.forEach(p => {
+        const m = p.metadata || {};
+        const pType = m.pattern_type || 'unknown';
+        if (!datasets[pType]) {
+            datasets[pType] = {
+                label: pType.replace(/_/g, ' '),
+                data: [],
+                backgroundColor: (TYPE_COLORS[pType] || '#6b7280') + 'bb',
+                borderColor: TYPE_COLORS[pType] || '#6b7280',
+                borderWidth: 1,
+            };
+        }
+        const ts = p.created_at ? new Date(p.created_at).getTime() : Date.now();
+        const conf = Math.round((m.confidence || p.importance || 0) * 100);
+        const freq = m.occurrence_count || m.frequency || 1;
+        const r = Math.max(5, Math.min(24, freq * 4 + 5));
+        datasets[pType].data.push({ x: ts, y: conf, r });
+    });
+
+    if (bubbleChart) bubbleChart.destroy();
+    const ctx = document.getElementById('bubbleChart').getContext('2d');
+    const dsArr = Object.values(datasets);
+
+    if (!dsArr.length) {
+        bubbleChart = new Chart(ctx, {
+            type: 'bubble',
+            data: { datasets: [{ label: 'No data', data: [{ x: Date.now(), y: 50, r: 6 }], backgroundColor: '#37415188', borderColor: '#374151' }] },
+            options: {
+                responsive: true,
+                plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                scales: {
+                    x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#aaa', callback: (v) => new Date(v).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) } },
+                    y: { min: 0, max: 100, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#aaa', stepSize: 20, callback: (v) => `${v}%` } }
+                }
+            }
+        });
+        return;
+    }
+
+    bubbleChart = new Chart(ctx, {
+        type: 'bubble',
+        data: { datasets: dsArr },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { position: 'bottom', labels: { color: '#aaa', font: { size: 11 }, padding: 14, boxWidth: 12 } },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => {
+                            const d = ctx.raw;
+                            const dt = new Date(d.x).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+                            return ` ${ctx.dataset.label} · ${dt} · conf: ${d.y}%`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    type: 'linear',
+                    grid: { color: 'rgba(255,255,255,0.04)' },
+                    ticks: {
+                        color: '#aaa',
+                        maxTicksLimit: 7,
+                        callback: (v) => new Date(v).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+                    }
+                },
+                y: {
+                    min: 0, max: 100,
+                    grid: { color: 'rgba(255,255,255,0.05)' },
+                    ticks: { color: '#aaa', stepSize: 20, callback: (v) => `${v}%` },
+                    title: { display: true, text: 'Confidence', color: '#888', font: { size: 11 } }
+                }
+            }
+        }
+    });
+}
+
 function renderList() {
     const filter = document.getElementById('typeFilter').value;
     const filtered = filter
@@ -378,7 +474,7 @@ async function runDetection() {
     }
 }
 
-document.getElementById('typeFilter').addEventListener('change', renderList);
+document.getElementById('typeFilter').addEventListener('change', () => { renderBubbleChart(); renderList(); });
 loadPatterns();
 </script>
 {% endblock %}

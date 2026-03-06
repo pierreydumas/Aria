@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Embedding Explorer{% endblock %}
+{% block title %}Embedding Explorer - Aria Blue{% endblock %}
 {% block content %}
 <div class="page-header">
     <h1>🔮 Embedding Cluster Explorer</h1>
-    <p class="subtitle">2D projection of semantic memory embedding space (PCA / t-SNE)</p>
+    <p class="subtitle">2D / 3D projection of semantic memory embedding space (PCA / t-SNE)</p>
 </div>
 
 <div class="controls-bar">
@@ -11,6 +11,21 @@
         <label class="ctrl-label">Method:</label>
         <label class="method-pill"><input type="radio" name="method" value="pca" checked onchange="loadData()"> PCA</label>
         <label class="method-pill"><input type="radio" name="method" value="tsne" onchange="loadData()"> t-SNE</label>
+    </div>
+    <div style="display:flex;gap:0.5rem;align-items:center;">
+        <label class="ctrl-label">Dims:</label>
+        <label class="method-pill"><input type="radio" name="dims" value="2" checked onchange="onDimsChange()"> 2D</label>
+        <label class="method-pill"><input type="radio" name="dims" value="3" onchange="onDimsChange()"> 3D</label>
+        <span id="dims3dWarn" style="display:none;font-size:0.75rem;color:#f59e0b;">⚠ Large projection — may be slow</span>
+    </div>
+    <div id="zAxisRow" style="display:none;gap:0.5rem;align-items:center;">
+        <label class="ctrl-label">Z axis:</label>
+        <select id="zAxisSelect" class="ctrl-select" style="width:150px;" onchange="loadData()">
+            <option value="importance" selected>Importance</option>
+            <option value="access_count">Access count</option>
+            <option value="age">Age (recency)</option>
+            <option value="pca">PCA dim 3</option>
+        </select>
     </div>
     <div style="display:flex;gap:0.5rem;align-items:center;">
         <label class="ctrl-label">Points:</label>
@@ -47,6 +62,7 @@
                     <span style="color:#fff;">Computing projection…</span>
                 </div>
                 <canvas id="scatterChart" style="cursor:crosshair;"></canvas>
+                <div id="scatter3d" style="width:100%;height:100%;display:none;"></div>
             </div>
         </div>
         <div class="card" style="margin-top:1rem;">
@@ -105,6 +121,7 @@
 </style>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js" charset="utf-8"></script>
 <script>
 const API = window.API_BASE || '/api';
 const PALETTE = ['#8b5cf6','#06b6d4','#10b981','#f59e0b','#ef4444','#ec4899','#6366f1','#3b82f6','#a78bfa','#34d399'];
@@ -112,6 +129,25 @@ let scatterChart = null;
 let allPoints = [];
 let catColors = {};
 let hiddenCats = new Set();
+
+function getDims() {
+    return parseInt(document.querySelector('input[name="dims"]:checked').value, 10);
+}
+
+function getZAxis() {
+    return document.getElementById('zAxisSelect').value;
+}
+
+function onDimsChange() {
+    const is3d = getDims() === 3;
+    document.getElementById('scatterChart').style.display = is3d ? 'none' : 'block';
+    document.getElementById('scatter3d').style.display = is3d ? 'block' : 'none';
+    document.getElementById('zAxisRow').style.display = is3d ? 'flex' : 'none';
+    const limit = parseInt(document.getElementById('limitSlider').value, 10);
+    const warn = document.getElementById('dims3dWarn');
+    if (warn) warn.style.display = (is3d && limit > 800) ? 'inline' : 'none';
+    loadData();
+}
 
 function hexToRgba(hex, alpha) {
     const clean = (hex || '').replace('#', '');
@@ -167,10 +203,15 @@ async function loadData() {
     const minImp = document.getElementById('importanceSlider').value;
     const cat = document.getElementById('catFilter').value;
 
+    const dims = getDims();
     const ov = document.getElementById('loadingOverlay');
     ov.style.display = 'flex';
 
-    let url = `${API}/memories/embedding-projection?limit=${limit}&method=${method}&min_importance=${minImp}`;
+    const warn = document.getElementById('dims3dWarn');
+    if (warn) warn.style.display = (dims === 3 && parseInt(limit) > 800) ? 'inline' : 'none';
+
+    const zAxis = dims === 3 ? getZAxis() : 'pca';
+    let url = `${API}/memories/embedding-projection?limit=${limit}&method=${method}&min_importance=${minImp}&dims=${dims}&z_axis=${zAxis}`;
     if (cat) url += `&category=${encodeURIComponent(cat)}`;
 
     try {
@@ -182,6 +223,11 @@ async function loadData() {
         allPoints = d.points || [];
         document.getElementById('pointCount').textContent = `${allPoints.length} points`;
 
+        // Surface z_debug info if backend reported a problem
+        const dbg = d.z_debug;
+        if (dbg && dbg.error) console.warn('[embedding-explorer] z_axis error from backend:', dbg.error);
+        if (dbg && !dbg.error) console.debug('[embedding-explorer] z_debug:', dbg);
+
         // Populate category filter
         const cats = [...new Set(allPoints.map(p => p.category).filter(Boolean))].sort();
         const sel = document.getElementById('catFilter');
@@ -192,22 +238,32 @@ async function loadData() {
         // Assign colors
         cats.forEach((c, i) => { catColors[c] = PALETTE[i % PALETTE.length]; });
 
-        renderChart();
+        if (dims === 3) {
+            renderChart3D();
+        } else {
+            renderChart();
+        }
         renderLegend(cats);
-        renderProjectionGuide(method, allPoints, cats);
+        renderProjectionGuide(method, allPoints, cats, dims);
     } catch(e) {
         ov.style.display = 'none';
         console.error(e);
     }
 }
 
-function renderProjectionGuide(method, points, cats) {
+function renderProjectionGuide(method, points, cats, dims) {
     const el = document.getElementById('projectionGuide');
     const n = (points || []).length;
     const catCount = (cats || []).length;
+    const d = dims || 2;
     const methodText = method === 'pca'
         ? 'PCA preserves global structure better. Distances are more meaningful across far-apart clusters.'
         : 't-SNE preserves local neighborhoods. Nearby points are similar, but far distances are not absolute.';
+    const zLabels = { importance: 'Importance score (high = floats up)', access_count: 'Access frequency (most accessed = top)', age: 'Recency (newest = top, oldest = bottom)', pca: 'PCA 3rd component (low-variance — use a semantic axis for more meaning)' };
+    const zLabel = zLabels[document.getElementById('zAxisSelect')?.value || 'importance'] || '';
+    const dimsNote = d === 3
+        ? `<li><strong>3D mode:</strong> rotate with mouse drag, zoom with scroll. Click a point to inspect.</li><li><strong>Z axis:</strong> ${zLabel}</li>`
+        : '';
     el.innerHTML = `
         <div style="margin-bottom:0.5rem;color:var(--text-secondary);"><strong>Method:</strong> ${method.toUpperCase()} — ${methodText}</div>
         <ul style="margin:0;padding-left:1rem;line-height:1.45;">
@@ -215,6 +271,7 @@ function renderProjectionGuide(method, points, cats) {
             <li><strong>Dot color</strong> = category, <strong>dot size</strong> = importance.</li>
             <li><strong>Use this for:</strong> spotting dense themes, outliers, and mixed categories.</li>
             <li><strong>Current projection:</strong> ${n} points across ${catCount} categories.</li>
+            ${dimsNote}
         </ul>
     `;
 }
@@ -297,8 +354,62 @@ function renderInspector(p) {
         <div class="inspector-field"><div class="inspector-label">Source</div><div class="inspector-value">${esc(p.source||'—')}</div></div>
         <div class="inspector-field"><div class="inspector-label">Accesses</div><div class="inspector-value">${p.access_count||0}</div></div>
         <div class="inspector-field"><div class="inspector-label">Created</div><div class="inspector-value">${p.created_at ? new Date(p.created_at).toLocaleString() : '—'}</div></div>
-        <div class="inspector-field"><div class="inspector-label">Coordinates</div><div class="inspector-value">(${p.x}, ${p.y})</div></div>
+        <div class="inspector-field"><div class="inspector-label">Coordinates</div><div class="inspector-value">${p.z != null ? `(${p.x}, ${p.y}, ${p.z})` : `(${p.x}, ${p.y})`}</div></div>
     `;
+}
+
+function renderChart3D() {
+    const el = document.getElementById('scatter3d');
+    const zAxisVal = getZAxis();
+    const zAxisLabels = { importance: 'Importance', access_count: 'Access Count', age: 'Recency', pca: 'PCA Dim 3' };
+    const zTitle = zAxisLabels[zAxisVal] || 'Z';
+    const traces = [];
+    const cats = [...new Set(allPoints.map(p => p.category))].filter(c => !hiddenCats.has(c));
+    cats.forEach(cat => {
+        const pts = allPoints.filter(p => p.category === cat);
+        const color = catColors[cat] || '#6366f1';
+        traces.push({
+            type: 'scatter3d',
+            mode: 'markers',
+            name: cat,
+            x: pts.map(p => p.x),
+            y: pts.map(p => p.y),
+            z: pts.map(p => p.z ?? 0),
+            text: pts.map(p => `<b>${esc(p.label)}</b><br>Cat: ${esc(p.category)}<br>Imp: ${((p.importance||0)*100).toFixed(0)}%`),
+            hoverinfo: 'text',
+            marker: {
+                size: pts.map(p => 3 + (p.importance || 0) * 7),
+                color: color,
+                opacity: 0.85,
+                line: { width: 0.5, color: 'rgba(255,255,255,0.3)' }
+            },
+            customdata: pts,
+        });
+    });
+    const layout = {
+        autosize: true,
+        paper_bgcolor: 'transparent',
+        plot_bgcolor: 'transparent',
+        margin: { l: 0, r: 0, t: 0, b: 0 },
+        scene: {
+            xaxis: { title: 'Dim 1', gridcolor: 'rgba(255,255,255,0.07)', color: '#94a3b8', zerolinecolor: 'rgba(255,255,255,0.1)' },
+            yaxis: { title: 'Dim 2', gridcolor: 'rgba(255,255,255,0.07)', color: '#94a3b8', zerolinecolor: 'rgba(255,255,255,0.1)' },
+            zaxis: { title: zTitle, gridcolor: 'rgba(255,255,255,0.07)', color: '#94a3b8', zerolinecolor: 'rgba(255,255,255,0.1)' },
+            bgcolor: 'rgba(15,23,42,0.0)',
+        },
+        font: { color: '#94a3b8', family: 'inherit' },
+        legend: { font: { color: '#94a3b8' }, bgcolor: 'rgba(0,0,0,0)' },
+        showlegend: false,
+    };
+    const config = { responsive: true, displayModeBar: false };
+    Plotly.react(el, traces, layout, config);
+    // click handler
+    el.on('plotly_click', data => {
+        if (data.points && data.points.length > 0) {
+            const p = data.points[0].customdata;
+            if (p) renderInspector(p);
+        }
+    });
 }
 
 function renderLegend(cats) {
@@ -315,7 +426,7 @@ function renderLegend(cats) {
 function toggleCat(cat, el) {
     if (hiddenCats.has(cat)) { hiddenCats.delete(cat); el.classList.remove('hidden'); }
     else { hiddenCats.add(cat); el.classList.add('hidden'); }
-    renderChart();
+    if (getDims() === 3) renderChart3D(); else renderChart();
 }
 
 function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }

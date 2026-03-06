@@ -29,11 +29,10 @@
         "type": "object",
         "properties": {
           "session_id": { "type": "string", "description": "The session ID to add the idea to" },
-          "title": { "type": "string", "description": "The title of the idea" },
-          "description": { "type": "string", "description": "The description of the idea" },
-          "tags": { "type": "array", "description": "Optional tags for the idea" }
+          "idea": { "type": "string", "description": "The idea text to add" },
+          "category": { "type": "string", "description": "Optional category for the idea" }
         },
-        "required": ["session_id", "title", "description"]
+        "required": ["session_id", "idea"]
       }
     },
     {

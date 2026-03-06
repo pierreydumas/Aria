@@ -544,9 +544,15 @@ async def get_embedding_projection(
     method: str = Query("pca", pattern="^(pca|tsne)$"),
     category: Optional[str] = Query(None),
     min_importance: float = Query(0.0, ge=0.0, le=1.0),
+    dims: int = Query(2, ge=2, le=3, description="2 for 2D projection, 3 for 3D projection"),
+    z_axis: str = Query("pca", pattern="^(pca|importance|access_count|age)$",
+                        description="3D only: what to use as Z. 'pca' = 3rd component, "
+                                    "'importance' = memory importance score, "
+                                    "'access_count' = access frequency, "
+                                    "'age' = time since creation (recent = high)"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Project semantic memory embeddings to 2D for scatter plot visualization."""
+    """Project semantic memory embeddings to 2D or 3D for scatter plot visualization."""
     import numpy as np
 
     stmt = select(SemanticMemory).where(
@@ -576,11 +582,15 @@ async def get_embedding_projection(
 
     X = np.array(embeddings, dtype=np.float32)
 
+    # For 3D with a semantic z_axis, only compute 2D XY projection; Z comes from the metric.
+    proj_dims = 2 if (dims == 3 and z_axis != "pca") else min(dims, X.shape[1], X.shape[0] - 1)
+    n_components = proj_dims  # actual PCA/t-SNE output dims
+
     if method == "tsne":
         try:
             from sklearn.manifold import TSNE
             perplexity = min(30, len(X) - 1)
-            reducer = TSNE(n_components=2, perplexity=perplexity, random_state=42, n_iter=500)
+            reducer = TSNE(n_components=n_components, perplexity=perplexity, random_state=42, n_iter=500)
             coords = reducer.fit_transform(X)
         except ImportError:
             method = "pca"
@@ -589,7 +599,7 @@ async def get_embedding_projection(
         X_centered = X - X.mean(axis=0)
         cov = np.cov(X_centered, rowvar=False)
         eigenvalues, eigenvectors = np.linalg.eigh(cov)
-        idx = np.argsort(eigenvalues)[::-1][:2]
+        idx = np.argsort(eigenvalues)[::-1][:n_components]
         coords = X_centered @ eigenvectors[:, idx]
 
     coords_min = coords.min(axis=0)
@@ -598,9 +608,47 @@ async def get_embedding_projection(
     coords_range[coords_range == 0] = 1
     coords_normalized = 2 * (coords - coords_min) / coords_range - 1
 
+    # Build semantic Z array when z_axis != 'pca'
+    z_values = None
+    z_debug: dict = {}
+    if dims == 3 and z_axis != "pca":
+        try:
+            import datetime as _dt
+            now_utc = _dt.datetime.now(_dt.timezone.utc)
+            raw_z = []
+            for m in valid_memories:
+                if z_axis == "importance":
+                    raw_z.append(float(m.importance or 0.0))
+                elif z_axis == "access_count":
+                    raw_z.append(float(m.access_count or 0))
+                elif z_axis == "age":
+                    # recent memories = high Z; older = low Z
+                    # always work in UTC-aware arithmetic to avoid tz mismatch
+                    if m.created_at is None:
+                        age_secs = 0.0
+                    else:
+                        if m.created_at.tzinfo is None:
+                            # treat naive timestamps as UTC
+                            created_utc = m.created_at.replace(tzinfo=_dt.timezone.utc)
+                        else:
+                            created_utc = m.created_at.astimezone(_dt.timezone.utc)
+                        age_secs = max(0.0, (now_utc - created_utc).total_seconds())
+                    raw_z.append(-age_secs)   # negate → recent = high
+            if not raw_z:
+                raise ValueError("z computation produced no values")
+            z_arr = np.array(raw_z, dtype=np.float64)
+            z_min, z_max = float(z_arr.min()), float(z_arr.max())
+            z_range = (z_max - z_min) if z_max != z_min else 1.0
+            z_values = 2 * (z_arr - z_min) / z_range - 1
+            z_debug = {"z_min": z_min, "z_max": z_max, "z_range": z_range, "n": len(raw_z)}
+        except Exception as _ze:
+            import logging as _log
+            _log.getLogger(__name__).error("z_axis=%s computation failed: %s", z_axis, _ze, exc_info=True)
+            z_debug = {"error": str(_ze)}
+
     points = []
     for i, m in enumerate(valid_memories):
-        points.append({
+        pt = {
             "id": str(m.id),
             "x": round(float(coords_normalized[i][0]), 4),
             "y": round(float(coords_normalized[i][1]), 4),
@@ -610,21 +658,44 @@ async def get_embedding_projection(
             "source": m.source,
             "access_count": m.access_count,
             "created_at": _dt_iso_utc(m.created_at),
-        })
+        }
+        if dims == 3:
+            if z_values is not None:
+                pt["z"] = round(float(z_values[i]), 4)
+            elif n_components >= 3:
+                pt["z"] = round(float(coords_normalized[i][2]), 4)
+            else:
+                pt["z"] = 0.0
+        points.append(pt)
 
     categories: dict = {}
     for p in points:
         cat = p["category"]
-        categories.setdefault(cat, {"count": 0, "avg_x": 0.0, "avg_y": 0.0})
+        categories.setdefault(cat, {"count": 0, "avg_x": 0.0, "avg_y": 0.0, "avg_z": 0.0})
         categories[cat]["count"] += 1
         categories[cat]["avg_x"] += p["x"]
         categories[cat]["avg_y"] += p["y"]
+        if dims == 3:
+            categories[cat]["avg_z"] += p.get("z", 0.0)
     for cat in categories:
         n = categories[cat]["count"]
         categories[cat]["avg_x"] = round(categories[cat]["avg_x"] / n, 4)
         categories[cat]["avg_y"] = round(categories[cat]["avg_y"] / n, 4)
+        if dims == 3:
+            categories[cat]["avg_z"] = round(categories[cat]["avg_z"] / n, 4)
+        else:
+            del categories[cat]["avg_z"]
 
-    return {"points": points, "method": method, "total": len(points), "categories": categories}
+    actual_dims = 3 if dims == 3 else 2
+    return {
+        "points": points,
+        "method": method,
+        "dims": actual_dims,
+        "z_axis": z_axis if actual_dims == 3 else None,
+        "z_debug": z_debug if actual_dims == 3 else None,
+        "total": len(points),
+        "categories": categories,
+    }
 
 
 # ===========================================================================
