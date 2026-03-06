@@ -145,6 +145,7 @@ async def goal_board(
         # in_progress goals across columns manually (backlog/todo/doing).
         "completed": "done",
         "paused": "on_hold",
+        "on_hold": "on_hold",
         "cancelled": "done",
     }
     for status_val, col_val in status_to_column.items():
@@ -154,6 +155,16 @@ async def goal_board(
             .values(board_column=col_val)
         )
     # pending goals stuck in backlog are fine; pending+backlog = correct
+
+    # ── Backfill completed_at for completed/cancelled goals missing it ─
+    await db.execute(
+        update(Goal)
+        .where(
+            Goal.status.in_(["completed", "cancelled"]),
+            Goal.completed_at.is_(None),
+        )
+        .values(completed_at=func.now())
+    )
 
     # ── Auto-archive: completed/cancelled > 24h → clear from board ───
     archive_cutoff = datetime.utcnow() - timedelta(hours=24)
@@ -267,29 +278,49 @@ async def goal_history(
     days: int = 14,
     db: AsyncSession = Depends(get_db),
 ):
-    """Get goal status distribution by day for stacked chart."""
-    from sqlalchemy import cast, Date
+    """Get goal activity by day for stacked chart.
+
+    Uses completed_at for terminal statuses (completed/cancelled) so the bars
+    reflect WHEN goals were finished, not when they were created.
+    Uses created_at for non-terminal statuses (pending/active/on_hold/paused).
+    """
+    from sqlalchemy import cast, Date, case, literal_column
     from datetime import timedelta, timezone as tz
 
     since = datetime.now(tz.utc) - timedelta(days=days)
 
-    stmt = select(
+    # Non-terminal statuses: group by created_at
+    non_terminal = select(
         cast(Goal.created_at, Date).label("day"),
         Goal.status,
         func.count(Goal.id).label("count"),
     ).where(
-        Goal.created_at >= since
-    ).group_by("day", Goal.status).order_by("day")
+        Goal.created_at >= since,
+        Goal.status.in_(["pending", "active", "on_hold", "paused"]),
+    ).group_by("day", Goal.status)
 
-    result = await db.execute(stmt)
-    rows = result.all()
+    # Terminal statuses: group by completed_at (when they were actually done)
+    terminal = select(
+        cast(Goal.completed_at, Date).label("day"),
+        Goal.status,
+        func.count(Goal.id).label("count"),
+    ).where(
+        Goal.completed_at >= since,
+        Goal.completed_at.isnot(None),
+        Goal.status.in_(["completed", "cancelled"]),
+    ).group_by("day", Goal.status)
 
+    all_statuses = {"pending", "active", "completed", "paused", "on_hold", "cancelled"}
     data = {}
-    for row in rows:
-        day = str(row.day)
-        if day not in data:
-            data[day] = {"pending": 0, "active": 0, "completed": 0, "paused": 0, "cancelled": 0}
-        data[day][row.status] = row.count
+
+    for stmt in (non_terminal, terminal):
+        result = await db.execute(stmt)
+        for row in result.all():
+            day = str(row.day)
+            if day not in data:
+                data[day] = {s: 0 for s in sorted(all_statuses)}
+            status_key = row.status if row.status in all_statuses else "active"
+            data[day][status_key] += row.count
 
     return {
         "days": days,
@@ -345,7 +376,7 @@ async def update_goal(
             values["completed_at"] = text("NOW()")
         # Auto-sync board_column when status changes (unless explicitly set)
         if "board_column" not in data:
-            status_col_map = {"active": "doing", "completed": "done", "paused": "on_hold", "cancelled": "done", "pending": "todo"}
+            status_col_map = {"active": "doing", "completed": "done", "paused": "on_hold", "on_hold": "on_hold", "cancelled": "done", "pending": "todo"}
             if body.status in status_col_map:
                 values["board_column"] = status_col_map[body.status]
     if body.progress is not None:

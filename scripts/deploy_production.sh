@@ -44,6 +44,8 @@ SSH_KEY="${ARIA_DEPLOY_SSH_KEY:-${SSH_KEY_PATH:-}}"
 SSH_STRICT_HOST_KEY_CHECKING="${ARIA_DEPLOY_STRICT_HOST_KEY_CHECKING:-accept-new}"
 REMOTE_DIR="${ARIA_DEPLOY_DIR:-}"
 COMPOSE_FILE="${ARIA_DEPLOY_COMPOSE_FILE:-stacks/brain/docker-compose.yml}"
+# All docker compose commands must reference the compose file relative to REMOTE_DIR
+COMPOSE_ARGS="-f $COMPOSE_FILE"
 BACKUP_DIR="${ARIA_DEPLOY_BACKUP_DIR:-/Users/${REMOTE_USER:-aria}/aria_vault/deploy_backups}"
 DEPLOY_LOG="${ARIA_DEPLOY_LOG:-/Users/${REMOTE_USER:-aria}/aria/deploy.log}"
 DEPLOY_DISK_CHECK_PATH="${ARIA_DEPLOY_DISK_CHECK_PATH:-${REMOTE_DIR:-/}}"
@@ -145,16 +147,17 @@ backup() {
 
     # Backup database
     log "  Backing up database..."
-    ssh_cmd "cd $REMOTE_DIR && docker compose exec -T aria-db pg_dump -U ${DB_USER:-admin} ${DB_NAME:-aria_warehouse} > $BACKUP_DIR/db_${TIMESTAMP}.sql"
+    ssh_cmd "cd $REMOTE_DIR && docker compose $COMPOSE_ARGS exec -T aria-db pg_dump -U ${DB_USER:-admin} ${DB_NAME:-aria_warehouse} > $BACKUP_DIR/db_${TIMESTAMP}.sql"
 
     # Backup docker-compose.yml
     ssh_cmd "cp $REMOTE_DIR/$COMPOSE_FILE $BACKUP_DIR/docker-compose_${TIMESTAMP}.yml"
 
-    # Backup .env
-    ssh_cmd "cp $REMOTE_DIR/.env $BACKUP_DIR/env_${TIMESTAMP}" 2>/dev/null || true
+    # Backup .env (lives alongside docker-compose.yml)
+    COMPOSE_DIR=$(dirname "$COMPOSE_FILE")
+    ssh_cmd "cp $REMOTE_DIR/$COMPOSE_DIR/.env $BACKUP_DIR/env_${TIMESTAMP}" 2>/dev/null || true
 
     # Tag current images
-    ssh_cmd "cd $REMOTE_DIR && docker compose images --format json | python3 -c '
+    ssh_cmd "cd $REMOTE_DIR && docker compose $COMPOSE_ARGS images --format json | python3 -c '
 import sys, json
 for line in sys.stdin:
     data = json.loads(line)
@@ -190,19 +193,19 @@ deploy() {
     # Step 2: Pull new images
     log "Step 2/7: Pulling updated images..."
     if [ "$DRY_RUN" = false ]; then
-        ssh_cmd "cd $REMOTE_DIR && docker compose pull --quiet"
+        ssh_cmd "cd $REMOTE_DIR && docker compose $COMPOSE_ARGS pull --quiet"
     fi
 
     # Step 3: Build custom images
-    log "Step 3/7: Building aria-engine image..."
+    log "Step 3/7: Building aria-brain and aria-api images..."
     if [ "$DRY_RUN" = false ]; then
-        ssh_cmd "cd $REMOTE_DIR && docker compose build --no-cache aria-brain aria-api"
+        ssh_cmd "cd $REMOTE_DIR && docker compose $COMPOSE_ARGS build --no-cache aria-brain aria-api"
     fi
 
     # Step 4: Run database migrations
     log "Step 4/7: Running database migrations..."
     if [ "$DRY_RUN" = false ]; then
-        ssh_cmd "cd $REMOTE_DIR && docker compose exec -T aria-api sh -c 'cd /app && python -m alembic upgrade head'" || {
+        ssh_cmd "cd $REMOTE_DIR && docker compose $COMPOSE_ARGS exec -T aria-api sh -c 'cd /app && python -m alembic upgrade head'" || {
             error "Database migration failed!"
             warn "Rolling back..."
             rollback
@@ -215,14 +218,14 @@ deploy() {
     if [ "$DRY_RUN" = false ]; then
         # Start new containers alongside old ones
         # Order matters: DB first, then services, then web
-        SERVICES="aria-db litellm aria-brain aria-api aria-web"
+        SERVICES="aria-db litellm aria-brain aria-engine aria-api aria-web"
         for SERVICE in $SERVICES; do
             log "  Restarting $SERVICE..."
-            ssh_cmd "cd $REMOTE_DIR && docker compose up -d --no-deps --build $SERVICE"
+            ssh_cmd "cd $REMOTE_DIR && docker compose $COMPOSE_ARGS up -d --no-deps --build $SERVICE"
             sleep 5  # Allow service to stabilize
 
             # Quick health check per service
-            if ! ssh_cmd "cd $REMOTE_DIR && docker compose ps $SERVICE | grep -q 'Up'" 2>/dev/null; then
+            if ! ssh_cmd "cd $REMOTE_DIR && docker compose $COMPOSE_ARGS ps $SERVICE | grep -q 'Up'" 2>/dev/null; then
                 error "  $SERVICE failed to start!"
                 warn "  Rolling back..."
                 rollback
@@ -258,9 +261,9 @@ verify_health() {
     log "  Running health checks..."
 
     # Check required containers are running
-    REQUIRED_CONTAINERS="aria-db aria-api aria-web aria-brain litellm traefik"
+    REQUIRED_CONTAINERS="aria-db aria-api aria-web aria-brain aria-engine litellm traefik"
     for container in $REQUIRED_CONTAINERS; do
-        if ! ssh_cmd "cd $REMOTE_DIR && docker compose ps --status running --services | grep -qx '$container'"; then
+        if ! ssh_cmd "cd $REMOTE_DIR && docker compose $COMPOSE_ARGS ps --status running --services | grep -qx '$container'"; then
             error "  Required container not running: $container"
             return 1
         fi
@@ -280,7 +283,7 @@ verify_health() {
     done
 
     # Database connectivity
-    DB_STATUS=$(ssh_cmd "cd $REMOTE_DIR && docker compose exec -T aria-db pg_isready -U ${DB_USER:-admin}" 2>/dev/null || echo "FAIL")
+    DB_STATUS=$(ssh_cmd "cd $REMOTE_DIR && docker compose $COMPOSE_ARGS exec -T aria-db pg_isready -U ${DB_USER:-admin}" 2>/dev/null || echo "FAIL")
     if echo "$DB_STATUS" | grep -q "accepting connections"; then
         log "  Database: OK"
     else
@@ -321,10 +324,10 @@ rollback() {
     fi
 
     # Restore database
-    ssh_cmd "cd $REMOTE_DIR && docker compose exec -T aria-db psql -U ${DB_USER:-admin} ${DB_NAME:-aria_warehouse} < $LATEST_BACKUP"
+    ssh_cmd "cd $REMOTE_DIR && docker compose $COMPOSE_ARGS exec -T aria-db psql -U ${DB_USER:-admin} ${DB_NAME:-aria_warehouse} < $LATEST_BACKUP"
 
     # Restart with restored config
-    ssh_cmd "cd $REMOTE_DIR && docker compose up -d"
+    ssh_cmd "cd $REMOTE_DIR && docker compose $COMPOSE_ARGS up -d"
 
     # Wait and verify
     sleep 10

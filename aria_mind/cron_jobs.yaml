@@ -8,9 +8,42 @@
 jobs:
   # ── Routine / Lightweight ────────────────────────────────────────
 
+  - name: maintenance_cycle
+    every: "30m"
+    text: >-
+      MAINTENANCE_CYCLE (housekeeping only, no goal progress):
+      1. Run health check: health__check_system.
+      2. Prune stale sessions: agent_manager__prune_stale_sessions(max_age_hours=1).
+      3. Write artifact to aria_memories/logs/maintenance_<YYYY-MM-DD_HHMM>.json with:
+         {"status":"ok","health":"healthy|unhealthy","sessions_pruned":N,"timestamp":"ISO"}.
+      4. Do NOT create/update goals. Do NOT claim progress. This is infrastructure, not work.
+      Constraints: max 5 tool calls, no sub-agents, no goal management.
+    agent: aria
+    session: isolated
+    delivery: none
+
   - name: work_cycle
     every: "15m"
-    text: "WORK_CYCLE CONTRACT (single pass): Read aria_memories/HEARTBEAT.md work_cycle section first using artifact path (category=memory, filename=HEARTBEAT.md); if artifact read fails, fall back to /HEARTBEAT.md. Inputs = active_focus_level, active_goal_reference, last_review_summary, and in_progress goals fallback. Review surfaces = working-memory + sprint-board only. Action = choose one actionable goal and do exactly one concrete action (one-goal-one-action). Real goal management required: move selected goal to doing, update progress, move to on_hold with blocker log if blocked, move to done when progress >=100. Constraints = max 10 tool calls, no loops, no repeated artifact discovery, no sub-agents for control-plane steps. Outputs = update_goal/move_goal + create_activity(goal_work), refresh active_goal_reference, write one artifact aria_memories/logs/work_cycle_<YYYY-MM-DD_HHMM>.json, create_activity(cron_execution). If API CB open/repeated 5xx: write degraded artifact and stop immediately."
+    text: >-
+      WORK_CYCLE CONTRACT (single pass, goal-required):
+
+      1. Read HEARTBEAT.md work_cycle section via artifact (category=memory, filename=HEARTBEAT.md).
+      2. Get active_focus_level (default L2), active_goal_reference, last_review_summary.
+      3. Resolve goal: use active_goal_reference if actionable, else fetch in_progress goals by focus level.
+      4. GOAL REQUIRED: If no goal found, check backlog and move one to doing. If backlog empty, CREATE a goal
+         from sprint tickets or exploration. If still no goal: write {"status":"idle","reason":"no_goals"} artifact and STOP.
+         NEVER log status "success" without a goal_id.
+      5. Do ONE productive action toward the goal. PRODUCTIVE means: write/modify a file, execute a skill with output,
+         draft content, research with written notes, or progress a sprint ticket.
+         BANNED as "work": health_check, prune_stale_sessions, system status checks, or any action that only reads
+         without producing output. If those are the only options, log status "idle" and stop.
+      6. Update goal progress using Progress Honesty Scale: read-only +5% max, write artifact +10-15%,
+         code change +15-25%, sprint ticket +25-50%. Health checks = 0%. Pruning 0 sessions = 0%.
+      7. Write artifact to aria_memories/logs/work_cycle_<YYYY-MM-DD_HHMM>.json with REQUIRED fields:
+         status, goal_id, goal_title, action, deliverable (type + path + description), progress_before, progress_after.
+      8. Refresh active_goal_reference. If goal >= 100%, mark complete and create next goal.
+      Constraints: max 10 tool calls, no loops, no sub-agents for control-plane, no repeated discovery calls.
+      If API CB open: write degraded artifact and stop.
     agent: aria
     session: isolated
     delivery: none
@@ -55,7 +88,22 @@ jobs:
 
   - name: six_hour_review
     cron: "0 0 0,6,12,18 * * *"
-    text: "SIX_HOUR_REVIEW CONTRACT: Read aria_memories/HEARTBEAT.md six_hour_review section first using artifact path (category=memory, filename=HEARTBEAT.md); if artifact read fails, fall back to /HEARTBEAT.md. Cooldown check first (skip if prior run <5h; log skip activity). Inputs = working-memory, thoughts, memories, sprint-board, recent activities, pending_consent_actions. Action = analyze last 6h, identify top risks/opportunities, review pending consent queue, and select next priority. Autonomous continuity: if no clear actionable in_progress goal exists, create one new exploration goal in todo and set it as active_goal_reference. Outputs = set_memory(last_review_summary), refresh/set active_goal_reference, create_activity(six_hour_review), create_activity(cron_execution). Use api_client tools only (no database raw SQL)."
+    text: >-
+      SIX_HOUR_REVIEW CONTRACT (with progress audit):
+      1. Read HEARTBEAT.md six_hour_review section via artifact (category=memory, filename=HEARTBEAT.md).
+      2. Cooldown check: skip if prior run <5h. Log skip activity.
+      3. Inputs: working-memory, thoughts, memories, sprint-board, recent activities, pending_consent_actions.
+      4. PROGRESS AUDIT: Read the last 6 work_cycle artifacts from aria_memories/logs/.
+         For each cycle that claims progress > 0: check if deliverable.path exists. Flag any cycle
+         where progress was claimed but no file was created/modified. Include audit results in review.
+      5. Count: cycles with goal vs without goal, productive vs maintenance actions.
+         Report ratio. If maintenance > productive, flag as "busywork loop detected."
+      6. Review pending consent queue. Select next priority.
+      7. Autonomous continuity: if no actionable in_progress goal exists, create one new goal
+         from sprint tickets (plans/sprint/) and set as active_goal_reference.
+      8. Outputs: set_memory(last_review_summary) with audit stats, refresh active_goal_reference,
+         create_activity(six_hour_review), create_activity(cron_execution).
+      Use api_client tools only (no raw SQL).
     agent: aria
     session: isolated
     delivery: none
@@ -65,7 +113,19 @@ jobs:
 
   - name: morning_checkin
     cron: "0 0 6 * * *"
-    text: "MORNING_CHECKIN CONTRACT: Read aria_memories/HEARTBEAT.md morning_checkin section first using artifact path (category=memory, filename=HEARTBEAT.md); if artifact read fails, fall back to /HEARTBEAT.md. Inputs = working-memory + sprint-board + overnight activities + pending_consent_actions. Action = set top priorities for today, review pending consent queue, and choose next actionable goal. Autonomous continuity: if no actionable goal exists, create one new exploration goal (todo) for today's discovery/build work, then set active_goal_reference. Outputs = set_memory(last_review_summary), set_memory(active_goal_reference), create_activity(morning_checkin), create_activity(cron_execution)."
+    text: >-
+      MORNING_CHECKIN CONTRACT:
+      1. Read HEARTBEAT.md morning_checkin section via artifact (category=memory, filename=HEARTBEAT.md).
+      2. Inputs: working-memory, sprint-board, overnight activities, pending_consent_actions.
+      3. Set top 3 priorities for today. Priorities MUST be specific and tied to sprint tickets
+         or concrete deliverables. "System health monitoring" is NOT a valid priority.
+      4. Review pending consent queue.
+      5. GOAL SEEDING: Ensure at least 2 actionable goals exist in doing/todo columns.
+         If fewer than 2: create goals from sprint tickets (plans/sprint/) or from
+         backlog items. Goals must name a specific deliverable file or code change.
+      6. Set active_goal_reference to highest-priority actionable goal.
+      7. Outputs: set_memory(last_review_summary), set_memory(active_goal_reference),
+         create_activity(morning_checkin), create_activity(cron_execution).
     agent: aria
     session: isolated
     delivery: none
@@ -144,7 +204,18 @@ jobs:
     session: isolated
     delivery: none
     best_effort_deliver: true
-    text: "MEMORY_CONSOLIDATION CONTRACT: Autonomously consolidate and archive memories. These are all non-destructive (compress/archive, never permanently delete): (1) Compress activities older than 7d into weekly summaries, (2) Archive stale plans older than 30d to deep storage, (3) Deduplicate semantic_memories with cosine similarity >0.95, (4) Compact surface memory files older than 48h into medium summaries. Execute all consolidation steps directly — do NOT queue for consent. Only permanent data deletion requires human consent. Outputs = execute consolidation + create_activity(memory_consolidation) + create_activity(cron_execution)."
+    text: >-
+      MEMORY_CONSOLIDATION CONTRACT (weekly deep clean):
+      1. Compress activities older than 7d into weekly summaries:
+         GET /activities?limit=200, group by day, summarize each day into 1 paragraph, store in aria_memories/knowledge/.
+      2. Archive stale plans older than 30d: move to aria_memories/archive/.
+      3. Deduplicate semantic_memories with cosine similarity >0.95: POST /api/admin/maintenance {"operation":"vacuum","tables":["semantic_memories"]}.
+      4. Compact surface memory files older than 48h into medium summaries.
+      5. Check consolidation health: load last 3 consolidation files from aria_memories/knowledge/consolidations/.
+         If all 3 have identical lessons (e.g. same "High activity in reflection" message), flag as
+         "consolidation stale — no new patterns being learned" in the output.
+      Execute all steps directly — do NOT queue for consent. Only permanent data deletion requires human consent.
+      Outputs = execute consolidation + create_activity(memory_consolidation) + create_activity(cron_execution).
 
   - name: db_maintenance
     cron: "0 0 4 * * *"
@@ -160,6 +231,25 @@ jobs:
   - name: memory_bridge
     cron: "0 0 */3 * * *"
     text: "Bridge activity data into semantic memory for cognitive skills. Use the api_client seed_memories tool with limit=100 and skip_existing=true. This backfills recent activities and thoughts into semantic_memories (pgvector) so pattern_recognition, sentiment_analysis, and unified_search have fresh data. Log result to activity_log via api_client create_activity action='cron_execution' with details {'job':'memory_bridge','estimated_tokens':50}."
+    agent: aria
+    session: isolated
+    delivery: none
+    best_effort_deliver: true
+
+  # ── Browser Research (daily, use the running aria-browser service) ──
+
+  - name: browser_research
+    cron: "0 30 8 * * *"
+    text: >-
+      BROWSER_RESEARCH CONTRACT (daily morning research):
+      1. Check current active goals: GET goals in_progress.
+      2. Pick ONE goal that could benefit from web research (coding docs, API references, tutorials).
+      3. Use aria-browser skill to research: browser.navigate or browser.snapshot on 1-2 relevant URLs.
+         Good targets: official docs for tools/libraries Aria uses, Hacker News, relevant GitHub repos.
+      4. Extract key findings (max 500 words) and save to aria_memories/research/research_<YYYY-MM-DD>.md.
+      5. Log activity: create_activity(browser_research, details={goal_id, urls_visited, findings_summary}).
+      6. If browser is unreachable, log error and stop. Do NOT fall back to non-browser actions.
+      Constraints: max 3 browser calls, max 8 tool calls total, no sub-agents.
     agent: aria
     session: isolated
     delivery: none

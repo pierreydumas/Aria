@@ -22,6 +22,7 @@ if _api_dir not in sys.path:
     sys.path.insert(0, _api_dir)
 
 from routers.artifacts import router, ALLOWED_CATEGORIES
+from security_middleware import SecurityMiddleware, RateLimiter
 
 
 # ---------------------------------------------------------------------------
@@ -38,6 +39,22 @@ def app():
 @pytest.fixture
 def client(app):
     return TestClient(app)
+
+
+@pytest.fixture
+def secure_client():
+    _app = FastAPI()
+    _app.add_middleware(
+        SecurityMiddleware,
+        rate_limiter=RateLimiter(
+            requests_per_minute=1_000,
+            requests_per_hour=10_000,
+            burst_limit=100,
+        ),
+        max_body_size=2_000_000,
+    )
+    _app.include_router(router)
+    return TestClient(_app)
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +167,40 @@ def test_write_artifact_valid_json_content(client, tmp_path):
         })
     assert resp.status_code == 200
     assert resp.json()["success"] is True
+
+
+def test_security_middleware_allows_artifact_markdown_and_sql_content(secure_client, tmp_path):
+    """Artifact content should allow stored Markdown and SQL examples."""
+    content = (
+        "---\n"
+        "title: GPT-4o Mini Analysis\n"
+        "---\n\n"
+        "```sql\n"
+        "SELECT * FROM goals;\n"
+        "```\n"
+    )
+    with patch("routers.artifacts.ARIA_MEMORIES_PATH", tmp_path):
+        resp = secure_client.post("/artifacts", json={
+            "content": content,
+            "filename": "analysis.md",
+            "category": "research",
+        })
+    assert resp.status_code == 200
+    assert (tmp_path / "research" / "analysis.md").read_text() == content
+
+
+def test_security_middleware_still_scans_artifact_metadata(secure_client, tmp_path):
+    """Artifact metadata should still be scanned for obviously malicious input."""
+    with patch("routers.artifacts.ARIA_MEMORIES_PATH", tmp_path):
+        resp = secure_client.post("/artifacts", json={
+            "content": "safe body",
+            "filename": "DROP TABLE.md",
+            "category": "research",
+        })
+    assert resp.status_code == 400
+    data = resp.json()
+    assert data["detail"] == "Request blocked for security reasons"
+    assert data["threat_type"] == "sql_injection"
 
 
 # ---------------------------------------------------------------------------

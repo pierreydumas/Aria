@@ -19,6 +19,7 @@ CREATE INDEX IF NOT EXISTS idx_memories_key       ON aria_data.memories(key);
 CREATE INDEX IF NOT EXISTS idx_memories_category  ON aria_data.memories(category);
 CREATE INDEX IF NOT EXISTS idx_memories_updated   ON aria_data.memories(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_memories_created   ON aria_data.memories(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memories_value_gin ON aria_data.memories USING gin (value);
 
 -- ============================================================================
 -- Thoughts — Internal reflections and logs
@@ -31,7 +32,8 @@ CREATE TABLE IF NOT EXISTS aria_data.thoughts (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_thoughts_category ON aria_data.thoughts(category);
-CREATE INDEX IF NOT EXISTS idx_thoughts_created  ON aria_data.thoughts(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_thoughts_created       ON aria_data.thoughts(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_thoughts_content_trgm ON aria_data.thoughts USING gin (content gin_trgm_ops);
 
 -- ============================================================================
 -- Goals — Objectives and tasks (sprint board support)
@@ -57,7 +59,10 @@ CREATE TABLE IF NOT EXISTS aria_data.goals (
 CREATE INDEX IF NOT EXISTS idx_goals_status   ON aria_data.goals(status);
 CREATE INDEX IF NOT EXISTS idx_goals_priority ON aria_data.goals(priority DESC);
 CREATE INDEX IF NOT EXISTS idx_goals_created  ON aria_data.goals(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_goals_sprint   ON aria_data.goals(sprint);
+CREATE INDEX IF NOT EXISTS idx_goals_sprint                  ON aria_data.goals(sprint);
+CREATE INDEX IF NOT EXISTS idx_goals_board_column            ON aria_data.goals(board_column);
+CREATE INDEX IF NOT EXISTS idx_goals_status_priority_created ON aria_data.goals(status, priority DESC, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_goals_sprint_column_position  ON aria_data.goals(sprint, board_column, position);
 
 -- ============================================================================
 -- Activity Log — All Aria actions
@@ -73,7 +78,10 @@ CREATE TABLE IF NOT EXISTS aria_data.activity_log (
 );
 CREATE INDEX IF NOT EXISTS idx_activity_action  ON aria_data.activity_log(action);
 CREATE INDEX IF NOT EXISTS idx_activity_skill   ON aria_data.activity_log(skill);
-CREATE INDEX IF NOT EXISTS idx_activity_created ON aria_data.activity_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_created        ON aria_data.activity_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_action_created ON aria_data.activity_log(action, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_skill_created  ON aria_data.activity_log(skill, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_details_gin    ON aria_data.activity_log USING gin (details);
 
 -- ============================================================================
 -- Social Posts — Moltbook activity
@@ -90,7 +98,8 @@ CREATE TABLE IF NOT EXISTS aria_data.social_posts (
     metadata JSONB DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_posts_platform ON aria_data.social_posts(platform);
-CREATE INDEX IF NOT EXISTS idx_posts_posted   ON aria_data.social_posts(posted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_posts_posted  ON aria_data.social_posts(posted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_posts_post_id ON aria_data.social_posts(post_id);
 
 -- ============================================================================
 -- Heartbeat Log — System health
@@ -141,7 +150,12 @@ CREATE TABLE IF NOT EXISTS aria_data.agent_sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_agent_sessions_agent   ON aria_data.agent_sessions(agent_id);
 CREATE INDEX IF NOT EXISTS idx_agent_sessions_status  ON aria_data.agent_sessions(status);
-CREATE INDEX IF NOT EXISTS idx_agent_sessions_started ON aria_data.agent_sessions(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_sessions_started       ON aria_data.agent_sessions(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_sessions_type          ON aria_data.agent_sessions(session_type);
+CREATE INDEX IF NOT EXISTS idx_agent_sessions_agent_started ON aria_data.agent_sessions(agent_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_sessions_metadata_gin  ON aria_data.agent_sessions USING gin (metadata);
+CREATE INDEX IF NOT EXISTS idx_agent_sessions_aria_sid      ON aria_data.agent_sessions((metadata ->> 'aria_session_id'));
+CREATE INDEX IF NOT EXISTS idx_agent_sessions_external_sid  ON aria_data.agent_sessions((metadata ->> 'external_session_id'));
 
 -- ============================================================================
 -- Session Messages
@@ -161,7 +175,10 @@ CREATE TABLE IF NOT EXISTS aria_data.session_messages (
 );
 CREATE INDEX IF NOT EXISTS idx_session_messages_session  ON aria_data.session_messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_session_messages_external ON aria_data.session_messages(external_session_id);
-CREATE INDEX IF NOT EXISTS idx_session_messages_created  ON aria_data.session_messages(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_session_messages_created         ON aria_data.session_messages(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_session_messages_role            ON aria_data.session_messages(role);
+CREATE INDEX IF NOT EXISTS idx_session_messages_session_created ON aria_data.session_messages(session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_session_messages_ext_created     ON aria_data.session_messages(external_session_id, created_at DESC);
 
 -- ============================================================================
 -- Sentiment Events
@@ -186,7 +203,13 @@ CREATE TABLE IF NOT EXISTS aria_data.sentiment_events (
 );
 CREATE INDEX IF NOT EXISTS idx_sentiment_events_session ON aria_data.sentiment_events(session_id);
 CREATE INDEX IF NOT EXISTS idx_sentiment_events_label   ON aria_data.sentiment_events(sentiment_label);
-CREATE INDEX IF NOT EXISTS idx_sentiment_events_created ON aria_data.sentiment_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sentiment_events_created         ON aria_data.sentiment_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sentiment_events_message         ON aria_data.sentiment_events(message_id);
+CREATE INDEX IF NOT EXISTS idx_sentiment_events_external        ON aria_data.sentiment_events(external_session_id);
+CREATE INDEX IF NOT EXISTS idx_sentiment_events_session_created ON aria_data.sentiment_events(session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sentiment_events_label_created   ON aria_data.sentiment_events(sentiment_label, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sentiment_events_speaker         ON aria_data.sentiment_events(speaker);
+CREATE INDEX IF NOT EXISTS idx_sentiment_events_agent_id        ON aria_data.sentiment_events(agent_id);
 
 -- ============================================================================
 -- Model Usage — Track LLM model usage and costs
@@ -206,7 +229,11 @@ CREATE TABLE IF NOT EXISTS aria_data.model_usage (
 );
 CREATE INDEX IF NOT EXISTS idx_model_usage_model   ON aria_data.model_usage(model);
 CREATE INDEX IF NOT EXISTS idx_model_usage_created ON aria_data.model_usage(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_model_usage_session ON aria_data.model_usage(session_id);
+CREATE INDEX IF NOT EXISTS idx_model_usage_session        ON aria_data.model_usage(session_id);
+CREATE INDEX IF NOT EXISTS idx_model_usage_provider       ON aria_data.model_usage(provider);
+CREATE INDEX IF NOT EXISTS idx_model_usage_success        ON aria_data.model_usage(success);
+CREATE INDEX IF NOT EXISTS idx_model_usage_model_created  ON aria_data.model_usage(model, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_model_usage_model_provider ON aria_data.model_usage(model, provider);
 
 -- ============================================================================
 -- Security Events
@@ -224,7 +251,10 @@ CREATE TABLE IF NOT EXISTS aria_data.security_events (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_security_threat_level ON aria_data.security_events(threat_level);
-CREATE INDEX IF NOT EXISTS idx_security_created      ON aria_data.security_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_security_created        ON aria_data.security_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_security_threat_type    ON aria_data.security_events(threat_type);
+CREATE INDEX IF NOT EXISTS idx_security_blocked        ON aria_data.security_events(blocked);
+CREATE INDEX IF NOT EXISTS idx_security_threat_created ON aria_data.security_events(threat_level, created_at DESC);
 
 -- ============================================================================
 -- Knowledge Graph
@@ -238,7 +268,8 @@ CREATE TABLE IF NOT EXISTS aria_data.knowledge_entities (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_kg_entity_name ON aria_data.knowledge_entities(name);
-CREATE INDEX IF NOT EXISTS idx_kg_entity_type ON aria_data.knowledge_entities(type);
+CREATE INDEX IF NOT EXISTS idx_kg_entity_type    ON aria_data.knowledge_entities(type);
+CREATE INDEX IF NOT EXISTS idx_kg_properties_gin ON aria_data.knowledge_entities USING gin (properties);
 
 CREATE TABLE IF NOT EXISTS aria_data.knowledge_relations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -265,6 +296,9 @@ CREATE TABLE IF NOT EXISTS aria_data.knowledge_query_log (
     source VARCHAR(100),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+CREATE INDEX IF NOT EXISTS idx_kql_query_type ON aria_data.knowledge_query_log(query_type);
+CREATE INDEX IF NOT EXISTS idx_kql_created    ON aria_data.knowledge_query_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_kql_source     ON aria_data.knowledge_query_log(source);
 
 -- ============================================================================
 -- Skill Graph (separate from organic knowledge)
@@ -382,7 +416,8 @@ CREATE TABLE IF NOT EXISTS aria_data.working_memory (
 CREATE INDEX IF NOT EXISTS idx_wm_category   ON aria_data.working_memory(category);
 CREATE INDEX IF NOT EXISTS idx_wm_key        ON aria_data.working_memory(key);
 CREATE INDEX IF NOT EXISTS idx_wm_importance ON aria_data.working_memory(importance DESC);
-CREATE INDEX IF NOT EXISTS idx_wm_checkpoint ON aria_data.working_memory(checkpoint_id);
+CREATE INDEX IF NOT EXISTS idx_wm_checkpoint         ON aria_data.working_memory(checkpoint_id);
+CREATE INDEX IF NOT EXISTS idx_wm_importance_created ON aria_data.working_memory(importance DESC, created_at DESC);
 
 -- ============================================================================
 -- Semantic Memories (pgvector)

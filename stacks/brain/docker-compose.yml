@@ -324,6 +324,8 @@ services:
     container_name: aria-brain
     restart: unless-stopped
     environment:
+      # Ensure bind-mounted /app/<pkg> always shadows pip-installed site-packages
+      PYTHONPATH: /app
       # Database
       DATABASE_URL: postgresql://${DB_USER:-admin}:${DB_PASSWORD:-admin}@aria-db:${DB_INTERNAL_PORT:-5432}/${DB_NAME:-aria_warehouse}
       # Local LLM (Ollama - native on host)
@@ -384,6 +386,7 @@ services:
       retries: 3
     networks:
       - backend
+      - sandbox-net
     # Keep running for interactive mode
     tty: true
     stdin_open: true

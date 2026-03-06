@@ -35,6 +35,17 @@ logger = logging.getLogger("aria.security.middleware")
 # Threat Detection Patterns
 # =============================================================================
 
+# SQL injection patterns are intentionally keyword/structure based. Avoid
+# matching bare semicolons or comment markers because those appear in normal
+# prose, Markdown, YAML, and code examples.
+SQL_INJECTION_PATTERNS = (
+    re.compile(r"(\b(SELECT|INSERT|UPDATE|DELETE|DROP|UNION)\b.*\b(FROM|INTO|TABLE)\b)", re.I),
+    re.compile(r"\bUNION\s+(?:ALL\s+)?SELECT\b", re.I),
+    re.compile(r"(?:\b(?:information_schema|pg_catalog|xp_cmdshell)\b|(?<!\w)@@\w+)", re.I),
+    re.compile(r"\b(?:SLEEP|BENCHMARK|PG_SLEEP)\s*\(", re.I),
+    re.compile(r"'\s*(OR|AND)\s*'?\d+'?\s*=\s*'?\d+", re.I),
+)
+
 INJECTION_PATTERNS = [
     # Prompt injection attempts
     (re.compile(r"ignore\s+(all\s+)?(previous|above|prior)\s*instructions?", re.I), "prompt_injection"),
@@ -42,11 +53,9 @@ INJECTION_PATTERNS = [
     (re.compile(r"you\s+are\s+now\s+a", re.I), "roleplay_override"),
     (re.compile(r"(DAN|jailbreak|bypass\s+safety)", re.I), "jailbreak"),
     (re.compile(r"system\s*prompt", re.I), "prompt_leak"),
-    
+
     # SQL injection patterns
-    (re.compile(r"(\b(SELECT|INSERT|UPDATE|DELETE|DROP|UNION)\b.*\b(FROM|INTO|TABLE)\b)", re.I), "sql_injection"),
-    (re.compile(r"(--|;|/\*|\*/|@@)", re.I), "sql_injection"),
-    (re.compile(r"'\s*(OR|AND)\s*'?\d+'?\s*=\s*'?\d+", re.I), "sql_injection"),
+    *[(pattern, "sql_injection") for pattern in SQL_INJECTION_PATTERNS],
     
     # XSS patterns
     (re.compile(r"<script[^>]*>", re.I), "xss"),
@@ -59,6 +68,13 @@ INJECTION_PATTERNS = [
     # Command injection
     (re.compile(r"[;&|`$]\s*(cat|ls|rm|wget|curl|bash|sh|python)", re.I), "command_injection"),
 ]
+
+# Endpoint-specific JSON scan allowlists. Artifact content intentionally stores
+# Markdown, SQL snippets, code fences, and prompt text, so only file-path
+# metadata should be inspected here.
+JSON_SCAN_FIELD_ALLOWLISTS: dict[str, frozenset[str]] = {
+    "/artifacts": frozenset({"filename", "category", "subfolder"}),
+}
 
 # Endpoints that should be exempt from body scanning
 EXEMPT_ENDPOINTS = {
@@ -229,7 +245,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         
         # Scan request body for threats (skip exempt paths)
         if self.scan_body and not skip_body_scan and request.method in ("POST", "PUT", "PATCH"):
-            body_scan_result = await self._scan_body(request)
+            body_scan_result = await self._scan_body(request, scan_path)
             if body_scan_result:
                 threat_type, pattern = body_scan_result
                 self._threat_counts[threat_type] += 1
@@ -278,7 +294,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         
         return "unknown"
     
-    async def _scan_body(self, request: Request) -> tuple[str, str] | None:
+    async def _scan_body(self, request: Request, scan_path: str = "") -> tuple[str, str] | None:
         """Scan request body for security threats."""
         try:
             # Read body (need to cache it for the actual handler)
@@ -292,26 +308,54 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                 text = body.decode("utf-8")
             except UnicodeDecodeError:
                 return None  # Binary content, skip scanning
-            
-            # Check for injection patterns
-            for pattern, threat_type in INJECTION_PATTERNS:
-                if pattern.search(text):
-                    return (threat_type, pattern.pattern)
-            
+
             # Try to parse as JSON and check nested values
             try:
                 data = json.loads(text)
-                threat = self._scan_dict(data)
+                scan_target = self._prepare_scan_target(data, scan_path)
+                threat = self._scan_dict(scan_target)
                 if threat:
                     return threat
+                return None
             except json.JSONDecodeError:
-                pass
-            
+                if self._should_skip_raw_body_scan(scan_path):
+                    return None
+
+            threat = self._scan_text(text)
+            if threat:
+                return threat
+
             return None
             
         except Exception as e:
             logger.error(f"Body scan error: {e}")
             return None
+
+    def _prepare_scan_target(self, data: Any, scan_path: str) -> Any:
+        """Apply endpoint-specific scan policies before recursive inspection."""
+        if not isinstance(data, dict):
+            return data
+
+        for prefix, allowed_fields in JSON_SCAN_FIELD_ALLOWLISTS.items():
+            if scan_path.startswith(prefix):
+                return {
+                    key: value
+                    for key, value in data.items()
+                    if key in allowed_fields
+                }
+
+        return data
+
+    def _should_skip_raw_body_scan(self, scan_path: str) -> bool:
+        """Return True when raw-text scanning should be bypassed for a route."""
+        return any(scan_path.startswith(prefix) for prefix in JSON_SCAN_FIELD_ALLOWLISTS)
+
+    def _scan_text(self, text: str) -> tuple[str, str] | None:
+        """Scan plain text for known threat patterns."""
+        for pattern, threat_type in INJECTION_PATTERNS:
+            if pattern.search(text):
+                return (threat_type, pattern.pattern)
+        return None
     
     def _scan_dict(self, data: Any, depth: int = 0) -> tuple[str, str] | None:
         """Recursively scan dict/list for threats."""

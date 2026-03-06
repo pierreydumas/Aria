@@ -25,9 +25,12 @@ CREATE TABLE IF NOT EXISTS aria_engine.chat_sessions (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     ended_at TIMESTAMP WITH TIME ZONE
 );
-CREATE INDEX IF NOT EXISTS idx_ae_cs_agent   ON aria_engine.chat_sessions(agent_id);
-CREATE INDEX IF NOT EXISTS idx_ae_cs_status  ON aria_engine.chat_sessions(status);
-CREATE INDEX IF NOT EXISTS idx_ae_cs_created ON aria_engine.chat_sessions(created_at);
+CREATE INDEX IF NOT EXISTS idx_ecs_agent          ON aria_engine.chat_sessions(agent_id);
+CREATE INDEX IF NOT EXISTS idx_ecs_status         ON aria_engine.chat_sessions(status);
+CREATE INDEX IF NOT EXISTS idx_ecs_created        ON aria_engine.chat_sessions(created_at);
+CREATE INDEX IF NOT EXISTS idx_ecs_updated_desc   ON aria_engine.chat_sessions(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ecs_session_type   ON aria_engine.chat_sessions(session_type);
+CREATE INDEX IF NOT EXISTS idx_ecs_status_updated ON aria_engine.chat_sessions(status, updated_at DESC);
 
 -- ============================================================================
 -- Chat Messages
@@ -51,12 +54,13 @@ CREATE TABLE IF NOT EXISTS aria_engine.chat_messages (
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_ae_cm_session ON aria_engine.chat_messages(session_id);
-CREATE INDEX IF NOT EXISTS idx_ae_cm_agent   ON aria_engine.chat_messages(agent_id);
-CREATE INDEX IF NOT EXISTS idx_ae_cm_role    ON aria_engine.chat_messages(role);
-CREATE INDEX IF NOT EXISTS idx_ae_cm_created ON aria_engine.chat_messages(created_at);
-CREATE INDEX IF NOT EXISTS idx_ae_cm_client_message_id ON aria_engine.chat_messages(client_message_id);
-CREATE UNIQUE INDEX IF NOT EXISTS uq_ae_cm_session_client_message_id_user
+CREATE INDEX IF NOT EXISTS idx_ecm_session           ON aria_engine.chat_messages(session_id);
+CREATE INDEX IF NOT EXISTS idx_ecm_agent             ON aria_engine.chat_messages(agent_id);
+CREATE INDEX IF NOT EXISTS idx_ecm_role              ON aria_engine.chat_messages(role);
+CREATE INDEX IF NOT EXISTS idx_ecm_created           ON aria_engine.chat_messages(created_at);
+CREATE INDEX IF NOT EXISTS idx_ecm_client_message_id ON aria_engine.chat_messages(client_message_id);
+CREATE INDEX IF NOT EXISTS idx_ecm_session_created   ON aria_engine.chat_messages(session_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ecm_session_client_message_id_user
         ON aria_engine.chat_messages(session_id, client_message_id)
         WHERE role = 'user'
             AND client_message_id IS NOT NULL
@@ -89,8 +93,8 @@ CREATE TABLE IF NOT EXISTS aria_engine.cron_jobs (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_ae_cj_enabled  ON aria_engine.cron_jobs(enabled);
-CREATE INDEX IF NOT EXISTS idx_ae_cj_next_run ON aria_engine.cron_jobs(next_run_at);
+CREATE INDEX IF NOT EXISTS idx_ecj_enabled  ON aria_engine.cron_jobs(enabled);
+CREATE INDEX IF NOT EXISTS idx_ecj_next_run ON aria_engine.cron_jobs(next_run_at);
 
 -- ============================================================================
 -- Agent State
@@ -147,7 +151,7 @@ CREATE TABLE IF NOT EXISTS aria_engine.agent_tools (
     enabled BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_ae_at_agent ON aria_engine.agent_tools(agent_id);
+CREATE INDEX IF NOT EXISTS idx_eat_agent ON aria_engine.agent_tools(agent_id);
 
 -- ============================================================================
 -- Rate Limits
@@ -162,7 +166,7 @@ CREATE TABLE IF NOT EXISTS aria_engine.rate_limits (
     last_post TIMESTAMP WITH TIME ZONE,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_ae_rl_skill ON aria_engine.rate_limits(skill);
+CREATE INDEX IF NOT EXISTS idx_rate_limits_skill ON aria_engine.rate_limits(skill);
 
 -- ============================================================================
 -- API Key Rotations
@@ -175,7 +179,8 @@ CREATE TABLE IF NOT EXISTS aria_engine.api_key_rotations (
     rotated_by VARCHAR(100) DEFAULT 'system',
     metadata JSONB DEFAULT '{}'
 );
-CREATE INDEX IF NOT EXISTS idx_ae_akr_service ON aria_engine.api_key_rotations(service);
+CREATE INDEX IF NOT EXISTS idx_akr_service ON aria_engine.api_key_rotations(service);
+CREATE INDEX IF NOT EXISTS idx_akr_rotated ON aria_engine.api_key_rotations(rotated_at DESC);
 
 -- ============================================================================
 -- Schedule Tick (singleton)
@@ -220,9 +225,9 @@ CREATE TABLE IF NOT EXISTS aria_engine.scheduled_jobs (
     updated_at_ms INTEGER,
     synced_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_ae_sj_name    ON aria_engine.scheduled_jobs(name);
-CREATE INDEX IF NOT EXISTS idx_ae_sj_enabled ON aria_engine.scheduled_jobs(enabled);
-CREATE INDEX IF NOT EXISTS idx_ae_sj_next    ON aria_engine.scheduled_jobs(next_run_at);
+CREATE INDEX IF NOT EXISTS idx_jobs_name     ON aria_engine.scheduled_jobs(name);
+CREATE INDEX IF NOT EXISTS idx_jobs_enabled  ON aria_engine.scheduled_jobs(enabled);
+CREATE INDEX IF NOT EXISTS idx_jobs_next_run ON aria_engine.scheduled_jobs(next_run_at);
 
 -- ============================================================================
 -- LLM Model Catalog
@@ -253,9 +258,9 @@ CREATE TABLE IF NOT EXISTS aria_engine.llm_models (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_ae_lm_provider ON aria_engine.llm_models(provider);
-CREATE INDEX IF NOT EXISTS idx_ae_lm_tier     ON aria_engine.llm_models(tier);
-CREATE INDEX IF NOT EXISTS idx_ae_lm_enabled  ON aria_engine.llm_models(enabled);
+CREATE INDEX IF NOT EXISTS idx_llm_models_provider ON aria_engine.llm_models(provider);
+CREATE INDEX IF NOT EXISTS idx_llm_models_tier     ON aria_engine.llm_models(tier);
+CREATE INDEX IF NOT EXISTS idx_llm_models_enabled  ON aria_engine.llm_models(enabled);
 
 -- ============================================================================
 -- Focus Profiles — personality layers for agents
@@ -278,7 +283,7 @@ CREATE TABLE IF NOT EXISTS aria_engine.focus_profiles (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_ae_fp_enabled ON aria_engine.focus_profiles(enabled);
+CREATE INDEX IF NOT EXISTS idx_focus_profiles_enabled ON aria_engine.focus_profiles(enabled);
 
 -- ============================================================================
 -- Chat Sessions Archive — archived engine chat sessions
@@ -303,10 +308,10 @@ CREATE TABLE IF NOT EXISTS aria_engine.chat_sessions_archive (
     ended_at TIMESTAMP WITH TIME ZONE,
     archived_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_ae_csa_archived      ON aria_engine.chat_sessions_archive(archived_at DESC);
-CREATE INDEX IF NOT EXISTS idx_ae_csa_session_type  ON aria_engine.chat_sessions_archive(session_type);
-CREATE INDEX IF NOT EXISTS idx_ae_csa_status        ON aria_engine.chat_sessions_archive(status);
-CREATE INDEX IF NOT EXISTS idx_ae_csa_updated       ON aria_engine.chat_sessions_archive(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ecsa_archived     ON aria_engine.chat_sessions_archive(archived_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ecsa_session_type ON aria_engine.chat_sessions_archive(session_type);
+CREATE INDEX IF NOT EXISTS idx_ecsa_status       ON aria_engine.chat_sessions_archive(status);
+CREATE INDEX IF NOT EXISTS idx_ecsa_updated      ON aria_engine.chat_sessions_archive(updated_at DESC);
 
 -- ============================================================================
 -- Chat Messages Archive — archived engine chat messages
@@ -331,11 +336,11 @@ CREATE TABLE IF NOT EXISTS aria_engine.chat_messages_archive (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     archived_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_ae_cma_session ON aria_engine.chat_messages_archive(session_id);
-CREATE INDEX IF NOT EXISTS idx_ae_cma_role    ON aria_engine.chat_messages_archive(role);
-CREATE INDEX IF NOT EXISTS idx_ae_cma_created ON aria_engine.chat_messages_archive(created_at);
-CREATE INDEX IF NOT EXISTS idx_ae_cma_archived ON aria_engine.chat_messages_archive(archived_at DESC);
-CREATE INDEX IF NOT EXISTS idx_ae_cma_session_created ON aria_engine.chat_messages_archive(session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_ecma_session         ON aria_engine.chat_messages_archive(session_id);
+CREATE INDEX IF NOT EXISTS idx_ecma_role            ON aria_engine.chat_messages_archive(role);
+CREATE INDEX IF NOT EXISTS idx_ecma_created         ON aria_engine.chat_messages_archive(created_at);
+CREATE INDEX IF NOT EXISTS idx_ecma_archived        ON aria_engine.chat_messages_archive(archived_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ecma_session_created ON aria_engine.chat_messages_archive(session_id, created_at);
 
 -- ============================================================================
 -- Seed default agent

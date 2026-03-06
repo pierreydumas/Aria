@@ -571,6 +571,8 @@ class Heartbeat:
                 "all_healthy": all(self._subsystem_health.values()),
                 "short_term_count": len(self._mind.memory._short_term),
                 "important_memories": len(self._mind.memory._important_memories),
+                "consolidation_count": self._mind.memory._consolidation_count,
+                "last_consolidation": self._mind.memory._last_consolidation,
                 "top_categories": dict(self._mind.memory._category_frequency.most_common(5)),
                 "autonomous_actions": {
                     "next_goal_check_in": self._goal_check_interval - self._beats_since_goal_check,
@@ -587,9 +589,10 @@ class Heartbeat:
         """
         Trigger memory consolidation across all tiers.
 
-        1. Short-term → summaries (existing consolidation)
-        2. Surface → medium (aggregate heartbeat snapshots into 6h summary)
-        3. Medium → deep (when patterns detected across multiple summaries)
+        1. Bridge DB data → short-term (so consolidation has real content)
+        2. Short-term → summaries (existing consolidation)
+        3. Surface → medium (aggregate heartbeat snapshots into 6h summary)
+        4. Medium → deep (when patterns detected across multiple summaries)
         """
         if not self._mind.memory:
             return
@@ -603,11 +606,75 @@ class Heartbeat:
                     or self._mind.cognition._skills.get("llm")
                 )
             
-            # 1. Standard short-term → long-term consolidation
-            result = await self._mind.memory.consolidate(llm_skill=llm_skill)
+            # 0. Bridge: pull real data from DB into consolidation pipeline
+            #    This closes the gap where engine sessions produce data that
+            #    never reaches brain's in-memory deque.
+            extra_entries: list[dict] = []
+            try:
+                from aria_skills.api_client import get_api_client
+                api = await get_api_client()
+                if api:
+                    # Pull recent activities (work_cycle outputs, goal work, etc.)
+                    act_result = await api.get_activities(limit=50)
+                    if act_result.success and isinstance(act_result.data, (list, dict)):
+                        activities = act_result.data
+                        if isinstance(activities, dict):
+                            activities = activities.get("activities", activities.get("items", []))
+                        for act in (activities or []):
+                            if not isinstance(act, dict):
+                                continue
+                            action = act.get("action", "unknown")
+                            details = act.get("details", {})
+                            # Skip pure heartbeat/cron noise — only real work
+                            if action in ("heartbeat", "cron_execution"):
+                                continue
+                            content = f"[{action}] "
+                            if isinstance(details, dict):
+                                title = details.get("goal_title") or details.get("title") or ""
+                                deliverable = details.get("deliverable", {})
+                                if isinstance(deliverable, dict) and deliverable.get("description"):
+                                    content += f"{title}: {deliverable['description']}"
+                                elif title:
+                                    content += title
+                                else:
+                                    content += str(details)[:200]
+                            else:
+                                content += str(details)[:200]
+                            extra_entries.append({
+                                "content": content[:300],
+                                "category": action,
+                                "timestamp": act.get("created_at", ""),
+                            })
+
+                    # Pull recent thoughts (non-reflection categories are valuable)
+                    thought_result = await api.get_thoughts(limit=30)
+                    if thought_result.success:
+                        thoughts = thought_result.data
+                        if isinstance(thoughts, dict):
+                            thoughts = thoughts.get("thoughts", [])
+                        for t in (thoughts or []):
+                            if not isinstance(t, dict):
+                                continue
+                            cat = t.get("category", "thought")
+                            content = t.get("content", "")[:300]
+                            if content:
+                                extra_entries.append({
+                                    "content": content,
+                                    "category": cat,
+                                    "timestamp": t.get("created_at", ""),
+                                })
+            except Exception as e:
+                self.logger.debug(f"DB bridge for consolidation skipped: {e}")
+
+            # 1. Standard short-term → long-term consolidation (with DB bridge data)
+            result = await self._mind.memory.consolidate(
+                llm_skill=llm_skill,
+                extra_entries=extra_entries,
+            )
             if result.get("consolidated"):
                 self.logger.info(
-                    f"🧠 Memory consolidated: {result['entries_processed']} entries, "
+                    f"🧠 Memory consolidated: {result['entries_processed']} entries "
+                    f"({len(extra_entries)} from DB bridge), "
                     f"{len(result.get('lessons', []))} lessons learned"
                 )
 

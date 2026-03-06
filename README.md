@@ -53,10 +53,13 @@ chmod +x scripts/first-run.sh
 This will:
 - Check Docker and Docker Compose are installed
 - Copy `.env.example` → `.env`
-- Generate secure random passwords for DB, API keys, LiteLLM, Grafana, pgAdmin
+- Generate secure random passwords for DB, API keys (incl. `ARIA_ADMIN_TOKEN`, `BROWSERLESS_TOKEN`), LiteLLM, Grafana, pgAdmin
+- Randomize all host-exposed ports (20000-60000 range) to avoid conflicts
 - Optionally prompt for external API keys (OpenRouter, Moonshot)
 - Seed clone-safe identity defaults into `aria_memories/memory/` (missing files only)
 - Optionally seed working-memory defaults when `ARIA_SEED_WORKING_MEMORY_ON_FIRST_RUN=true`
+
+> Use `--auto` (sh) or `-Auto` (ps1) for non-interactive mode (secrets only, default ports).
 
 ### Manual Setup
 
@@ -73,7 +76,8 @@ nano stacks/brain/.env  # Set API keys, DB credentials
 mlx_lm.server --model nightmedia/Qwen3-VLTO-8B-Instruct-qx86x-hi-mlx \
   --host 0.0.0.0 --port 8080 &
 
-# Deploy
+# Deploy (from stacks/brain directory where docker-compose.yml lives)
+cd stacks/brain
 docker compose up -d
 
 # Verify

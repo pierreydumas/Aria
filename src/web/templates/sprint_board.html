@@ -55,6 +55,10 @@
     .archive-table tr:hover { background:var(--bg-secondary); }
     .status-completed { color:#66bb6a; }
     .status-cancelled { color:#78909c; }
+    .status-on_hold { color:#ab47bc; }
+    .status-paused { color:#ef5350; }
+    .status-active { color:#42a5f5; }
+    .status-pending { color:#ffa726; }
 
     /* Quick Add Modal */
     .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1000; align-items:center; justify-content:center; }
@@ -99,7 +103,7 @@
 
 <!-- ── Trends ──────────────────────────────────────────────────────── -->
 <div class="section-header" style="margin-bottom:0.75rem;">
-    <h3 style="margin:0; font-size:0.95rem; color:var(--text-primary);">📊 Goal Status Trends (14 days)</h3>
+    <h3 style="margin:0; font-size:0.95rem; color:var(--text-primary);">📊 Goal Activity (14 days)</h3>
 </div>
 <div class="card" style="margin-bottom:1.5rem;">
     <div class="card-body" style="padding:1rem;">
@@ -321,12 +325,22 @@ async function loadArchive(page = 1) {
             </tr>
         `).join('') || '<tr><td colspan="4" style="text-align:center; color:var(--text-muted)">No archived goals</td></tr>';
 
+        document.getElementById('archiveCount').textContent = `${data.total || 0} goals — page ${data.page || 1} of ${data.pages || 1}`;
+
         const pagination = document.getElementById('archivePagination');
         if (data.pages > 1) {
+            const p = data.page || 1;
+            const total = data.pages;
             let btns = '';
-            for (let i = 1; i <= data.pages; i++) {
-                btns += `<button class="btn btn-${i===page?'primary':'secondary'}" style="margin:0 2px; padding:0.3rem 0.6rem; font-size:0.75rem;" onclick="loadArchive(${i})">${i}</button>`;
+            if (p > 1) btns += `<button class="btn btn-secondary" style="margin:0 2px; padding:0.3rem 0.6rem; font-size:0.75rem;" onclick="loadArchive(1)">&laquo;</button>`;
+            if (p > 1) btns += `<button class="btn btn-secondary" style="margin:0 2px; padding:0.3rem 0.6rem; font-size:0.75rem;" onclick="loadArchive(${p-1})">&lsaquo;</button>`;
+            const start = Math.max(1, p - 2);
+            const end = Math.min(total, p + 2);
+            for (let i = start; i <= end; i++) {
+                btns += `<button class="btn btn-${i===p?'primary':'secondary'}" style="margin:0 2px; padding:0.3rem 0.6rem; font-size:0.75rem;" onclick="loadArchive(${i})">${i}</button>`;
             }
+            if (p < total) btns += `<button class="btn btn-secondary" style="margin:0 2px; padding:0.3rem 0.6rem; font-size:0.75rem;" onclick="loadArchive(${p+1})">&rsaquo;</button>`;
+            if (p < total) btns += `<button class="btn btn-secondary" style="margin:0 2px; padding:0.3rem 0.6rem; font-size:0.75rem;" onclick="loadArchive(${total})">&raquo;</button>`;
             pagination.innerHTML = btns;
         } else {
             pagination.innerHTML = '';
@@ -347,11 +361,12 @@ async function loadGoalChart() {
         const resp = await fetch(`${API_BASE}/goals/history?days=14`);
         const data = await resp.json();
         const labels = Object.keys(data.data || {}).sort();
-        const statuses = ['pending', 'active', 'completed', 'paused', 'cancelled'];
-        const colors = { pending:'#ffa726', active:'#42a5f5', completed:'#66bb6a', paused:'#ef5350', cancelled:'#78909c' };
+        const statuses = ['pending', 'active', 'on_hold', 'paused', 'completed', 'cancelled'];
+        const colors = { pending:'#ffa726', active:'#42a5f5', on_hold:'#ab47bc', paused:'#ef5350', completed:'#66bb6a', cancelled:'#78909c' };
+        const prettyLabel = { pending:'Pending', active:'Active', on_hold:'On Hold', paused:'Paused', completed:'Completed', cancelled:'Cancelled' };
 
         const datasets = statuses.map(s => ({
-            label: s.charAt(0).toUpperCase() + s.slice(1),
+            label: prettyLabel[s] || s,
             data: labels.map(day => (data.data[day] || {})[s] || 0),
             backgroundColor: colors[s],
             borderWidth: 0,
@@ -368,7 +383,7 @@ async function loadGoalChart() {
                 maintainAspectRatio: false,
                 plugins: {
                     legend: { position: 'bottom', labels: { color: '#e0e0e0' } },
-                    title: { display: true, text: 'Goal Status by Day', color: '#e0e0e0' },
+                    title: { display: true, text: 'Goal Activity by Day (completed = completion date)', color: '#e0e0e0' },
                 },
                 scales: {
                     x: { stacked: true, ticks: { color: '#9e9e9e' }, grid: { color: 'rgba(255,255,255,0.05)' } },

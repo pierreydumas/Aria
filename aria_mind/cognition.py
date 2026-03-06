@@ -205,6 +205,9 @@ class Cognition:
         # Step 2: Add to short-term memory
         self.memory.remember_short(prompt, "user_input")
 
+        # Flag user interactions as important — real conversations are rare
+        self.memory.flag_important(prompt[:500], reason="user_interaction")
+
         # Step 2.1: Sentiment analysis for adaptive tone + persistence
         if self._sentiment_analyzer:
             try:
@@ -554,6 +557,17 @@ class Cognition:
         
         self._last_reflection = reflection
         await self.memory.log_thought(reflection, "reflection")
+
+        # Flag meaningful reflections as important for consolidation
+        important_keywords = ("error", "fail", "bug", "goal", "learn", "pattern",
+                              "breakthrough", "blocker", "fix", "completed", "shipped")
+        reflection_lower = reflection.lower()
+        if any(kw in reflection_lower for kw in important_keywords):
+            self.memory.flag_important(
+                reflection[:500],
+                reason="reflection_contains_actionable_insight",
+            )
+
         return reflection
     
     async def plan(self, goal: str) -> list[str]:

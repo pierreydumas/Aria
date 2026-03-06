@@ -34,8 +34,10 @@ Schedules remain in `cron_jobs.yaml` (single source of truth).
 2. Always log actions.
 3. Write artifacts only under `/app/aria_memories/`.
 4. If API circuit breaker is open, degrade and stop (no sub-agent fallback).
-5. Prune stale sessions with `agent_manager__prune_stale_sessions(max_age_hours=1)`.
+5. Session pruning is handled by `session_cleanup` cron — do NOT prune inside work_cycle.
 6. Keep heartbeat goal-centric: start from working memory `active_goal_reference` when available.
+7. Health checks are handled by `maintenance_cycle` cron — do NOT use as work_cycle action.
+8. **Every work_cycle MUST have a goal_id.** No goal = status `idle`, not `success`.
 
 ---
 
@@ -68,7 +70,17 @@ Execution budget:
 - One pass only (no loop).
 - Max 10 tool calls.
 - No repeated discovery calls (`read_artifact` / `list_artifacts`).
-- No sub-agents for control-plane steps (goal fetch/update/log/artifact/session prune).
+- No sub-agents for control-plane steps (goal fetch/update/log/artifact).
+
+### BANNED Actions in work_cycle
+
+These are NOT valid "concrete actions" and MUST NOT be the cycle's work:
+- `health_check`, `check_system`, `health__check_system` — use maintenance_cycle
+- `prune_stale_sessions`, `agent_manager__prune_stale_sessions` — use session_cleanup cron
+- Any action that only reads system status without producing output
+- Creating a goal named "Daily Work Cycle Execution" or similar meta-goals
+
+If the only thing you can think to do is a health check, the cycle is IDLE.
 
 Flow:
 1. Read focus level (`active_focus_level`), default `L2`.
@@ -77,20 +89,61 @@ Flow:
 3. Resolve execution goal:
    - If `active_goal_reference` exists and is actionable, use it.
    - Else fetch in-progress goals with limit by focus level (`L1:1`, `L2:3`, `L3:5`) and pick top priority.
-4. If goal retrieval path fails with `circuit_breaker_open` (or repeated API 5xx):
+4. **GOAL REQUIRED GATE:** If NO goal found after step 3:
+   - Check backlog goals and move one to `doing`.
+   - If backlog is also empty, CREATE a new goal from sprint tickets or exploration.
+   - If goal creation also fails: write `{"status":"idle","reason":"no_goals"}` and STOP.
+   - **NEVER log status "success" without a goal_id.**
+5. If goal retrieval path fails with `circuit_breaker_open` (or repeated API 5xx):
    - Write degraded artifact to `aria_memories/logs/work_cycle_<YYYY-MM-DD_HHMM>.json`:
    - `{"status":"degraded","reason":"api_cb_open","cycle":"work_cycle","action":"halted"}`
    - Stop cycle immediately.
-5. Do exactly one concrete action toward that goal.
-6. Update goal progress.
-7. Refresh `active_goal_reference` to reflect latest goal state.
-8. Create activity log for what was done.
-9. If goal reaches 100%, mark complete and create next goal reference.
-10. Prune stale sessions (`max_age_hours=1`).
+6. Do exactly one **productive** action toward that goal. Productive means:
+   - Write/modify a file in `aria_memories/`
+   - Execute a skill that produces output (research, create, analyze)
+   - Draft content (document, post, code)
+   - Make real progress toward a sprint ticket
+7. Update goal progress using the **Progress Honesty Scale** (see below).
+8. Refresh `active_goal_reference` to reflect latest goal state.
+9. Create activity log for what was done.
+10. If goal reaches 100%, mark complete and create next goal reference.
+
+### Progress Honesty Scale
+
+| Action Type | Max Progress Increment |
+|-------------|----------------------|
+| Read docs / research (input only) | +5% |
+| Write artifact / document section | +10-15% |
+| Execute code change / implementation | +15-25% |
+| Complete sprint ticket deliverable | +25-50% |
+| Health check / status check | **+0% (not valid work)** |
+| Prune 0 sessions | **+0% (not valid work)** |
+
+Progress MUST reflect tangible output. "I checked and it was fine" is 0% progress.
 
 Artifact rule:
 - Write exactly one `work_cycle` JSON artifact (single attempt).
 - If artifact write fails, record degraded artifact status and continue (do not spawn sub-agent).
+- **Required artifact fields** (cycles missing these are invalid):
+  ```json
+  {
+    "status": "success|idle|degraded",
+    "cycle": "work_cycle",
+    "timestamp": "ISO8601",
+    "goal_id": "REQUIRED — no goal = status must be idle",
+    "goal_title": "human-readable goal name",
+    "action": "what was done (MUST be productive, not health_check)",
+    "deliverable": {
+      "type": "file_created|file_modified|skill_output|api_call|none",
+      "path": "aria_memories/... (if file was created/modified)",
+      "description": "what was produced"
+    },
+    "progress_before": 0,
+    "progress_after": 5,
+    "tool_calls_used": 4
+  }
+  ```
+- If `deliverable.type` is `none`, progress increment MUST be 0.
 
 Memory continuity rule:
 - Required input keys each cycle: `active_goal_reference`, `last_review_summary`.

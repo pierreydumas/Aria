@@ -3,7 +3,9 @@
 # Creates .env from .env.example with required secrets generated.
 # ──────────────────────────────────────────────────────────────
 [CmdletBinding()]
-param()
+param(
+    [switch]$Auto
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -85,6 +87,10 @@ if (-not (Test-Path $EnvExample)) {
 }
 
 if (Test-Path $EnvFile) {
+    if ($Auto) {
+        Write-Info ".env already exists - skipping auto-bootstrap."
+        exit 0
+    }
     Write-Warn ".env already exists at $EnvFile"
     $choice = Read-Host "Overwrite? (y/N)"
     if ($choice -ne 'y' -and $choice -ne 'Y') {
@@ -127,7 +133,57 @@ Set-EnvValue "PGADMIN_PASSWORD"  $PgadminPass
 Set-EnvValue "ARIA_API_KEY"      $ApiKey
 Set-EnvValue "ARIA_ADMIN_KEY"    $AdminKey
 
+$AdminToken   = New-Secret
+$BrowserToken = New-Secret
+Set-EnvValue "ARIA_ADMIN_TOKEN"  $AdminToken
+Set-EnvValue "BROWSERLESS_TOKEN" $BrowserToken
+
 Write-Info "Required secrets generated and written to .env"
+
+# In --Auto mode skip port randomization (keep .env.example port defaults)
+if ($Auto) {
+    Write-Info "Auto-bootstrap complete - using default ports from .env.example."
+    Write-Info "Run scripts/first-run.ps1 interactively to randomize ports."
+    exit 0
+}
+
+# ── Randomize host-exposed ports ──────────────────────────────
+
+Write-Info "Randomizing host-exposed ports..."
+
+function Get-RandomPort { return Get-Random -Minimum 20000 -Maximum 60000 }
+
+$Ports = @{
+    ARIA_API_PORT        = Get-RandomPort
+    ARIA_WEB_PORT        = Get-RandomPort
+    LITELLM_PORT         = Get-RandomPort
+    PGADMIN_PORT         = Get-RandomPort
+    BROWSERLESS_PORT     = Get-RandomPort
+    TOR_SOCKS_PORT       = Get-RandomPort
+    TOR_CONTROL_PORT     = Get-RandomPort
+    TRAEFIK_HTTP_PORT    = Get-RandomPort
+    TRAEFIK_HTTPS_PORT   = Get-RandomPort
+    TRAEFIK_DASH_PORT    = Get-RandomPort
+    PROMETHEUS_PORT      = Get-RandomPort
+    GRAFANA_PORT         = Get-RandomPort
+    JAEGER_UI_PORT       = Get-RandomPort
+    JAEGER_OTLP_GRPC_PORT = Get-RandomPort
+    SANDBOX_PORT         = Get-RandomPort
+}
+
+function Set-EnvPort {
+    param([string]$Key, [int]$Value)
+    $content = Get-Content $EnvFile -Raw
+    # Replace KEY=<any_value> with KEY=new_value
+    $content = $content -replace "(?m)^${Key}=.*$", "${Key}=${Value}"
+    Set-Content $EnvFile -Value $content -NoNewline
+}
+
+foreach ($kv in $Ports.GetEnumerator()) {
+    Set-EnvPort $kv.Key $kv.Value
+}
+
+Write-Info "Host ports randomized (no conflicts with existing services)"
 
 # ── Optional: prompt for API keys ─────────────────────────────
 
@@ -165,9 +221,17 @@ Write-Host "    ARIA_ADMIN_KEY    = $($AdminKey.Substring(0,8))..."
 Write-Host "    GRAFANA_PASSWORD  = $($GrafanaPass.Substring(0,8))..."
 Write-Host "    PGADMIN_PASSWORD  = $($PgadminPass.Substring(0,8))..."
 Write-Host ""
+Write-Host "  Randomized ports:"
+Write-Host "    API:       http://localhost:$($Ports['ARIA_API_PORT'])"
+Write-Host "    Web UI:    http://localhost:$($Ports['TRAEFIK_HTTP_PORT'])"
+Write-Host "    LiteLLM:   http://localhost:$($Ports['LITELLM_PORT'])"
+Write-Host "    Traefik:   http://localhost:$($Ports['TRAEFIK_HTTP_PORT']) (HTTP)"
+Write-Host "               https://localhost:$($Ports['TRAEFIK_HTTPS_PORT']) (HTTPS)"
+Write-Host ""
 Write-Host "  Next steps:"
 Write-Host "    1. Review/edit:  notepad $EnvFile"
-Write-Host "    2. Start stack:  cd $StackDir; $ComposeCmd up -d"
-Write-Host "    3. Open web UI:  http://localhost:5000"
-Write-Host "    4. Open API docs: http://localhost:8000/docs"
+Write-Host "    2. Build stack:  cd $StackDir; $ComposeCmd build"
+Write-Host "    3. Start stack:  cd $StackDir; $ComposeCmd up -d"
+Write-Host "    4. Open web UI:  http://localhost:$($Ports['TRAEFIK_HTTP_PORT'])"
+Write-Host "    5. Open API docs: http://localhost:$($Ports['ARIA_API_PORT'])/docs"
 Write-Host ""

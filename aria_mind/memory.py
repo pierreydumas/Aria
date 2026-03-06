@@ -205,7 +205,7 @@ class MemoryManager:
     # Memory Consolidation - Transform experiences into wisdom
     # -------------------------------------------------------------------------
 
-    async def consolidate(self, llm_skill=None) -> dict[str, Any]:
+    async def consolidate(self, llm_skill=None, extra_entries: list[dict] | None = None) -> dict[str, Any]:
         """
         Consolidate short-term memories into long-term knowledge.
 
@@ -215,12 +215,22 @@ class MemoryManager:
 
         Args:
             llm_skill: Optional LLM skill for intelligent summarization
+            extra_entries: Additional entries (e.g. from DB activities/thoughts)
+                           to include beyond the in-memory deque.
 
         Returns:
             Dict with consolidation results
         """
         entries = list(self._short_term)
-        if len(entries) < 10:
+        # Merge extra entries (from DB bridge) — deduplicate by content hash
+        if extra_entries:
+            seen = {e.get("content", "")[:120] for e in entries}
+            for ext in extra_entries:
+                key = ext.get("content", "")[:120]
+                if key and key not in seen:
+                    entries.append(ext)
+                    seen.add(key)
+        if len(entries) < 5:
             return {"consolidated": False, "reason": "Not enough memories to consolidate"}
 
         # Group by category
@@ -304,6 +314,10 @@ class MemoryManager:
 
         self._consolidation_count += 1
         self._last_consolidation = datetime.now(timezone.utc).isoformat()
+
+        # Clear processed short-term entries to avoid re-consolidating the same data
+        self._short_term.clear()
+        self._category_frequency.clear()
 
         self.logger.info(
             f"🧠 Memory consolidation #{self._consolidation_count}: "

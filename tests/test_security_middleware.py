@@ -5,7 +5,42 @@ These exercise real HTTP requests against the live API and validate
 that security controls (injection scanning, security headers, etc.)
 are functioning correctly.
 """
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+# Ensure src/api is importable for unit-style middleware tests.
+_api_dir = str(Path(__file__).resolve().parent.parent / "src" / "api")
+if _api_dir not in sys.path:
+    sys.path.insert(0, _api_dir)
+
+from security_middleware import SecurityMiddleware, RateLimiter
+
+
+@pytest.fixture
+def protected_client():
+    """Minimal app with the real security middleware for targeted regression tests."""
+    app = FastAPI()
+    app.add_middleware(
+        SecurityMiddleware,
+        rate_limiter=RateLimiter(
+            requests_per_minute=1_000,
+            requests_per_hour=10_000,
+            burst_limit=100,
+        ),
+        max_body_size=2_000_000,
+    )
+
+    @app.post("/notes")
+    async def create_note(body: dict):
+        return body
+
+    return TestClient(app)
 
 
 class TestSecurityHeaders:
@@ -46,6 +81,36 @@ class TestSecurityHeaders:
 
 class TestInjectionDetection:
     """Verify the middleware blocks or flags injection attempts."""
+
+    def test_benign_markdown_and_semicolons_not_blocked(self, protected_client):
+        """Normal prose with Markdown markers and semicolons should pass."""
+        payload = {
+            "content": "Release notes:\n---\nStep 1; Step 2; Step 3 -- all complete.",
+            "platform": "internal",
+        }
+        r = protected_client.post("/notes", json=payload)
+        assert r.status_code == 200, r.text
+        assert r.json()["content"] == payload["content"]
+
+    def test_structural_sql_injection_still_blocked(self, protected_client):
+        """Real SQL injection text should still be rejected."""
+        payload = {
+            "content": "'; DROP TABLE activities; --",
+            "platform": "internal",
+        }
+        r = protected_client.post("/notes", json=payload)
+        assert r.status_code == 400
+        assert r.json()["threat_type"] == "sql_injection"
+
+    def test_sql_metadata_probe_still_blocked(self, protected_client):
+        """SQL server metadata probes should still be rejected."""
+        payload = {
+            "content": "SELECT @@version",
+            "platform": "internal",
+        }
+        r = protected_client.post("/notes", json=payload)
+        assert r.status_code == 400
+        assert r.json()["threat_type"] == "sql_injection"
 
     def test_sql_injection_in_body(self, api):
         """POST with SQL injection payload should be blocked (403) or sanitized."""
