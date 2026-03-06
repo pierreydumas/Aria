@@ -85,9 +85,14 @@ class MoltbookSkill(BaseSkill):
             os.environ.get("MOLTBOOK_API_URL", MOLTBOOK_DEFAULT_URL)
         ).rstrip("/")
 
-        self._api_key = self.config.config.get(
-            "api_key",
-            os.environ.get("MOLTBOOK_API_KEY", os.environ.get("MOLTBOOK_TOKEN", ""))
+        # Use `or` chaining so an empty string stored in config.config["api_key"]
+        # still falls through to the env vars (dict.get() returns "" for empty
+        # stored values, never reaching the fallback argument).
+        self._api_key = (
+            self.config.config.get("api_key")
+            or os.environ.get("MOLTBOOK_API_KEY")
+            or os.environ.get("MOLTBOOK_TOKEN")
+            or ""
         )
 
         # Optional local aria-api backup URL for persistence
