@@ -85,9 +85,7 @@ class MoltbookSkill(BaseSkill):
             os.environ.get("MOLTBOOK_API_URL", MOLTBOOK_DEFAULT_URL)
         ).rstrip("/")
 
-        # Use `or` chaining so an empty string stored in config.config["api_key"]
-        # still falls through to the env vars (dict.get() returns "" for empty
-        # stored values, never reaching the fallback argument).
+        # Use or-chaining so an empty string in DB config doesn't block env var fallback
         self._api_key = (
             self.config.config.get("api_key")
             or os.environ.get("MOLTBOOK_API_KEY")
@@ -639,9 +637,16 @@ class MoltbookSkill(BaseSkill):
         """
         Solve a Moltbook verification math challenge.
 
-        The challenge_text is an obfuscated math word problem with two numbers
-        and one operation (+, -, *, /). We strip the obfuscation, extract
-        the numbers and operation, compute the answer, and POST /verify.
+        The challenge_text is an obfuscated math word problem (alternating caps,
+        scattered symbols, possibly doubled letters). We de-obfuscate, extract
+        two numbers and one operation, compute the answer, and POST /verify.
+
+        Key obfuscation handling:
+        - Split on whitespace (spaces are genuine word boundaries)
+        - Strip all non-alphanumeric chars FROM WITHIN each token
+          ("tW]eNn-Tyy" → "twenntyy", "SlO/wS" → "slows", "fI[vE" → "five")
+        - Fuzzy match number words via consecutive-duplicate collapsing
+          ("twenntyy" → collapse → "twenty", "fivee" → "five", etc.)
 
         Returns True if verification succeeded, False otherwise.
         """
@@ -655,13 +660,19 @@ class MoltbookSkill(BaseSkill):
             return False
 
         try:
-            # Strip obfuscation: remove symbols like ^[]/-
-            cleaned = re.sub(r'[\^\[\]\-/\\]', '', challenge_text)
-            # Normalize: lowercase, collapse whitespace
-            cleaned = ' '.join(cleaned.lower().split())
+            # De-obfuscate: spaces are genuine word boundaries; strip all non-alphanumeric
+            # chars FROM within each token (obfuscation inserts ^[]/-\ inside words).
+            # e.g. "tW]eNn-Tyy" → "twenntyy", "SlO/wS" → "slows", "fI[vE" → "five"
+            raw_tokens = challenge_text.split()
+            deobf_tokens = [re.sub(r'[^a-zA-Z0-9]', '', t).lower() for t in raw_tokens]
+            deobf_tokens = [t for t in deobf_tokens if t]
+            cleaned = ' '.join(deobf_tokens)
 
-            # Number word mapping
-            num_words = {
+            self.logger.debug("Verification challenge — raw: %r  cleaned: %r",
+                              challenge_text[:120], cleaned[:120])
+
+            # Number word mapping (standard English)
+            num_words: dict[str, int] = {
                 'zero': 0, 'one': 1, 'two': 2, 'three': 3, 'four': 4,
                 'five': 5, 'six': 6, 'seven': 7, 'eight': 8, 'nine': 9,
                 'ten': 10, 'eleven': 11, 'twelve': 12, 'thirteen': 13,
@@ -671,44 +682,92 @@ class MoltbookSkill(BaseSkill):
                 'eighty': 80, 'ninety': 90, 'hundred': 100, 'thousand': 1000,
             }
 
-            # Extract numbers (words or digits)
-            numbers = []
-            # First try digit sequences
-            digit_matches = re.findall(r'\b\d+(?:\.\d+)?\b', cleaned)
-            for d in digit_matches:
+            def fuzzy_num(word: str) -> float | None:
+                """
+                Match a potentially obfuscated word to a number.
+                Handles doubled/tripled letters: "twenntyy" → "twenty",
+                "threee" → "three", "fivee" → "five".
+                Also handles merged compounds: "twentyfive" → 25.
+                """
+                def _base(w: str) -> float | None:
+                    if w in num_words:
+                        return float(num_words[w])
+                    # Collapse consecutive duplicate characters
+                    collapsed = re.sub(r'(.)\1+', r'\1', w)
+                    if collapsed in num_words:
+                        return float(num_words[collapsed])
+                    # Restore one final char for words like "thre" → "three"
+                    if collapsed and (collapsed + collapsed[-1]) in num_words:
+                        return float(num_words[collapsed + collapsed[-1]])
+                    return None
+
+                v = _base(word)
+                if v is not None:
+                    return v
+                # Merged compound: "twentyfive" → split at every position to find tens+units
+                for split in range(3, len(word) - 1):
+                    pv = _base(word[:split])
+                    sv = _base(word[split:])
+                    if pv is not None and sv is not None and 20 <= pv < 100 and 1 <= sv < 20:
+                        return pv + sv
+                return None
+
+            # ── Extract numbers (digits first, then word-numbers) ──
+            numbers: list[float] = []
+
+            # Digit sequences (e.g. "20", "3.5")
+            for d in re.findall(r'\b\d+(?:\.\d+)?\b', cleaned):
                 numbers.append(float(d))
 
-            # Also try word numbers (compound like "twenty five" = 25)
+            # Word numbers — only if we still need more numbers
+            # Walk tokens; handle compounds: "twenty five"=25, "three hundred"=300
             words = cleaned.split()
             i = 0
             while i < len(words):
-                w = words[i].rstrip('y')  # handle "twentyy" etc
-                if w in num_words or words[i] in num_words:
-                    val = num_words.get(words[i], num_words.get(w, 0))
-                    # Check for compound: "twenty five", "three hundred"
-                    if i + 1 < len(words):
-                        next_w = words[i + 1].rstrip('y')
-                        if next_w in num_words or words[i + 1] in num_words:
-                            next_val = num_words.get(words[i + 1], num_words.get(next_w, 0))
-                            if val >= 100 and next_val < val:
-                                val = val * next_val if next_val > 0 else val
-                                i += 1
-                            elif val >= 20 and next_val < 20:
-                                val += next_val
-                                i += 1
-                    numbers.append(float(val))
+                val = fuzzy_num(words[i])
+                if val is not None:
+                    # Compound tens: "twenty five" → 25
+                    if 20 <= val < 100 and i + 1 < len(words):
+                        nv = fuzzy_num(words[i + 1])
+                        if nv is not None and 1 <= nv < 20:
+                            val += nv
+                            i += 1
+                    # Hundreds/thousands: "three hundred" → 300, "three hundred five" → 305
+                    elif val < 100 and i + 1 < len(words):
+                        nv = fuzzy_num(words[i + 1])
+                        if nv in (100.0, 1000.0):
+                            val *= nv
+                            i += 1
+                            if i + 1 < len(words):
+                                extra = fuzzy_num(words[i + 1])
+                                if extra is not None and extra < 100:
+                                    val += extra
+                                    i += 1
+                    numbers.append(val)
                 i += 1
 
-            # Detect operation from words
-            operation = None
-            if any(w in cleaned for w in ['adds', 'add', 'plus', 'gains', 'gain', 'increases', 'increase', 'more']):
-                operation = '+'
-            elif any(w in cleaned for w in ['slows', 'slow', 'minus', 'loses', 'lose', 'decreases', 'decrease', 'less', 'drops', 'drop', 'subtracts']):
-                operation = '-'
-            elif any(w in cleaned for w in ['times', 'multiplied', 'multiplies', 'multiply', 'doubles', 'triples']):
-                operation = '*'
-            elif any(w in cleaned for w in ['divided', 'divides', 'divide', 'splits', 'split', 'halves']):
-                operation = '/'
+            # ── Detect operation ──
+            _op_keywords: list[tuple[str, list[str]]] = [
+                ('+', ['adds', 'add', 'plus', 'gains', 'gain', 'grows', 'grow',
+                       'increases', 'increase', 'more', 'collects', 'collect',
+                       'earns', 'earn', 'finds', 'find', 'gets', 'get', 'picks']),
+                ('-', ['slows', 'slow', 'minus', 'loses', 'lose', 'lost',
+                       'decreases', 'decrease', 'less', 'drops', 'drop',
+                       'subtracts', 'subtract', 'removes', 'remove',
+                       'gives', 'give', 'away', 'eaten', 'eats', 'eat',
+                       'shrinks', 'shrink', 'falls', 'fall', 'back', 'backs']),
+                ('*', ['times', 'multiplied', 'multiplies', 'multiply',
+                       'doubles', 'triples', 'scaled', 'scales']),
+                ('/', ['divided', 'divides', 'divide', 'splits', 'split',
+                       'halves', 'shared', 'shares', 'share', 'each']),
+            ]
+            operation: str | None = None
+            for op_sym, keywords in _op_keywords:
+                if any(kw in cleaned for kw in keywords):
+                    operation = op_sym
+                    break
+
+            self.logger.debug("Verification parse — numbers=%s  op=%s", numbers, operation)
 
             if len(numbers) >= 2 and operation:
                 a, b = numbers[0], numbers[1]
@@ -719,9 +778,9 @@ class MoltbookSkill(BaseSkill):
                 elif operation == '*':
                     answer = a * b
                 elif operation == '/':
-                    answer = a / b if b != 0 else 0
+                    answer = a / b if b != 0 else 0.0
                 else:
-                    answer = 0
+                    answer = 0.0
 
                 answer_str = f"{answer:.2f}"
 
@@ -730,18 +789,22 @@ class MoltbookSkill(BaseSkill):
                     "answer": answer_str,
                 })
 
-                if resp.status_code == 200:
-                    result = resp.json()
-                    if result.get("success"):
-                        self.logger.info("Verification challenge solved: %s", answer_str)
-                        return True
+                if resp.status_code == 200 and resp.json().get("success"):
+                    self.logger.info(
+                        "Verification solved: %r  a=%s %s b=%s = %s",
+                        challenge_text[:80], a, operation, b, answer_str,
+                    )
+                    return True
 
-                self.logger.warning("Verification failed for answer %s", answer_str)
+                self.logger.warning(
+                    "Verification failed — answer=%s  raw=%r  cleaned=%r",
+                    answer_str, challenge_text[:100], cleaned[:100],
+                )
                 return False
             else:
                 self.logger.warning(
-                    "Could not parse verification challenge: numbers=%s, op=%s, text=%s",
-                    numbers, operation, cleaned[:100],
+                    "Verification parse failed — numbers=%s  op=%s  cleaned=%r",
+                    numbers, operation, cleaned[:150],
                 )
                 return False
 
