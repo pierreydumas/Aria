@@ -9,7 +9,7 @@ Native runtime providing:
 - Context manager (sliding window + importance)
 """
 
-__version__ = "2.0.0"
+__version__ = "3.0.0"
 
 from aria_engine.config import EngineConfig
 from aria_engine.exceptions import EngineError, LLMError, SessionError, SchedulerError

@@ -109,6 +109,13 @@ def validate_models(path: Path | None = None) -> list[str]:
                 errors.append(f"Model '{model_id}': 'litellm' must be a dict")
             elif "model" not in litellm_block:
                 errors.append(f"Model '{model_id}': litellm block missing 'model' key")
+            else:
+                api_base = litellm_block.get("api_base") or entry.get("api_base")
+                if api_base is not None:
+                    if not isinstance(api_base, str) or not api_base.startswith(("http://", "https://")):
+                        errors.append(
+                            f"Model '{model_id}': 'api_base' must be an http/https URL, got {api_base!r}"
+                        )
 
     return errors
 

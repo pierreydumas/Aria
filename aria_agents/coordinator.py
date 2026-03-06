@@ -38,7 +38,8 @@ try:
     from aria_mind.skills._kernel_router import auto_route_task_to_skills
 
     _HAS_SKILL_ROUTER = True
-except Exception:
+except Exception as _e:
+    logger.warning("Skill router import failed (non-fatal): %s", _e)
     _HAS_SKILL_ROUTER = False
 
 if TYPE_CHECKING:

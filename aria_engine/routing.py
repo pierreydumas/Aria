@@ -48,6 +48,7 @@ _FALLBACK_PATTERNS: dict[str, re.Pattern] = {
     "orchestrator": re.compile(r"(strategy|plan|coordinate|orchestrate|decide|priority|goal|overview)", re.IGNORECASE),
     "journalist":   re.compile(r"(report|article|news|investigate|story|lead|headline|press|coverage)", re.IGNORECASE),
     "rpg_master":   re.compile(r"(rpg|campaign|quest|npc|dungeon|character|encounter|lore|world)", re.IGNORECASE),
+    "trader":       re.compile(r"(trade|trader|portfolio|market|crypto|token|price|bull|bear|invest|asset|coin|defi|swap)", re.IGNORECASE),
 }
 
 # Live cache — populated by EngineRouter.initialize_patterns() from DB.

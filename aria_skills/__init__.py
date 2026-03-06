@@ -112,6 +112,8 @@ __all__ = [
     "HourlyGoalsSkill",
     "LiteLLMSkill",
     "ScheduleSkill",
+    # Security (v1.3.0)
+    "InputGuardSkill",
     # Focus-Specific Skills (v1.2.0)
     "SecurityScanSkill",      # DevSecOps
     "CICDSkill",              # DevSecOps

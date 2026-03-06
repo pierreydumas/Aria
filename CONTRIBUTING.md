@@ -32,7 +32,11 @@ source .venv/bin/activate
 # 3. Install dependencies
 pip install -e ".[dev]"
 
-# 4. Start the Docker stack
+# 4. Set PYTHONPATH so aria_engine can resolve the db package (src/api/db is
+#    mounted as /db inside Docker but must be added manually for local runs):
+export PYTHONPATH="$PWD/src/api:$PYTHONPATH"
+
+# 5. Start the Docker stack
 cd stacks/brain
 cp .env.example .env    # Configure environment variables
 docker compose up -d

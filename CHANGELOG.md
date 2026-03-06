@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **S-49 (P0):** `make up` now auto-bootstraps `stacks/brain/.env` via `check-env` prerequisite; `first-run.sh --auto` flag skips interactive prompts on fresh clone.
 - **S-50 (E20):** Upgraded `aria-browser` from frozen `browserless/chrome:latest` (2-year-old SHA) to `ghcr.io/browserless/chromium:v2.42.0`; removed deprecated env vars.
 - **S-51 (P0):** pgvector Python package added to `pyproject.toml`; pg16→pg17 + pgvector 0.8.0→0.8.2 upgrade; HNSW indexes for `semantic_memories` and `session_messages`; Alembic migration `s52_pg17_pgvector_hnsw_upgrade.py`.
+- **S-03 (Audit / Breaking):** `session_manager` skill — removed file-based helper functions (`_flatten_sessions`, `_is_cron_or_subagent_session`, `_epoch_ms_to_iso`) during DB migration; `tests/skills/test_session_manager.py` fully rewritten with 16 DB-backed tests using `AsyncMock` on the API client (tests were previously broken and could not be collected by pytest).
 
 ### Changed
 - **S-43 (E20):** Identity manifest `identity_aria_v1.md` updated to v1.1 with sprint learnings (pre-existing at sprint start).
