@@ -1,5 +1,6 @@
 """Engine configuration — all settings from environment + models.yaml."""
 
+import logging
 import os
 from typing import Any
 from pathlib import Path
@@ -10,6 +11,11 @@ try:
     HAS_PYDANTIC = True
 except ImportError:
     HAS_PYDANTIC = False
+    logging.getLogger("aria.engine.config").warning(
+        "pydantic-settings not installed — EngineConfig running without validation "
+        "(env-var dict fallback active, no type checking or range guards). "
+        "Fix: pip install 'pydantic-settings>=2.0'"
+    )
 
 def _resolve_default_model() -> str:
     """Resolve default model from models.yaml (avoids hardcoded name)."""

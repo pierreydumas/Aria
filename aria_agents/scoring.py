@@ -10,6 +10,22 @@ Enhanced with:
 - Performance recording (in-memory + file persistence)
 - Session survival via JSON checkpointing
 - Automatic score updates after each agent invocation
+
+Architecture note (A-01 — dual scoring):
+    This module provides IN-MEMORY / FILE-backed pheromone scoring used by
+    ``aria_agents.coordinator`` for fast, in-process agent-selection decisions.
+
+    ``aria_engine.routing`` maintains a SEPARATE DB-backed pheromone table
+    (``engine_agent_pheromones``) used for live routing weight updates that
+    survive restarts across the engine process.
+
+    Both layers are intentional:
+    - scoring.py  → fast, in-memory, coordinator-scope decisions
+    - routing.py  → persistent, DB-backed, cross-restart routing memory
+
+    Scores CAN diverge after a restart (file-backed scores reload, DB scores
+    are independent). Unification is a future sprint item (requires schema
+    migration + coordinator refactor to delegate to routing.py).
 """
 import json
 import logging
