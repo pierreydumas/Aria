@@ -69,7 +69,6 @@ services:
       BROWSERLESS_TOKEN: ${BROWSERLESS_TOKEN:-}
       BROWSERLESS_INTERNAL_PORT: ${BROWSERLESS_INTERNAL_PORT:-3000}
       # Moltbook (engine executes skill tools directly)
-      MOLTBOOK_API_KEY: ${MOLTBOOK_API_KEY:-}
       MOLTBOOK_TOKEN: ${MOLTBOOK_TOKEN:-}
       MOLTBOOK_API_URL: ${MOLTBOOK_API_URL:-https://www.moltbook.com/api/v1}
       # Telegram (engine executes telegram skill tools for cron jobs)
@@ -335,7 +334,6 @@ services:
       # LLM APIs (fallback)
       MOONSHOT_API_KEY: ${MOONSHOT_KIMI_KEY:-}
       # Moltbook
-      MOLTBOOK_API_KEY: ${MOLTBOOK_API_KEY:-}
       MOLTBOOK_TOKEN: ${MOLTBOOK_TOKEN:-}
       MOLTBOOK_API_URL: ${MOLTBOOK_API_URL:-https://www.moltbook.com/api/v1}
       # Telegram (social live mode)
@@ -503,6 +501,10 @@ services:
       MOONSHOT_KIMI_KEY: ${MOONSHOT_KIMI_KEY:-}
       OPEN_ROUTER_KEY: ${OPEN_ROUTER_KEY:-}
       OPEN_ROUTER_KEY_DEEP: ${OPEN_ROUTER_KEY_DEEP:-${OPEN_ROUTER_KEY:-}}
+      # Moltbook (ToolRegistry + skill execution runs in aria-api)
+      MOLTBOOK_API_KEY: ${MOLTBOOK_API_KEY:-}
+      MOLTBOOK_TOKEN: ${MOLTBOOK_TOKEN:-}
+      MOLTBOOK_API_URL: ${MOLTBOOK_API_URL:-https://www.moltbook.com/api/v1}
       # Telegram + X credentials (for future API-side social integrations)
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
