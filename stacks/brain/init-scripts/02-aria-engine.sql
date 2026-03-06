@@ -343,6 +343,36 @@ CREATE INDEX IF NOT EXISTS idx_ecma_archived        ON aria_engine.chat_messages
 CREATE INDEX IF NOT EXISTS idx_ecma_session_created ON aria_engine.chat_messages_archive(session_id, created_at);
 
 -- ============================================================================
+-- Circuit Breaker State — persisted cross-restart CB state (R-01)
+-- Written by CircuitBreaker.persist(db); never written with raw SQL.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS aria_engine.circuit_breaker_state (
+    name       VARCHAR(100) PRIMARY KEY,  -- e.g. 'llm' or 'skill:api_client'
+    failures   INTEGER      NOT NULL DEFAULT 0,
+    opened_at  TIMESTAMP WITH TIME ZONE,  -- UTC instant opened; NULL when closed
+    state      VARCHAR(20)  NOT NULL DEFAULT 'closed',  -- closed | open | half-open
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_ecb_state   ON aria_engine.circuit_breaker_state(state);
+CREATE INDEX IF NOT EXISTS idx_ecb_updated ON aria_engine.circuit_breaker_state(updated_at DESC);
+
+-- ============================================================================
+-- Rate Limit Windows — persisted sliding-window event log (R-02)
+-- Each row stores a JSONB array of ISO-8601 UTC timestamps for one key.
+-- Written by SessionProtection._save_window(db); never written with raw SQL.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS aria_engine.rate_limit_windows (
+    id          UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
+    window_key  VARCHAR(200) NOT NULL,   -- session UUID string or agent_id
+    window_type VARCHAR(10)  NOT NULL,   -- 'session' or 'agent'
+    events      JSONB        NOT NULL DEFAULT '[]',  -- ISO-8601 UTC timestamps
+    updated_at  TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_rlw_key_type UNIQUE (window_key, window_type)
+);
+CREATE INDEX IF NOT EXISTS idx_rlw_key_type ON aria_engine.rate_limit_windows(window_key, window_type);
+CREATE INDEX IF NOT EXISTS idx_rlw_updated  ON aria_engine.rate_limit_windows(updated_at DESC);
+
+-- ============================================================================
 -- Seed default agent
 -- ============================================================================
 INSERT INTO aria_engine.agent_state (agent_id, display_name, model, system_prompt, status)
