@@ -15,7 +15,10 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncEngine
 
 import litellm
 from litellm import acompletion, token_counter
@@ -65,8 +68,9 @@ class LLMGateway:
             print(chunk.content, end="")
     """
 
-    def __init__(self, config: EngineConfig):
+    def __init__(self, config: EngineConfig, db_engine: "AsyncEngine | None" = None):
         self.config = config
+        self._db_engine = db_engine          # set via initialize() at boot
         self._models_config: dict[str, Any] | None = None
         self._cb = CircuitBreaker(name="llm", threshold=5, reset_after=30.0)
         self._latency_samples: list[float] = []
@@ -81,6 +85,31 @@ class LLMGateway:
         # override per-call kwargs for providers that use a different base URL.
         litellm.api_key = config.litellm_master_key
         litellm.drop_params = True  # Don't fail on unsupported params
+
+    async def initialize(self, db_engine: "AsyncEngine") -> None:
+        """Restore persisted circuit-breaker state from DB.
+
+        Call once after construction to hydrate ``self._cb`` from
+        ``aria_engine.circuit_breaker_state``.  Non-fatal — failures are
+        logged and the gateway continues with a fresh (closed) CB.
+        """
+        self._db_engine = db_engine
+        try:
+            self._cb = await CircuitBreaker.restore(
+                "llm", db_engine, threshold=5, reset_after=30.0
+            )
+            logger.info("LLM circuit breaker restored from DB: %s", self._cb)
+        except Exception as exc:
+            logger.warning("CB restore failed (non-fatal), using fresh CB: %s", exc)
+
+    async def _cb_persist(self) -> None:
+        """Fire-and-forget helper — persist circuit-breaker state to DB."""
+        if self._db_engine is None:
+            return
+        try:
+            await self._cb.persist(self._db_engine)
+        except Exception as exc:
+            logger.debug("CB persist failed (non-fatal): %s", exc)
 
     def _load_models(self) -> dict[str, Any]:
         """Lazy-load models.yaml configuration."""
@@ -189,10 +218,8 @@ class LLMGateway:
             entry: dict[str, Any] = dict(message)
             if entry.get("role") == "assistant" and entry.get("tool_calls"):
                 entry.setdefault("content", "")
-                # Kimi/Moonshot requires reasoning_content on assistant
-                # tool-call messages when thinking is enabled.
                 if enable_thinking and "reasoning_content" not in entry:
-                    entry["reasoning_content"] = entry.get("thinking") or ""
+                    entry["reasoning_content"] = entry.get("thinking") or "[reasoning_unavailable]"
 
             normalized.append(entry)
 
@@ -298,6 +325,7 @@ class LLMGateway:
                 )
                 elapsed_ms = int((time.monotonic() - start) * 1000)
                 self._cb.record_success()
+                asyncio.create_task(self._cb_persist())
                 self._latency_samples.append(elapsed_ms)
 
                 choice = response.choices[0]
@@ -349,6 +377,7 @@ class LLMGateway:
 
             except Exception as e:
                 self._cb.record_failure()
+                asyncio.create_task(self._cb_persist())
                 last_error = e
                 retriable = isinstance(e, asyncio.TimeoutError) or self._is_retriable_error(e)
                 has_next = idx < len(candidates) - 1
@@ -452,6 +481,7 @@ class LLMGateway:
                     )
 
                 self._cb.record_success()
+                asyncio.create_task(self._cb_persist())
                 self._circuit_failures = 0
                 if idx > 0:
                     logger.warning(
@@ -464,6 +494,7 @@ class LLMGateway:
 
             except Exception as e:
                 self._cb.record_failure()
+                asyncio.create_task(self._cb_persist())
                 last_error = e
                 self._circuit_failures += 1
                 if self._circuit_failures >= self._circuit_threshold:

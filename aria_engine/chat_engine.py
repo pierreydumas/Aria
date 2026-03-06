@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aria_engine.config import EngineConfig
 from aria_engine.exceptions import SessionError, LLMError
 from aria_engine.llm_gateway import LLMGateway, LLMResponse
+from aria_engine.session_protection import SessionProtection
 from aria_engine.telemetry import log_model_usage, log_skill_invocation, _parse_skill_from_tool
 from aria_engine.tool_registry import ToolRegistry, ToolResult
 from aria_engine.thinking import extract_thinking_from_response, strip_thinking_from_content
@@ -123,11 +124,13 @@ class ChatEngine:
         gateway: LLMGateway,
         tool_registry: ToolRegistry,
         db_session_factory,
+        session_protection: SessionProtection | None = None,
     ):
         self.config = config
         self.gateway = gateway
         self.tools = tool_registry
         self._db_factory = db_session_factory
+        self._protector = session_protection  # injection + rate-limit guard
         # Optional multi-agent orchestration (set by main.py after init)
         self._roundtable: Any | None = None
         self._swarm: Any | None = None
@@ -320,6 +323,15 @@ class ChatEngine:
                 raise SessionError(f"Session {sid} not found")
             if session.status == "ended":
                 raise SessionError(f"Session {sid} has ended — create a new session")
+
+            # ── 1b. Session protection: injection check + rate limiting ───────────
+            if self._protector is not None and content:
+                await self._protector.validate_and_check(
+                    session_id=str(sid),
+                    agent_id=session.agent_id or "unknown",
+                    role="user",
+                    content=content,
+                )
 
             # ── 2. Persist user message (with dedup) ─────────────────
             now = datetime.now(timezone.utc)

@@ -156,14 +156,29 @@ async def lifespan(app: FastAPI):
 
         engine_cfg = EngineConfig()
         gateway = LLMGateway(engine_cfg)
+        # Restore persistent CB state from DB (non-fatal if DB unavailable)
+        try:
+            await gateway.initialize(async_engine)
+            print("\u2705 LLM circuit breaker restored from DB")
+        except Exception as _ge:
+            print(f"\u26a0\ufe0f  LLM CB restore failed (non-fatal): {_ge}")
         tool_registry = ToolRegistry()
         # Auto-discover tools from aria_skills/*/skill.json manifests
         try:
             tool_count = tool_registry.discover_from_manifests()
-            print(f"✅ Tool registry: {tool_count} tools discovered from skill manifests")
+            print(f"\u2705 Tool registry: {tool_count} tools discovered from skill manifests")
         except Exception as te:
-            print(f"⚠️  Tool manifest discovery failed (non-fatal): {te}")
-        chat_engine = ChatEngine(engine_cfg, gateway, tool_registry, AsyncSessionLocal)
+            print(f"\u26a0\ufe0f  Tool manifest discovery failed (non-fatal): {te}")
+        # Session protection: prompt-injection guard + persistent rate-limit windows
+        try:
+            from aria_engine.session_protection import SessionProtection
+            protector = SessionProtection(async_engine)
+            await protector.load_windows()
+            print("\u2705 Session protection loaded (injection patterns + rate-limit windows)")
+        except Exception as _pe:
+            print(f"\u26a0\ufe0f  Session protection init failed (non-fatal): {_pe}")
+            protector = None
+        chat_engine = ChatEngine(engine_cfg, gateway, tool_registry, AsyncSessionLocal, session_protection=protector)
         stream_manager = StreamManager(engine_cfg, gateway, tool_registry, AsyncSessionLocal)
         context_manager = ContextManager(engine_cfg)
         prompt_assembler = PromptAssembler(engine_cfg)
