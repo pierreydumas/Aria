@@ -135,6 +135,8 @@ class ChatEngine:
         self._roundtable: Any | None = None
         self._swarm: Any | None = None
         self._escalation_router: Any | None = None
+        from aria_engine.context_manager import ContextManager
+        self._ctx_manager = ContextManager(config)
 
     def set_roundtable(self, roundtable: Any) -> None:
         """Inject Roundtable instance for /roundtable slash command."""
@@ -450,6 +452,42 @@ class ChatEngine:
                             ),
                         })
                         delegation_guidance_added = True
+
+                # ── ST-15: Pre-flight token guard ─────────────────────────────
+                _iter_tokens = self.gateway.estimate_tokens_for_messages(
+                    model=session.model or self.config.default_model,
+                    messages=messages,
+                )
+                _soft_lim, _hard_lim = self._get_model_token_limits(
+                    session.model or self.config.default_model
+                )
+                if _iter_tokens > _hard_lim:
+                    logger.error(
+                        "Pre-flight hard limit: session=%s tokens=%d > hard_limit=%d — aborting turn",
+                        sid, _iter_tokens, _hard_lim,
+                    )
+                    final_content = (
+                        "This conversation has grown too long for me to continue reliably "
+                        f"({_iter_tokens:,} tokens). Please start a new session "
+                        "or ask me to summarize and compress this conversation first."
+                    )
+                    break
+                if _iter_tokens > _soft_lim and iteration == 0:
+                    _pct = int(_iter_tokens / _hard_lim * 100)
+                    messages.append({
+                        "role": "system",
+                        "content": (
+                            f"[CONTEXT MONITOR] This conversation is at {_pct}% of your "
+                            f"memory capacity ({_iter_tokens:,} / {_hard_lim:,} tokens). "
+                            "You MUST: (1) keep your response concise, (2) avoid unnecessary "
+                            "tool calls that produce large outputs, (3) consider informing the "
+                            "user that starting a new session would give you a fresh memory."
+                        ),
+                    })
+                    logger.warning(
+                        "Soft token limit reached: session=%s tokens=%d (%d%% of %d)",
+                        sid, _iter_tokens, _pct, _hard_lim,
+                    )
 
                 try:
                     llm_response: LLMResponse = await self.gateway.complete(
@@ -961,6 +999,46 @@ class ChatEngine:
         # NOTE: user message is already persisted (flush) before _build_context
         # is called, so the DB query above includes it — do NOT append again.
 
+        # ── ST-14: Token budget enforcement ──────────────────────────────────
+        model_name = session.model or self.config.default_model
+        reserve = session.max_tokens or self.config.default_max_tokens
+        try:
+            from aria_models.loader import load_catalog, normalize_model_id
+            catalog = load_catalog()
+            model_def = catalog.get("models", {}).get(normalize_model_id(model_name), {})
+            safe_tokens = model_def.get("safe_prompt_tokens", 0)
+            max_prompt_tokens = safe_tokens if safe_tokens > 0 else max(
+                4096, (session.context_window or 50) * 3000
+            )
+        except Exception:
+            max_prompt_tokens = max(4096, (session.context_window or 50) * 3000)
+        messages = self._ctx_manager.build_context(
+            all_messages=messages,
+            max_tokens=max_prompt_tokens,
+            model=model_name,
+            reserve_tokens=reserve,
+        )
+        logger.info(
+            "Context budget applied: session=%s model=%s max_prompt=%d reserve=%d → %d messages",
+            session.id, model_name, max_prompt_tokens, reserve, len(messages),
+        )
+
+        # ── ST-17: Auto-compress if approaching soft token limit (70%) ────────
+        _soft, _hard = self._get_model_token_limits(model_name)
+        _compression_threshold = int(_hard * 0.70)
+        estimated_tokens = self.gateway.estimate_tokens_for_messages(
+            model=model_name,
+            messages=messages,
+        )
+        if estimated_tokens > _compression_threshold:
+            messages = await self._maybe_compress_context(
+                db=db,
+                session=session,
+                messages=messages,
+                token_count=estimated_tokens,
+                soft_threshold=_compression_threshold,
+            )
+
         return messages
 
     # ── Slash commands & auto-escalation ──────────────────────────────
@@ -1199,6 +1277,85 @@ class ChatEngine:
     def _is_blocking_delegation_failure(cls, error_text: str) -> bool:
         lowered = (error_text or "").lower()
         return any(marker in lowered for marker in cls.DELEGATION_FAILURE_MARKERS)
+
+    def _get_model_token_limits(self, model: str) -> tuple[int, int]:
+        """Return (soft_limit, hard_limit) for the model.
+
+        soft_limit = 80% of safe_prompt_tokens → inject self-awareness notice
+        hard_limit = safe_prompt_tokens → refuse the provider call
+        """
+        try:
+            from aria_models.loader import load_catalog, normalize_model_id
+            catalog = load_catalog()
+            model_def = catalog.get("models", {}).get(normalize_model_id(model), {})
+            hard = model_def.get("safe_prompt_tokens") or model_def.get("contextWindow", 0)
+            if not hard:
+                hard = 100_000
+            soft = int(hard * 0.80)
+            return soft, hard
+        except Exception:
+            return 80_000, 100_000
+
+    async def _maybe_compress_context(
+        self,
+        db,
+        session,
+        messages: list[dict[str, Any]],
+        token_count: int,
+        soft_threshold: int,
+    ) -> list[dict[str, Any]]:
+        """Compress middle history when session approaches 70% of token limit."""
+        if token_count <= soft_threshold:
+            return messages
+
+        TAIL_SIZE = 20
+        head_end = 0
+        for i, m in enumerate(messages):
+            if m.get("role") == "system" or (i <= 1 and m.get("role") == "user"):
+                head_end = i + 1
+
+        if len(messages) <= head_end + TAIL_SIZE + 2:
+            logger.debug("Context: not enough middle messages to compress (skipping)")
+            return messages
+
+        tail_start = max(head_end + 1, len(messages) - TAIL_SIZE)
+        head_messages = messages[:head_end]
+        middle_messages = messages[head_end:tail_start]
+        tail_messages = messages[tail_start:]
+
+        if not middle_messages:
+            return messages
+
+        try:
+            import time as _time
+            compression_result = await self.tools.execute(
+                tool_call_id=f"compress_{session.id}_{int(_time.monotonic())}",
+                function_name="memory_compression__compress_session",
+                arguments={"hours_back": 6},
+            )
+            if compression_result.success:
+                import json as _json
+                summary_data = _json.loads(compression_result.content) if isinstance(compression_result.content, str) else {}
+                summary_text = summary_data.get("summary") or summary_data.get("compressed") or ""
+                if summary_text:
+                    summary_message = {
+                        "role": "system",
+                        "content": (
+                            "[CONVERSATION SUMMARY — earlier context compressed]\n"
+                            f"{summary_text}"
+                        ),
+                    }
+                    compressed = head_messages + [summary_message] + tail_messages
+                    logger.info(
+                        "Context compression applied: session=%s "
+                        "middle=%d msgs compressed, new total=%d msgs",
+                        session.id, len(middle_messages), len(compressed),
+                    )
+                    return compressed
+        except Exception as exc:
+            logger.warning("Context compression failed (non-fatal): %s", exc)
+
+        return messages
 
     @classmethod
     def _filter_tools_for_turn(

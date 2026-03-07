@@ -382,3 +382,60 @@ return SkillResult.ok(resp.json())
 - `apply_degradation_mode()` returns suspension plan (never suspends heartbeat).
 
 **Key constraint:** heartbeat and health_check are NEVER suspended at any degradation level.
+
+## 2026-03-07 — Context Window Crash & Ghost Sessions Audit
+
+**Context:** Production session crashed at 247,754 input tokens with Kimi
+throwing `tool_call_id ":0" has no response message`.
+
+**5 bugs found:**
+
+1. **Partial tool-result orphan (P0 — crash cause).** `_build_context` in
+   `streaming.py` lines 1376–1385: `if existing:` is truthy even when only 1
+   of N tool results survive context window pruning. The assistant message is
+   sent with ALL N tool_calls but only M results follow → Kimi throws `BadRequestError`.
+   **Fix:** change to `if len(existing) == len(owned_ids):` and strip only the
+   unmatched tool_calls when partial, instead of the all-or-nothing current logic.
+
+2. **No token budget in `_build_context` (P0 — root enabling cause).** `streaming.py`
+   limits context by MESSAGE COUNT only (`session.context_window or 50` messages).
+   Verbose tool results (API responses, search dumps) can push 50 messages to 200K+
+   tokens. `ContextManager.build_context()` has proper token-aware eviction but
+   is never called from the streaming path. **Fix:** call `ContextManager.build_context()`
+   at the end of `_build_context` as a token-ceiling pass.
+
+3. **Token estimate is telemetry, not a guard (P0).** `iteration_input_tokens`
+   is computed on line ~525 but never compared to any threshold. Aria never sees
+   her own context size. **Fix:** add `_get_model_token_limits()` helper reading
+   `safe_prompt_tokens` from models.yaml; inject `[CONTEXT MONITOR]` system message
+   at 80% threshold; hard-abort and surface user message at 95%.
+
+4. **`api_client.post()` missing `params=` → ghost sessions accumulate (P1).**
+   `aria_skills/api_client/__init__.py` line 1169: `post(path, data=None)` has
+   no `params` kwarg. `prune_stale_sessions` in `agent_manager` calls
+   `self._api.post("/engine/sessions/cleanup", params={...})` → `TypeError: post()
+   got an unexpected keyword argument 'params'` → caught silently → pruning NEVER
+   runs → 72 ghost sessions. **Fix:** add `params: dict | None = None` to `post()`
+   and forward to `_request_with_retry`.
+
+5. **Memory compression has no auto-trigger (P1).** The `memory_compression` skill
+   exists but is only called manually or via cron. Long conversations have no
+   automatic compression before the token wall. **Fix:** call compression in
+   `_build_context` at ~70% of model limit, replacing verbose middle messages
+   with a summary stored in `aria_memories/`.
+
+**Key patterns learned:**
+
+- **Message count != token count.** Always enforce BOTH limits. Count-only windows
+  fail catastrophically when tool results are verbose.
+- **`if existing:` for partial collections means if ANY item exists.** When
+  enforcing ALL items in a matching set, use `len(existing) == len(required)`.
+- **`api_client.get()` has `params=` but `api_client.post()` does not.**
+  This asymmetry silently killed session pruning. Always test all HTTP methods
+  when adding params to an endpoint.
+- **`dry_run=True` is the default on cleanup endpoints for safety.**
+  If params are silently dropped, cleanup runs with `dry_run=True` default
+  instead of `dry_run=False` as intended. Check Query param defaults.
+- **Aria must know her own token count.** No self-awareness = no self-regulation.
+  The token monitor pattern (soft warn at 80%, hard stop at 95%) should be
+  standard across all long-running contexts.

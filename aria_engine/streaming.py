@@ -131,6 +131,9 @@ class StreamManager:
             "succeeded": 0,
             "skipped_disabled": 0,
         }
+        # Context window manager for token-budget-aware message eviction
+        from aria_engine.context_manager import ContextManager
+        self._ctx_manager = ContextManager(config)
 
     MAX_DELEGATION_FAILURES = 4
     DELEGATION_TOOL_PREFIXES = ("agent_manager__",)
@@ -204,6 +207,96 @@ class StreamManager:
                 continue
             filtered.append(tool)
         return filtered
+
+    def _get_model_token_limits(self, model: str) -> tuple[int, int]:
+        """Return (soft_limit, hard_limit) token counts for the given model.
+
+        soft_limit = 80% of safe_prompt_tokens → inject self-awareness notice
+        hard_limit = safe_prompt_tokens → refuse the provider call
+
+        Falls back to conservatively safe defaults if models.yaml lookup fails.
+        """
+        try:
+            from aria_models.loader import load_catalog, normalize_model_id
+            catalog = load_catalog()
+            model_def = catalog.get("models", {}).get(normalize_model_id(model), {})
+            hard = model_def.get("safe_prompt_tokens") or model_def.get("contextWindow", 0)
+            if not hard:
+                hard = 100_000
+            soft = int(hard * 0.80)
+            return soft, hard
+        except Exception:
+            return 80_000, 100_000
+
+    async def _maybe_compress_context(
+        self,
+        db,
+        session,
+        messages: list[dict[str, Any]],
+        token_count: int,
+        soft_threshold: int,
+    ) -> list[dict[str, Any]]:
+        """Compress middle conversation history when approaching token limits.
+
+        If token_count > soft_threshold (70% of model limit):
+        1. Identify the "middle" messages (skip system + first user + last 20)
+        2. Call memory_compression__compress_session via ToolRegistry
+        3. Replace middle messages with a single summary system message
+        4. Summary is stored in aria_memories/ by the compression skill
+
+        Returns the (possibly compressed) messages list.
+        """
+        if token_count <= soft_threshold:
+            return messages
+
+        TAIL_SIZE = 20
+        head_end = 0
+        for i, m in enumerate(messages):
+            if m.get("role") == "system" or (i <= 1 and m.get("role") == "user"):
+                head_end = i + 1
+
+        if len(messages) <= head_end + TAIL_SIZE + 2:
+            logger.debug("Context: not enough middle messages to compress (skipping)")
+            return messages
+
+        tail_start = max(head_end + 1, len(messages) - TAIL_SIZE)
+        head_messages = messages[:head_end]
+        middle_messages = messages[head_end:tail_start]
+        tail_messages = messages[tail_start:]
+
+        if not middle_messages:
+            return messages
+
+        try:
+            import time as _time
+            compression_result = await self.tools.execute(
+                tool_call_id=f"compress_{session.id}_{int(_time.monotonic())}",
+                function_name="memory_compression__compress_session",
+                arguments={"hours_back": 6},
+            )
+            if compression_result.success:
+                import json as _json
+                summary_data = _json.loads(compression_result.content) if isinstance(compression_result.content, str) else {}
+                summary_text = summary_data.get("summary") or summary_data.get("compressed") or ""
+                if summary_text:
+                    summary_message = {
+                        "role": "system",
+                        "content": (
+                            "[CONVERSATION SUMMARY — earlier context compressed]\n"
+                            f"{summary_text}"
+                        ),
+                    }
+                    compressed = head_messages + [summary_message] + tail_messages
+                    logger.info(
+                        "Context compression applied: session=%s "
+                        "middle=%d msgs compressed, new total=%d msgs",
+                        session.id, len(middle_messages), len(compressed),
+                    )
+                    return compressed
+        except Exception as exc:
+            logger.warning("Context compression failed (non-fatal): %s", exc)
+
+        return messages
 
     async def handle_connection(
         self,
@@ -632,6 +725,49 @@ class StreamManager:
                     model=session.model,
                     messages=messages,
                 )
+
+                # ── Pre-flight token guard ────────────────────────────────────────
+                _model_soft_limit, _model_hard_limit = self._get_model_token_limits(
+                    session.model or self.config.default_model
+                )
+                if iteration_input_tokens > _model_hard_limit:
+                    logger.error(
+                        "Pre-flight hard limit: session=%s tokens=%d > hard_limit=%d — aborting turn",
+                        session_id, iteration_input_tokens, _model_hard_limit,
+                    )
+                    await self._send_json(websocket, {
+                        "type": "error",
+                        "message": (
+                            "This conversation has grown too long for me to continue reliably "
+                            f"({iteration_input_tokens:,} tokens). Please start a new session "
+                            "or ask me to summarize and compress this conversation first."
+                        ),
+                    })
+                    break
+                if iteration_input_tokens > _model_soft_limit and iteration == 0:
+                    _pct = int(iteration_input_tokens / _model_hard_limit * 100)
+                    messages.append({
+                        "role": "system",
+                        "content": (
+                            f"[CONTEXT MONITOR] This conversation is at {_pct}% of your "
+                            f"memory capacity ({iteration_input_tokens:,} / {_model_hard_limit:,} tokens). "
+                            "You MUST: (1) keep your response concise, (2) avoid unnecessary "
+                            "tool calls that produce large outputs, (3) consider informing the "
+                            "user that starting a new session would give you a fresh memory."
+                        ),
+                    })
+                    await self._send_json(websocket, {
+                        "type": "context_warning",
+                        "used_tokens": iteration_input_tokens,
+                        "limit_tokens": _model_hard_limit,
+                        "percent_full": _pct,
+                        "message": f"Conversation memory {_pct}% full",
+                    })
+                    logger.warning(
+                        "Soft token limit reached: session=%s tokens=%d (%d%% of %d)",
+                        session_id, iteration_input_tokens, _pct, _model_hard_limit,
+                    )
+
                 try:
                     async for chunk in self.gateway.stream(
                         messages=messages,
@@ -1375,9 +1511,30 @@ class StreamManager:
                 # Check which tool results exist for this assistant
                 owned_ids = [tc.get("id", "") for tc in m["tool_calls"]]
                 existing = [tool_msgs_by_id[tid] for tid in owned_ids if tid in tool_msgs_by_id]
-                if existing:
+                found_ids = {tr["tool_call_id"] for tr in existing}
+
+                if len(existing) == len(owned_ids):
+                    # All tool results present — safe to include as-is
                     cleaned.append(m)
                     cleaned.extend(existing)
+                elif existing:
+                    # Partial match: strip tool_calls that have no result to avoid
+                    # provider rejecting the message (e.g. Kimi BadRequestError)
+                    surviving_calls = [
+                        tc for tc in m["tool_calls"]
+                        if tc.get("id", "") in found_ids
+                    ]
+                    entry = dict(m)
+                    entry["tool_calls"] = surviving_calls
+                    cleaned.append(entry)
+                    cleaned.extend(existing)
+                    logger.debug(
+                        "Context repair: kept %d/%d tool_calls for assistant message "
+                        "(evicted: %s)",
+                        len(surviving_calls),
+                        len(owned_ids),
+                        [tid for tid in owned_ids if tid not in found_ids],
+                    )
                 else:
                     # No tool results found — strip tool_calls, drop if empty
                     stripped = {k: v for k, v in m.items() if k != "tool_calls"}
@@ -1394,6 +1551,50 @@ class StreamManager:
 
         # NOTE: user message is already persisted (flush) before _build_context
         # is called, so the DB query above includes it — do NOT append again.
+
+        # ── Token budget enforcement ───────────────────────────────────────────────────────────
+        # Apply ContextManager's token-aware eviction after the structural
+        # cleanup above so that the final context fits within the model's limit.
+        model_name = session.model or self.config.default_model
+        reserve = session.max_tokens or self.config.default_max_tokens
+        try:
+            from aria_models.loader import load_catalog, normalize_model_id
+            catalog = load_catalog()
+            model_def = catalog.get("models", {}).get(normalize_model_id(model_name), {})
+            safe_tokens = model_def.get("safe_prompt_tokens", 0)
+            max_prompt_tokens = safe_tokens if safe_tokens > 0 else max(
+                4096, (session.context_window or 50) * 3000
+            )
+        except Exception:
+            max_prompt_tokens = max(4096, (session.context_window or 50) * 3000)
+        messages = self._ctx_manager.build_context(
+            all_messages=messages,
+            max_tokens=max_prompt_tokens,
+            model=model_name,
+            reserve_tokens=reserve,
+        )
+        logger.info(
+            "Context budget applied: session=%s model=%s max_prompt=%d reserve=%d → %d messages",
+            session.id, model_name, max_prompt_tokens, reserve, len(messages),
+        )
+
+        # ── Auto-compress if approaching soft token limit ──────────────────
+        # Resolve compression threshold (70% of hard limit)
+        _soft, _hard = self._get_model_token_limits(model_name)
+        _compression_threshold = int(_hard * 0.70)
+        estimated_tokens = self.gateway.estimate_tokens_for_messages(
+            model=model_name,
+            messages=messages,
+        )
+        if estimated_tokens > _compression_threshold:
+            messages = await self._maybe_compress_context(
+                db=db,
+                session=session,
+                messages=messages,
+                token_count=estimated_tokens,
+                soft_threshold=_compression_threshold,
+            )
+
         return messages
 
     async def _keepalive(self, websocket: WebSocket, connection_id: str) -> None:

@@ -1166,10 +1166,17 @@ class AriaAPIClient(BaseSkill):
             return SkillResult.fail(f"GET {path} failed: {e}")
     
     @log_latency
-    async def post(self, path: str, data: dict | None = None) -> SkillResult:
+    async def post(
+        self,
+        path: str,
+        data: dict | None = None,
+        params: dict | None = None,
+    ) -> SkillResult:
         """Generic POST request."""
         try:
-            resp = await self._request_with_retry("POST", path, json=data)
+            resp = await self._request_with_retry(
+                "POST", path, json=data, params=params
+            )
             return SkillResult.ok(resp.json())
         except Exception as e:
             return SkillResult.fail(f"POST {path} failed: {e}")

@@ -208,6 +208,7 @@
         "cacheWrite": 0
       },
       "contextWindow": 256000,
+      "safe_prompt_tokens": 240000,
       "maxTokens": 16384,
       "tier": "paid",
       "routeSkill": "litellm",

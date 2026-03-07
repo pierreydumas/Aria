@@ -58,6 +58,15 @@ except ImportError:
     from db import async_engine, ensure_schema
     from startup_skill_backfill import run_skill_invocation_backfill
 
+try:
+    from aria_mind.logging_config import configure_logging
+    configure_logging()
+except Exception:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
+    )
+
 _logger = logging.getLogger("aria.api")
 
 
