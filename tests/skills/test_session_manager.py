@@ -150,6 +150,7 @@ async def test_delete_session_api_failure(session_skill, mock_api_client):
 @pytest.mark.asyncio
 async def test_prune_sessions_dry_run(session_skill, mock_api_client):
     """Dry-run calls cleanup endpoint with dry_run=True."""
+    mock_api_client.get = AsyncMock(return_value=_sessions_payload())
     mock_api_client.post = AsyncMock(return_value=SkillResult.ok({
         "pruned_count": 3, "archived_count": 3, "dry_run": True,
     }))
@@ -162,6 +163,7 @@ async def test_prune_sessions_dry_run(session_skill, mock_api_client):
 @pytest.mark.asyncio
 async def test_prune_sessions_live(session_skill, mock_api_client):
     """Live prune calls cleanup endpoint and returns counts."""
+    mock_api_client.get = AsyncMock(return_value=_sessions_payload())
     mock_api_client.post = AsyncMock(return_value=SkillResult.ok({
         "pruned_count": 2, "archived_count": 2, "message_count": 10, "zombies_closed": 0,
     }))

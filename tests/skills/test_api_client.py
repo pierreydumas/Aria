@@ -162,45 +162,57 @@ async def test_delete_success(api_client):
 @pytest.mark.asyncio
 async def test_get_activities(api_client):
     """get_activities delegates to GET /activities."""
-    api_client._client.get = AsyncMock(
+    api_client._client.request = AsyncMock(
         return_value=_make_response(200, {"activities": []})
     )
     result = await api_client.get_activities(limit=10)
     assert result.success is True
-    api_client._client.get.assert_called_once()
-    call_url = api_client._client.get.call_args[0][0]
-    assert "/activities" in call_url
+    api_client._client.request.assert_called_once()
+    method, path = api_client._client.request.call_args[0][:2]
+    assert method == "GET"
+    assert "/activities" in path
 
 
 @pytest.mark.asyncio
 async def test_create_goal(api_client):
     """create_goal delegates to POST /goals."""
-    api_client._client.post = AsyncMock(
+    api_client._client.request = AsyncMock(
         return_value=_make_response(200, {"id": "goal-1"})
     )
     result = await api_client.create_goal(title="Ship v2")
     assert result.success is True
-    api_client._client.post.assert_called_once()
+    api_client._client.request.assert_called_once()
+    method, path = api_client._client.request.call_args[0][:2]
+    assert method == "POST"
+    assert "/goals" in path
 
 
 @pytest.mark.asyncio
 async def test_set_memory(api_client):
     """set_memory delegates to POST /memories."""
-    api_client._client.post = AsyncMock(
+    api_client._client.request = AsyncMock(
         return_value=_make_response(200, {"key": "foo"})
     )
     result = await api_client.set_memory("foo", "bar")
     assert result.success is True
+    api_client._client.request.assert_called_once()
+    method, path = api_client._client.request.call_args[0][:2]
+    assert method == "POST"
+    assert "/memories" in path
 
 
 @pytest.mark.asyncio
 async def test_delete_goal(api_client):
     """delete_goal delegates to DELETE /goals/{id}."""
-    api_client._client.delete = AsyncMock(
+    api_client._client.request = AsyncMock(
         return_value=_make_response(200, {})
     )
     result = await api_client.delete_goal("goal-99")
     assert result.success is True
+    api_client._client.request.assert_called_once()
+    method, path = api_client._client.request.call_args[0][:2]
+    assert method == "DELETE"
+    assert "/goals/goal-99" in path
 
 
 # ---------------------------------------------------------------------------
@@ -229,7 +241,7 @@ async def test_get_timeout_error(api_client):
 @pytest.mark.asyncio
 async def test_post_http_4xx(api_client):
     """4xx response is propagated as failure."""
-    api_client._client.post = AsyncMock(
+    api_client._client.request = AsyncMock(
         return_value=_make_response(422, {"detail": "Validation error"})
     )
     result = await api_client.create_activity(action="test")

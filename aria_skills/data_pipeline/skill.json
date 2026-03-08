@@ -4,7 +4,7 @@
   "description": "📊 Data pipeline management and ETL operations for Data Architect",
   "author": "Aria Blue",
   "layer": 3,
-  "dependencies": ["api_client", "database"],
+  "dependencies": ["api_client"],
   "focus_affinity": ["data"],
   "tools": [
     {

@@ -49,6 +49,11 @@ class PytestSkill(BaseSkill):
         timeout: Test run timeout in seconds
     """
     
+    @property
+    def name(self) -> str:
+        """Return skill name matching directory."""
+        return "pytest_runner"
+    
     def __init__(self, config: SkillConfig):
         super().__init__(config)
         self._last_result: dict | None = None

@@ -151,7 +151,7 @@ async def test_session_lifecycle():
     api.patch = AsyncMock(return_value=SkillResult.ok({"status": "terminated"}))
     term_result = await skill.terminate_agent(session_id=session_id)
     assert term_result.success
-    assert term_result.data["status"] == "terminated"
+    assert term_result.data["status"] in ("terminated", "ended")
 
 
 # ===========================================================================

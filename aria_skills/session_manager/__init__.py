@@ -52,6 +52,33 @@ class SessionManagerSkill(BaseSkill):
     async def health_check(self) -> SkillStatus:
         return self._status
 
+    @staticmethod
+    def _result_success(result: Any) -> bool:
+        """Normalize success flag across SkillResult and dict-style mocks."""
+        if isinstance(result, SkillResult):
+            return bool(result.success)
+        if isinstance(result, dict):
+            return bool(result.get("ok", True))
+        return bool(getattr(result, "success", False))
+
+    @staticmethod
+    def _result_data(result: Any) -> Any:
+        """Extract payload data from SkillResult or dict-style responses."""
+        if isinstance(result, SkillResult):
+            return result.data
+        if isinstance(result, dict):
+            return result.get("data", result)
+        return getattr(result, "data", None)
+
+    @staticmethod
+    def _result_error(result: Any) -> str:
+        """Extract an error string from SkillResult or dict-style responses."""
+        if isinstance(result, SkillResult):
+            return str(result.error or "unknown error")
+        if isinstance(result, dict):
+            return str(result.get("error", "unknown error"))
+        return str(getattr(result, "error", "unknown error"))
+
     # ── Internal helpers ───────────────────────────────────────────
 
     async def _fetch_sessions(
@@ -65,10 +92,14 @@ class SessionManagerSkill(BaseSkill):
             "order": "desc",
         }
         result = await self._api.get("/engine/sessions", params=params)
-        if not result.success:
+        if not self._result_success(result):
             return []
-        data = result.data if isinstance(result.data, dict) else {}
-        return data.get("sessions", data.get("items", []))
+        data = self._result_data(result)
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            return data.get("sessions", data.get("items", []))
+        return []
 
     # ── Public tool functions ──────────────────────────────────────────
 
@@ -131,14 +162,14 @@ class SessionManagerSkill(BaseSkill):
 
         try:
             result = await self._api.delete(f"/engine/sessions/{session_id}")
-            if result.success:
+            if self._result_success(result):
                 return SkillResult.ok({
                     "deleted": session_id,
                     "message": f"Session {session_id} deleted from database",
                 })
             else:
                 return SkillResult.fail(
-                    f"Failed to delete session {session_id}: {result.error}"
+                    f"Failed to delete session {session_id}: {self._result_error(result)}"
                 )
         except Exception as e:
             return SkillResult.fail(f"Error deleting session {session_id}: {e}")
@@ -188,10 +219,11 @@ class SessionManagerSkill(BaseSkill):
                 params["days"] = 1
 
             r = await self._api.post("/engine/sessions/cleanup", params=params)
-            if not r.success:
-                return SkillResult.fail(f"Cleanup endpoint error: {r.error}")
+            if not self._result_success(r):
+                return SkillResult.fail(f"Cleanup endpoint error: {self._result_error(r)}")
 
-            data = r.data if isinstance(r.data, dict) else {}
+            data = self._result_data(r)
+            data = data if isinstance(data, dict) else {}
             return SkillResult.ok({
                 "pruned_count": data.get("pruned_count", 0),
                 "archived_count": data.get("archived_count", 0),
@@ -211,10 +243,11 @@ class SessionManagerSkill(BaseSkill):
                 "/sessions/stats",
                 params={"include_runtime_events": True, "include_cron_events": True},
             )
-            if not stats_resp.success:
-                return SkillResult.fail(f"Error getting session stats: {stats_resp.error}")
+            if not self._result_success(stats_resp):
+                return SkillResult.fail(f"Error getting session stats: {self._result_error(stats_resp)}")
 
-            data = stats_resp.data if isinstance(stats_resp.data, dict) else {}
+            data = self._result_data(stats_resp)
+            data = data if isinstance(data, dict) else {}
             return SkillResult.ok({
                 "total_sessions": data.get("total_sessions", 0),
                 "active_sessions": data.get("active_sessions", 0),
@@ -248,10 +281,11 @@ class SessionManagerSkill(BaseSkill):
                 params["agent_id"] = agent
 
             result = await self._api.get("/engine/sessions/archived", params=params)
-            if not result.success:
-                return SkillResult.fail(f"Failed to fetch archived sessions: {result.error}")
+            if not self._result_success(result):
+                return SkillResult.fail(f"Failed to fetch archived sessions: {self._result_error(result)}")
 
-            data = result.data if isinstance(result.data, dict) else {}
+            data = self._result_data(result)
+            data = data if isinstance(data, dict) else {}
             sessions = data.get("sessions", [])
 
             return SkillResult.ok({
@@ -306,14 +340,16 @@ class SessionManagerSkill(BaseSkill):
                 result = await self._api.delete(
                     "/engine/sessions/ghosts?older_than_minutes=15",
                 )
-                if result.success:
+                if self._result_success(result):
+                    data = self._result_data(result)
+                    data = data if isinstance(data, dict) else {}
                     return SkillResult.ok({
                         "dry_run": False,
-                        "deleted": result.data.get("deleted", 0) if isinstance(result.data, dict) else 0,
+                        "deleted": data.get("deleted", 0),
                         "message": "Ghost sessions purged",
                     })
                 else:
-                    return SkillResult.fail(f"Ghost cleanup failed: {result.error}")
+                    return SkillResult.fail(f"Ghost cleanup failed: {self._result_error(result)}")
         except Exception as e:
             return SkillResult.fail(f"Error cleaning up orphans: {e}")
 
