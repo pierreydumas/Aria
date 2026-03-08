@@ -15,7 +15,7 @@ class TestLessonLifecycle:
             'error_type': 'ConnectionRefusedError',
             'resolution': 'Verify PostgreSQL is running and accepting connections on the configured port',
             'skill_name': 'database',
-            'context': 'Occurs during cold start when DB container is not ready',
+            'context': {'scenario': 'cold_start', 'note': 'DB container not ready'},
         }
         r = api.post('/lessons', json=payload)
         if r.status_code in (502, 503):

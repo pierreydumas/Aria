@@ -29,7 +29,7 @@ class TestMemoriesNoiseFilter:
 
     def test_test_prefix_key_blocked(self, api):
         """POST /memories with key starting with 'test-' → skipped."""
-        r = api.post("/memories", json={"key": "test-memory-xyz", "value": {"data": 1}})
+        r = api.post("/memories", json={"key": "test-memory-xyz", "value": "{\"data\":1}"})
         assert r.status_code in (200, 201)
         data = r.json()
         assert data.get("skipped") is True or data.get("stored") is False, \

@@ -12,7 +12,7 @@ class TestWorkingMemoryLifecycle:
         """POST /working-memory -> create item with key, value, category, importance."""
         payload = {
             "key": f"active-context-{uid}",
-            "value": {"focus": "deployment", "priority": "high"},
+            "value": '{"focus":"deployment","priority":"high"}',
             "category": "context",
             "importance": 0.8,
             "ttl_hours": 24,
@@ -51,13 +51,13 @@ class TestWorkingMemoryLifecycle:
         if not item_id:
             pytest.skip("no item created")
         r = api.patch(f"/working-memory/{item_id}", json={
-            "value": {"focus": "monitoring", "priority": "critical"},
+            "value": '{"focus":"monitoring","priority":"critical"}',
             "importance": 0.95,
         })
         assert r.status_code == 200, f"Patch failed: {r.status_code} {r.text}"
         data = r.json()
-        if "value" in data:
-            assert data["value"].get("focus") == "monitoring", f"Value not updated: {data['value']}"
+        if isinstance(data, dict) and isinstance(data.get("value"), str):
+            assert '"focus":"monitoring"' in data["value"], f"Value not updated: {data['value']}"
 
     def test_04_context_retrieval(self, api):
         """GET /working-memory/context -> verify weighted retrieval."""

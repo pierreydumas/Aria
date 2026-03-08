@@ -53,7 +53,8 @@ class TestWebSocket:
                 rejected = True
             try:
                 ws.close()
-            except Exception:
+            except (WebSocketException, OSError, RuntimeError):
+                # Connection already closed or in invalid state
                 pass
         except (WebSocketException, ConnectionRefusedError, OSError, TimeoutError):
             rejected = True  # Expected — invalid session should reject
@@ -65,7 +66,7 @@ class TestWebSocket:
                 ws.ping()
                 ws.settimeout(2)
                 ws.recv()
-            except Exception:
+            except (WebSocketException, ConnectionError, OSError, TimeoutError):
                 rejected = True
 
         assert rejected, "Server should reject or close connection for invalid session"
@@ -109,7 +110,7 @@ class TestWebSocket:
             for _ in range(120):
                 try:
                     msg = ws.recv()
-                except Exception:
+                except (WebSocketException, ConnectionError, OSError, TimeoutError):
                     break
                 data = json.loads(msg)
                 assert isinstance(data, dict), f"Expected dict, got {type(data)}"
@@ -146,7 +147,15 @@ class TestWebSocket:
                     assert "duration_ms" in tr, "tool_result missing duration_ms"
 
             ws.close()
-        except Exception as exc:
+        except (
+            WebSocketException,
+            ConnectionError,
+            OSError,
+            TimeoutError,
+            json.JSONDecodeError,
+            ValueError,
+            AssertionError,
+        ) as exc:
             ws.close()
             pytest.fail(f"WS send/recv failed after successful connect: {exc}")
         finally:
@@ -226,13 +235,22 @@ class TestWebSocket:
             if replay_markers:
                 assert replay_markers[0].get("client_message_id") == client_message_id
 
-        except Exception as exc:
+        except (
+            WebSocketException,
+            ConnectionError,
+            OSError,
+            TimeoutError,
+            json.JSONDecodeError,
+            ValueError,
+            AssertionError,
+        ) as exc:
             ws.close()
             pytest.fail(f"WS idempotency flow failed: {exc}")
         finally:
             try:
                 ws.close()
-            except Exception:
+            except (WebSocketException, OSError, RuntimeError):
+                # Connection already closed or in invalid state
                 pass
 
         with httpx.Client(base_url=_API_BASE, timeout=10) as client:

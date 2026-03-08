@@ -163,9 +163,9 @@ class TestPerformance:
         """POST /performance -> record, then GET -> verify in list."""
         payload = {
             'review_period': f'2026-Q1-{uid}',
-            'successes': 42,
-            'failures': 3,
-            'improvements': 'Reduced cold start latency by 40%',
+            'successes': ['stable deploy', 'reduced retry spikes'],
+            'failures': ['one transient timeout'],
+            'improvements': ['Reduced cold start latency by 40%'],
         }
         r = api.post('/performance', json=payload)
         assert r.status_code in (200, 201)

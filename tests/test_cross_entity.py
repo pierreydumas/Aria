@@ -249,7 +249,7 @@ class TestSkillFailureToLessonResolution:
             "error_type": "MemoryOverflow",
             "resolution": "Reduce batch_size from 10000 to 2000 and enable streaming mode",
             "skill_name": "data_pipeline",
-            "context": "Occurs when processing datasets larger than 500MB",
+            "context": {"dataset_size": ">500MB", "pipeline": "etl-transform"},
         })
         assert r.status_code in (200, 201, 400), f"Create lesson failed: {r.status_code} {r.text}"
         data = r.json()

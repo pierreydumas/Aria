@@ -12,7 +12,7 @@ class TestMemoryKVLifecycle:
         """POST /memories -> upsert with key/value/category."""
         payload = {
             "key": f"user-preference-{uid}",
-            "value": {"theme": "dark", "lang": "en", "timezone": "UTC"},
+            "value": '{"theme":"dark","lang":"en","timezone":"UTC"}',
             "category": "preferences",
         }
         r = api.post("/memories", json=payload)
@@ -36,9 +36,9 @@ class TestMemoryKVLifecycle:
         data = r.json()
         assert isinstance(data, dict)
         val = data.get("value", data)
-        if isinstance(val, dict):
-            assert val.get("theme") == "dark", f"Value mismatch: {val}"
-            assert val.get("lang") == "en", f"Value mismatch: {val}"
+        if isinstance(val, str):
+            assert '"theme":"dark"' in val
+            assert '"lang":"en"' in val
 
     def test_03_upsert_same_key_new_value(self, api):
         """POST /memories -> upsert same key with new value -> verify upserted."""
@@ -47,7 +47,7 @@ class TestMemoryKVLifecycle:
             pytest.skip("no memory created")
         payload = {
             "key": key,
-            "value": {"theme": "light", "lang": "es", "timezone": "CET"},
+            "value": '{"theme":"light","lang":"es","timezone":"CET"}',
             "category": "preferences",
         }
         r = api.post("/memories", json=payload)
@@ -64,9 +64,9 @@ class TestMemoryKVLifecycle:
         assert r.status_code == 200
         data = r.json()
         val = data.get("value", data)
-        if isinstance(val, dict):
-            assert val.get("theme") == "light", f"Expected 'light', got: {val}"
-            assert val.get("lang") == "es", f"Expected 'es', got: {val}"
+        if isinstance(val, str):
+            assert '"theme":"light"' in val
+            assert '"lang":"es"' in val
 
     def test_05_delete_memory(self, api):
         """DELETE /memories/{key} -> cleanup."""
