@@ -192,11 +192,13 @@ model_list:
 # ── MLX Local (Mac Mini — always running) ─────────────────────
 - model_name: qwen3-mlx
   litellm_params:
-    model: openai/mlx-community/Qwen3-4B-Instruct-2507-4bit
+    model: openai/mlx-community/Qwen3.5-4B-MLX-4bit
+    # OLD 9B: openai/mlx-community/Qwen3.5-9B-MLX-4bit
+    # OLD 3: openai/mlx-community/Qwen3-4B-Instruct-2507-4bit
     api_base: os.environ/MLX_API_BASE
     api_key: not-needed
   model_info:
-    max_tokens: 4096
+    max_tokens: 8192
     input_cost_per_token: 0
     output_cost_per_token: 0
 # ── Ollama Local (embedding + fallback) ───────────────────────

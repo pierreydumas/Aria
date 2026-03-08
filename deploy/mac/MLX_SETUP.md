@@ -219,7 +219,7 @@ Plan total = Docker overhead + model size + 2 GB system headroom.
 
    ```bash
    curl http://localhost:8080/v1/models
-   python scripts/benchmark_models.py --models qwen3-mlx
+  python tests/load/benchmark_models.py --models qwen3-mlx
    ```
 
 ---

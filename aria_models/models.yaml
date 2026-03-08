@@ -51,7 +51,7 @@
     "local_fast": "qwen3-mlx"
   },
   "agent_aliases": {
-    "litellm/qwen3-mlx": "Qwen3 4B Instruct (MLX Local)",
+    "litellm/qwen3-mlx": "Qwen3.5 4B Instruct (MLX Local)",
     "litellm/trinity-free": "Trinity 400B (OpenRouter FREE)",
     "litellm/qwen3-coder-free": "Qwen3 Coder 480B (OpenRouter FREE)",
     "litellm/qwen3-next-free": "Qwen3 Next 235B (OpenRouter FREE)",
@@ -61,11 +61,13 @@
   "models": {
     "qwen3-mlx": {
       "provider": "litellm",
-      "name": "Qwen3 4B Instruct (MLX Local)",
-      "_note": "ACTIVE: 4B (2.1GB). 8B needs 24GB+ RAM with Docker. To switch: change model + plist",
-      "reasoning": false,
+      "name": "Qwen3.5 4B Instruct (MLX Local)",
+      "_note": "ACTIVE: Qwen3.5-4B-MLX-4bit (2.9GB). Vision+text. Context: 128K. Old: Qwen3.5-9B",
+      "reasoning": true,
+      "vision": true,
       "input": [
-        "text"
+        "text",
+        "image"
       ],
       "cost": {
         "input": 0,
@@ -73,12 +75,12 @@
         "cacheRead": 0,
         "cacheWrite": 0
       },
-      "contextWindow": 32768,
+      "contextWindow": 131072,
       "maxTokens": 8192,
       "tier": "local",
       "routeSkill": "litellm",
       "litellm": {
-        "model": "openai/mlx-community/Qwen3-4B-Instruct-2507-4bit",
+        "model": "openai/mlx-community/Qwen3.5-4B-MLX-4bit",
         "api_base": "http://host.docker.internal:8080/v1",
         "api_key": "not-needed"
       },

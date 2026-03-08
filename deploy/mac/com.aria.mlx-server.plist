@@ -7,15 +7,16 @@
     
     <key>ProgramArguments</key>
     <array>
-        <string>/opt/homebrew/bin/python3.13</string>
+        <string>/opt/homebrew/bin/python3.14</string>
         <string>-m</string>
-        <string>mlx_lm</string>
-        <string>server</string>
+        <string>mlx_lm.server</string>
         <string>--model</string>
-        <!-- ACTIVE: Qwen3-4B (2.1GB RAM, fast orchestrator) -->
-        <string>mlx-community/Qwen3-4B-Instruct-2507-4bit</string>
-        <!-- SWITCH: 8B needs 24GB+ RAM with Docker running -->
-        <!-- <string>nightmedia/Qwen3-VLTO-8B-Instruct-qx86x-hi-mlx</string> -->
+        <!-- ACTIVE: Qwen3.5-4B (2.9GB RAM, lower swap pressure) -->
+        <string>mlx-community/Qwen3.5-4B-MLX-4bit</string>
+        <!-- OLD: Qwen3.5-9B (5.1GB RAM) -->
+        <!-- <string>mlx-community/Qwen3.5-9B-MLX-4bit</string> -->
+        <!-- OLD: Qwen3-4B (deprecated) -->
+        <!-- <string>mlx-community/Qwen3-4B-Instruct-2507-4bit</string> -->
         <string>--host</string>
         <string>0.0.0.0</string>
         <string>--port</string>

@@ -197,6 +197,24 @@ timeout: 300s
 
 ---
 
+## aria-local
+
+```yaml
+id: aria-local
+focus: conversational
+model: qwen3-mlx
+fallback: trinity-free
+parent: aria
+skills: [llm, conversation_summary, api_client, browser]
+capabilities: [conversation, code_assistance, reasoning, analysis, local_inference]
+mind_files: [IDENTITY.md, SOUL.md, SKILLS.md, TOOLS.md]
+context_window: 131072
+max_tokens: 8192
+timeout: 600s
+```
+
+---
+
 ## RPG Agents (Pathfinder 2e)
 
 These agents form Aria's tabletop RPG system. See `aria_mind/RPG.md` for full documentation.
