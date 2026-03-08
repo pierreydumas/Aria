@@ -4,7 +4,7 @@
 - Start stack: `docker compose -f stacks/brain/docker-compose.yml up -d`
 - Stop stack: `docker compose -f stacks/brain/docker-compose.yml down`
 - Tail logs: `docker compose -f stacks/brain/docker-compose.yml logs -f --tail=100`
-- Verify deployment: `./scripts/verify_deployment.sh`
+- Verify deployment: `./tests/e2e/verify_deployment.sh`
 - Apply patch: `./scripts/apply_patch.sh <patch_dir>`
 
 ## Service Recovery
@@ -23,7 +23,7 @@
 1. Use latest backup from `aria_memories/exports/patch_backup_*`.
 2. Restore files: `rsync -a <backup_dir>/ ./`
 3. Restart containers: `docker compose -f stacks/brain/docker-compose.yml restart aria-api aria-web aria-brain`
-4. Re-run `./scripts/verify_deployment.sh --quick`.
+4. Re-run `./tests/e2e/verify_deployment.sh --quick`.
 
 ## Incident Notes
 - Keep all runtime logs and alerts in `aria_memories/logs/`.

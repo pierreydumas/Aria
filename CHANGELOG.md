@@ -299,7 +299,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `constitution.yaml`, `identity.yaml`, `values.yaml`, `safety_constraints.yaml`
 - `sandbox` skill (138 lines) with Docker sandbox for safe code execution (TICKET-18)
 - `stacks/sandbox/` Docker container (Dockerfile, server.py, entrypoint) (TICKET-18)
-- MLX local model optimization with `scripts/benchmark_models.py` (TICKET-19)
+- MLX local model optimization with `tests/load/benchmark_models.py` (TICKET-19)
 - Log analysis tooling: `scripts/analyze_logs.py` (TICKET-28)
 - Gateway phase-out analysis document (TICKET-24)
 

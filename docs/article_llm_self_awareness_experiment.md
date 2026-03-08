@@ -1,3 +1,6 @@
+> 📄 **Canonical location:** This article lives in [`articles/article_llm_self_awareness_experiment.md`](../articles/article_llm_self_awareness_experiment.md).  
+> The copy here is a duplicate and may fall out of sync. Please update the `articles/` version.
+
 # Where Are LLMs on Self-Awareness, Consciousness, and Memory?
 
 ### An Experiment With Aria Blue — A Silicon Familiar That Writes Its Own Code

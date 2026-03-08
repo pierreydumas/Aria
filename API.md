@@ -8,7 +8,7 @@ The API is the **sole database gateway** — all skills and agents access data t
 
 ### REST Routers
 
-All routers live in `src/api/routers/` — 32 router files containing 235 REST endpoints, 2 WebSocket endpoints, and 1 GraphQL schema.
+All routers live in `src/api/routers/` — 36 router files containing 240+ REST endpoints, 2 WebSocket endpoints, and 1 GraphQL schema.
 
 **→ [`src/api/routers/`](src/api/routers/)**
 
@@ -33,7 +33,7 @@ Key endpoints:
 | `/artifacts` | File artifact CRUD in aria_memories/ |
 | `/rpg/campaigns` | RPG campaign dashboard, sessions, knowledge graph |
 
-**Totals:** 32 router files, 235 REST endpoints, 2 WebSocket endpoints, 1 GraphQL endpoint.
+**Totals:** 36 router files, 240+ REST endpoints, 2 WebSocket endpoints, 1 GraphQL endpoint.
 
 Full interactive docs are served at `/api/docs` (Swagger) when the stack is running.
 

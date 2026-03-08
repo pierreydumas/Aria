@@ -2,6 +2,7 @@
 
 Single source of truth for model definitions and routing.
 
+> **Last updated:** 2026-03-07  
 > **User-facing routing guide:** [MODELS.md](../MODELS.md) — tier strategy,
 > LiteLLM topology, focus-to-model mapping, and benchmark scripts.
 

@@ -32,8 +32,10 @@ source .venv/bin/activate
 # 3. Install dependencies
 pip install -e ".[dev]"
 
-# 4. Set PYTHONPATH so aria_engine can resolve the db package (src/api/db is
-#    mounted as /db inside Docker but must be added manually for local runs):
+# 4. Set PYTHONPATH so aria_engine can resolve the db package
+#    (src/api/db is mounted as /db inside Docker but must be added
+#    manually for local dev outside Docker. This lets Python find
+#    db.models, db.session etc. without a Docker volume mount):
 export PYTHONPATH="$PWD/src/api:$PYTHONPATH"
 
 # 5. Start the Docker stack
@@ -53,7 +55,7 @@ All secrets and configuration live in `stacks/brain/.env`. **Never commit `.env`
 
 ## Architecture Rules
 
-Aria follows a strict **5-layer skill hierarchy**. These rules are enforced by `scripts/check_architecture.py` and CI checks.
+Aria follows a strict **5-layer skill hierarchy**. These rules are enforced by `tests/check_architecture.py` and CI checks.
 
 ### Layer Hierarchy
 
@@ -121,7 +123,7 @@ aria_skills/my_skill/
 ### Before Submitting
 
 1. **Run the full test suite**: `pytest tests/ -v`
-2. **Run architecture validation**: `python scripts/check_architecture.py`
+2. **Run architecture validation**: `python tests/check_architecture.py`
 3. **Verify no raw SQL**: `grep -rn "text(" aria_skills/ aria_engine/ --include="*.py"` should return nothing unexpected
 4. **Update documentation** if you changed APIs, skills, or architecture
 5. **Add tests** for any new endpoints or skill functions

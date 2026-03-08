@@ -4,6 +4,8 @@
 **JIT:** Disabled  
 **Date:** 2026-02-19 00:32:00  
 **Iterations:** 100  
+**Hardware:** Mac Mini M-series Apple Silicon (record hardware model here for regression tracking)  
+**Baseline:** Values below are point-in-time snapshots; re-run with `pytest --benchmark-only` to compare.
 
 ## Results
 

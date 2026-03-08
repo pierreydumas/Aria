@@ -2,7 +2,7 @@
 
 > **Version**: 3.0.0 (aria_engine v3, multi-agent + artifact API)
 > **Target**: Mac Mini — najia@192.168.1.53
-> **Last updated**: Sprint 13
+> **Last updated**: 2026-02
 
 For architecture overview see [ARCHITECTURE.md](ARCHITECTURE.md). For model details see [MODELS.md](MODELS.md). For skill details see [SKILLS.md](SKILLS.md). For rollback procedures see [ROLLBACK.md](ROLLBACK.md).
 

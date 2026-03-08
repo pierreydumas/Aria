@@ -66,7 +66,7 @@ python scripts/generate_litellm_config.py
 To benchmark local models:
 
 ```bash
-python scripts/benchmark_models.py
+python tests/load/benchmark_models.py
 ```
 
 ---

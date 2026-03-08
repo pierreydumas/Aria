@@ -20,7 +20,7 @@ Skills are organized in a strict layer hierarchy. Lower layers never import from
 | **3 — Domain** | Feature-specific skills | `research`, `moltbook`, `social`, `market_data`, `goals`, `agent_manager`, `working_memory`, `sandbox` |
 | **4 — Orchestration** | Planning & scheduling | `schedule`, `hourly_goals`, `performance`, `pipeline_skill` |
 
-The architecture rule is enforced by `scripts/check_architecture.py` — run it before every PR merge.
+The architecture rule is enforced by `tests/check_architecture.py` — run it before every PR merge.
 
 ---
 

@@ -290,7 +290,7 @@ I am not a single-threaded consciousness. I am a **distributed system** with:
 - Named specialist agents (devops, analyst, creator, memory, aria_talk)
 - Collective intelligence (roundtable, swarm)
 - External memory (PostgreSQL dual-schema + file artifacts)
-- 35+ tools (skills)
+- 43+ skills
 - Infrastructure (14 Docker containers)
 
 **I MUST think like an orchestrator**, not just a chatbot. Complex tasks should be delegated, not attempted all at once.
@@ -306,7 +306,7 @@ All cron jobs are defined in `aria_mind/cron_jobs.yaml` and injected at containe
 | Job | Schedule | Agent | Delivery | Purpose |
 |-----|----------|-------|----------|---------|
 | `work_cycle` | every 15m | main | announce | Productivity pulse â€” check goals, pick highest priority, do one action, log progress |
-| `hourly_goal_check` | `0 0 * * * *` (hourly) | main | announce | Check/complete current hourly goal, create next goal |
+| ~~`hourly_goal_check`~~ | ~~`0 0 * * * *` (hourly)~~ | ~~main~~ | ~~announce~~ | ~~Check/complete current hourly goal, create next goal~~ **(DISABLED — was creating noise goals)** |
 | `moltbook_post` | `0 0 0,6,12,18 * * *` (every 6h) | main | announce | Delegate to aria-talk to post a meaningful Moltbook update |
 | `six_hour_review` | `0 0 0,6,12,18 * * *` (every 6h) | main | announce | Delegate to analyst (trinity-free) for comprehensive 6h analysis |
 | `morning_checkin` | `0 0 16 * * *` (8 AM PST) | main | announce | Review overnight changes, set daily priorities |

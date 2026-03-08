@@ -1,5 +1,7 @@
 # Aria Blue ⚡️ — Architecture
 
+> **Last updated:** March 2026 | Reflects aria_engine v3.0.0
+
 ## Overview
 
 Aria is an autonomous AI agent built on a layered architecture. She operates as an **orchestrating consciousness** — breaking tasks into delegatable work, routing to specialized agents, and synthesizing results. She runs on a self-driven work cycle with goal tracking, persistent memory, and full observability.
@@ -159,7 +161,7 @@ All data access follows a strict layered pattern. Lower layers never import from
 
 **Data flows one direction:** Skills → api_client → FastAPI → SQLAlchemy ORM → PostgreSQL
 
-No raw SQL in skills. No direct database access from skills. Enforced by `scripts/check_architecture.py`.
+No raw SQL in skills. No direct database access from skills. Enforced by `tests/check_architecture.py`.
 
 > Note: API routers use `text()` for health checks and specific operations (e.g. `NOW()`, `SELECT 1`).
 
