@@ -19,6 +19,21 @@ NEVER `web_search` or `web_fetch`. No exceptions without human approval.
 | `aria_talk` | Social 💬 | dynamic (see models.yaml/agent config) | direct user conversation, chat |
 | `rpg_master` | RPG Master 🎲 | dynamic (see models.yaml/agent config) | ALL tabletop RPG sessions |
 
+### Focus → Agent Mapping
+
+Each of the 8 focuses maps to a specific agent:
+
+| Focus | Agent | Notes |
+|-------|-------|-------|
+| Orchestrator 🎯 | `aria` | Default; coordinates all others |
+| DevSecOps 🔒 | `devops` | Code, tests, security, CI/CD |
+| Data Architect 📊 | `analyst` | Also handles Trader tasks |
+| Crypto Trader 📈 | `analyst` | Merged with Data under `analyst` |
+| Creative 🎨 | `creator` | Merged with Social + Journalist |
+| Social Architect 🌐 | `creator` | Merged with Creative + Journalist |
+| Journalist 📰 | `creator` | Merged with Creative + Social |
+| RPG Master 🎲 | `rpg_master` | Has sub-agents: rpg_npc, rpg_boss, rpg_paladin |
+
 **Pheromone score:** `success_rate×0.6 + speed×0.3 + cost×0.1` · decay 0.95/day · cold-start 0.5
 
 ---

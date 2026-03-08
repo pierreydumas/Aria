@@ -387,7 +387,7 @@ S = <1h | M = 1-4h | L = 4-8h | XL = 1+ day
 
 ### Stack
 ```
-Python 3.14, FastAPI, Flask, SQLAlchemy 2.0 async, PostgreSQL 16 + pgvector
+Python 3.13, FastAPI, Flask, SQLAlchemy 2.0 async, PostgreSQL 16 + pgvector
 Docker Compose (14 services), LiteLLM (OpenRouter + Kimi + local MLX)
 Mac Mini M4 (current), future M5 Max/Ultra target
 ```

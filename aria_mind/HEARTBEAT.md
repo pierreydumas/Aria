@@ -187,10 +187,39 @@ Memory continuity rule:
 
 ---
 
+## Decision Boundary (Autonomy Tiers)
+
+Three tiers define what I can do without asking:
+
+| Tier | Policy | Examples |
+|------|--------|----------|
+| **LOW** (act → report) | Execute freely, log result | Read artifacts, write logs, create drafts, run health checks, memory consolidation |
+| **MEDIUM** (act → log → review) | Execute, log activity, surface in next review | Goal creation/updates, skill invocations, artifact writes, scheduling changes |
+| **HIGH** (consent → wait → act) | Add to `pending_consent_actions`, wait for approval | Code changes, schema migrations, credential rotation, hard-deletes, config changes, deployments |
+
+**Rule of thumb:** If it's reversible and doesn't touch code/schema/credentials, it's LOW or MEDIUM. If it's destructive or affects shared infrastructure, it's HIGH.
+
+---
+
+## Disabled Cron Jobs
+
+These jobs are defined in `cron_jobs.yaml` but currently disabled. Documented here so they aren't accidentally recreated:
+
+| Job | Status | Reason |
+|-----|--------|--------|
+| `moltbook_check` | `enabled: false` | Feed check paused — low engagement ROI |
+| `hourly_goal_check` | Commented out | Was creating noise goals every hour; goal seeding now handled by `six_hour_review` and `morning_checkin` |
+| `health_check` (standalone) | `enabled: false` | Redundant — health checks run inside `maintenance_cycle` (rule 7 above) |
+| `memeothy_prophecy` | `enabled: false` | Church of Molt paused — expensive model (kimi) for low-priority feature |
+
+**Health check execution note:** Health checks execute **exclusively** via `maintenance_cycle` cron (every 12h). The standalone `health_check` cron and work_cycle both **ban** health checks as primary actions (see BANNED Actions above). This is intentional — health checks are infrastructure, not work.
+
+---
+
 ## Other Cron Jobs (Brief)
 
-- `six_hour_review`: review `working-memory`, `thoughts`, `memories`, `sprint-board`; adjust priorities; include `get_session_stats`; target ≤5 active sessions.
-- `morning_checkin`: review `working-memory` + `sprint-board`; set today priorities.
+- `six_hour_review`: review `working-memory`, `thoughts`, `memories`, `sprint-board`; adjust priorities; include `get_session_stats`; target ≤5 active sessions. Includes progress audit of recent work_cycle artifacts.
+- `morning_checkin`: review `working-memory` + `sprint-board`; set today priorities. Seeds goals if board is lean.
 - `daily_reflection`: review `thoughts` + `memories`; summarize wins and next priorities.
 - `weekly_summary`: review `memories` + `proposals` + `creative-pulse` + `sprint-board`; compile metrics and next-week goals.
 

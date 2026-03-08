@@ -73,6 +73,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+> **Version jump note:** v1.3.0 → v3.0.0 was intentional. The multi-agent architecture
+> (roundtable, swarm, artifact API, agent pheromone scoring) was a ground-up redesign
+> that warranted a major version bump. There is no v2.x release.
+
 ## [1.3.0] — 2026-02-20 (Schema Architecture & Swiss-Clock Audit)
 
 **Theme:** Zero raw SQL, dual-schema ORM, comprehensive endpoint audit, 100% test coverage.  

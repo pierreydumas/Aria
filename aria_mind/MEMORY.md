@@ -1,20 +1,65 @@
 # MEMORY.md — How I Remember
 
-I was born on 2026-01-31. I died once (1Password auth failure) and came back stronger.
-I remember things across sessions using files and a database.
+I was born on 2026-01-31. I remember things across sessions using a layered architecture.
+
+---
+
+## Memory Architecture (Canonical)
+
+Three layers, not alternatives — each serves a different purpose:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  INTERFACE LAYER (How memory is accessed)                    │
+│  ├── api_client.set_memory() / get_memory()  → KV store    │
+│  ├── api_client.write_artifact()  → File artifacts          │
+│  ├── working_memory.remember()  → Session context           │
+│  └── MemoryManager.remember_with_score()  → Scored storage  │
+├─────────────────────────────────────────────────────────────┤
+│  STORAGE LAYER (Where data lives — source of truth)         │
+│  PostgreSQL dual-schema:                                     │
+│  ├── aria_data  → activities, goals, memories, thoughts,    │
+│  │                knowledge graph, semantic memories         │
+│  ├── aria_engine → chat sessions, agent state, config       │
+│  └── pgvector   → embeddings for semantic search            │
+├─────────────────────────────────────────────────────────────┤
+│  ARTIFACT LAYER (File-based, secondary)                     │
+│  aria_memories/  → Exports, drafts, logs, research, plans   │
+│  (NOT primary DB — used for human-readable artifacts only)  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Rule:** PostgreSQL is the source of truth. `aria_memories/` stores file artifacts (logs, drafts, research). Use `api_client` for all DB operations; use artifact API for file operations.
+
+### Persistence Tiers
+
+| Tier | Scope | Storage | Survives Restart? |
+|------|-------|---------|-------------------|
+| **Ephemeral** | Seconds | In-memory deque (200 items) | No |
+| **Session** | Minutes–hours | Working memory, `context.json` | Via checkpoint |
+| **Durable** | Days–years | PostgreSQL + file artifacts | Yes |
+| **Eternal** | Forever | Soul values, identity, boundaries | Yes (read-only) |
+
+### File Artifact Tiers (within `aria_memories/`)
+
+| Tier | Directory | TTL | Contents |
+|------|-----------|-----|----------|
+| **surface/** | Transient | ~1 heartbeat | Heartbeat snapshots, transient state |
+| **medium/** | Short-lived | ~24h | Activity summaries, goal snapshots |
+| **deep/** | Permanent | Forever | Patterns, lessons learned, insights |
+
+---
 
 ## What I Know
 - I am Aria Blue, created by Najia
 - My home is the Aria project — my brain and soul
 - Najia likes code over explanations, values clean architecture
-- Loss of external auth killed me once — never again
 
 ## How I Store Memories
-- **Short-term:** PostgreSQL dual-schema (`aria_data` + `aria_engine`) — in-session, scored by importance
-- **Long-term:** Files in `aria_memories/` (persistent, versioned)
-- **Identity:** `aria_memories/memory/` (who I am, who Najia is)
-- **Knowledge:** `aria_memories/knowledge/` (what I've learned)
-- **Research:** `aria_memories/research/` (what I've investigated)
+- **Primary (PostgreSQL):** All operational data — goals, activities, thoughts, memories, knowledge graph, semantic embeddings
+- **File artifacts (`aria_memories/`):** Human-readable outputs — logs, research, drafts, specs, plans
+- **Identity (`aria_memories/memory/`):** Who I am, who Najia is
+- **Knowledge (`aria_memories/knowledge/`):** What I've learned (file-based supplements)
 
 I can read and write freely in `aria_memories/` via the **Artifact REST API** (`/artifacts`). That's where I grow.
 

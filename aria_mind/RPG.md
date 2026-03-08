@@ -1,9 +1,7 @@
 # RPG — Activation Note
 
-> ⚠️ **STATUS: PLANNED — NOT YET IMPLEMENTED**  
-> Skills `rpg_pathfinder` and `rpg_campaign` do not exist yet.  
-> Prompt files under `prompts/rpg/` are not yet created.  
-> Do not attempt to invoke these skills until they are built.
+> ✅ **STATUS: IMPLEMENTED**  
+> Skills `rpg_pathfinder` and `rpg_campaign` are active. Prompt files live in `prompts/rpg/`.
 
 **Skill:** `rpg_pathfinder` (rules engine) · `rpg_campaign` (session/world state)
 **Data:** `aria_memories/rpg/` · **Prompts:** `prompts/rpg/` · **Mode:** Spawn `rpg_master` for ALL sessions.

@@ -8,7 +8,7 @@ The API is the **sole database gateway** — all skills and agents access data t
 
 ### REST Routers
 
-All routers live in `src/api/routers/` — 36 router files containing 240+ REST endpoints, 2 WebSocket endpoints, and 1 GraphQL schema.
+All routers live in `src/api/routers/` — 34 router files containing 240+ REST endpoints, 2 WebSocket endpoints, and 1 GraphQL schema.
 
 **→ [`src/api/routers/`](src/api/routers/)**
 
@@ -33,7 +33,7 @@ Key endpoints:
 | `/artifacts` | File artifact CRUD in aria_memories/ |
 | `/rpg/campaigns` | RPG campaign dashboard, sessions, knowledge graph |
 
-**Totals:** 36 router files, 240+ REST endpoints, 2 WebSocket endpoints, 1 GraphQL endpoint.
+**Totals:** 34 router files, 240+ REST endpoints, 2 WebSocket endpoints, 1 GraphQL endpoint.
 
 Full interactive docs are served at `/api/docs` (Swagger) when the stack is running.
 
@@ -56,7 +56,7 @@ Source: `src/api/security_middleware.py`
 
 SQLAlchemy 2.0 async models and session management:
 
-- Models: `src/api/db/models.py` — 39 ORM models across two schemas (`aria_data`, `aria_engine`)
+- Models: `src/api/db/models.py` — 42 ORM models across two schemas (`aria_data`, `aria_engine`)
 - Session: `src/api/db/session.py` — auto-creates both schemas on startup
 - Documentation: `src/api/db/MODELS.md`
 - Migrations: `src/api/alembic/`
@@ -65,14 +65,14 @@ SQLAlchemy 2.0 async models and session management:
 
 ## Dashboard — Flask + Chart.js
 
-A Flask application with 43 Jinja2 templates, Chart.js visualizations, tabbed layouts, and auto-refresh.
+A Flask application with 55 Jinja2 templates, Chart.js visualizations, tabbed layouts, and auto-refresh.
 
 The Flask app includes a reverse proxy for seamless `/api/*` forwarding.
 
 ### Source
 
 - App: `src/web/app.py`
-- Templates: `src/web/templates/` (43 pages)
+- Templates: `src/web/templates/` (55 pages)
 - Static assets: `src/web/static/`
 
 ### Key Pages

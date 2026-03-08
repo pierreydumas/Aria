@@ -80,7 +80,7 @@ Aria_moltbot/
 │   ├── aria_memories/            # Memory mount
 │   └── articles/                 # Article content
 │
-├── aria_skills/                  # Skill modules (41 skills)
+├── aria_skills/                  # Skill modules (43 skills)
 │   ├── __init__.py               # Package exports
 │   ├── base.py                   # BaseSkill, SkillConfig, SkillResult
 │   ├── catalog.py                # Skill catalog generator (--list-skills CLI)
@@ -249,7 +249,7 @@ Aria_moltbot/
 │   │   │   └── versions/
 │   │   ├── db/                   # SQLAlchemy 2.0 ORM layer
 │   │   │   ├── __init__.py
-│   │   │   ├── models.py         # 39 ORM models (aria_data + aria_engine schemas)
+│   │   │   ├── models.py         # 42 ORM models (aria_data + aria_engine schemas)
 │   │   │   ├── session.py        # Async engine + sessionmaker + schema bootstrap
 │   │   │   └── MODELS.md         # Model documentation
 │   │   ├── gql/                  # Strawberry GraphQL
@@ -257,7 +257,7 @@ Aria_moltbot/
 │   │   │   ├── schema.py         # GraphQL schema
 │   │   │   ├── types.py          # GraphQL type definitions
 │   │   │   └── resolvers.py      # Query resolvers
-│   │   └── routers/              # 32 REST router files
+│   │   └── routers/              # 34 REST router files
 │   │       ├── activities.py     # Activity log CRUD + stats (7 endpoints)
 │   │       ├── admin.py          # Admin operations (12 endpoints)
 │   │       ├── agents_crud.py    # Agent CRUD lifecycle (10 endpoints)
@@ -292,14 +292,14 @@ Aria_moltbot/
 │   │       └── working_memory.py # Working memory API (10 endpoints)
 │   ├── database/                 # Database utilities
 │   │   └── models.py
-│   └── web/                      # Flask dashboard (43 pages)
+│   └── web/                      # Flask dashboard (55 pages)
 │       ├── app.py                # Flask app + routes
 │       ├── static/               # CSS, JS, favicon
 │       │   ├── css/              # Component styles (base, layout, variables)
 │       │   ├── js/
 │       │   │   └── pricing.js    # Shared pricing helpers
 │       │   └── favicon.svg
-│       └── templates/            # 43 Jinja2 templates + Chart.js
+│       └── templates/            # 55 Jinja2 templates + Chart.js
 │           ├── base.html
 │           ├── index.html
 │           ├── activities.html
@@ -366,7 +366,7 @@ Aria_moltbot/
 │   ├── run-load-test.sh          # Load test runner
 │   ├── runtime_smoke_check.py    # Runtime smoke check
 │   ├── talk_to_aria.py           # Interactive Aria CLI
-│   └── verify_deployment.sh      # Deployment verification
+│   └── runtime_smoke_check.py    # Deployment verification (runtime smoke check)
 │
 ├── prompts/                      # Prompt templates
 │   ├── agent-workflow.md
@@ -398,7 +398,7 @@ Aria_moltbot/
 ├── tasks/                        # Task documentation
 │   └── lessons.md
 │
-└── tests/                        # Pytest test suite (79 test files, 948 test functions)
+└── tests/                        # Pytest test suite (108 test files)
     ├── __init__.py
     ├── conftest.py               # Fixtures, DB health gate, API client
     ├── test_activities.py        # Activity CRUD tests
@@ -490,7 +490,7 @@ init-scripts/
 └── 02-migrations.sql           # Schema migrations
 ```
 
-> **Schema layout:** One database `aria_warehouse` with two schemas — `aria_data` (26 domain tables) and `aria_engine` (13 infrastructure tables). LiteLLM uses a separate `litellm` database with its own Prisma-managed schema. All 39 ORM models have explicit `__table_args__ = {"schema": ...}` annotations.
+> **Schema layout:** One database `aria_warehouse` with two schemas — `aria_data` (~26 domain tables) and `aria_engine` (~16 infrastructure tables). LiteLLM uses a separate `litellm` database with its own Prisma-managed schema. All 42 ORM models have explicit `__table_args__ = {"schema": ...}` annotations.
 
 ---
 
