@@ -306,12 +306,13 @@ async def semantic_memory_stats(db: AsyncSession = Depends(get_db)):
 async def list_semantic_memories(
     category: str = None,
     source: str = None,
+    origin: str = None,
     limit: int = 50,
     page: int = 1,
     min_importance: float = 0.0,
     db: AsyncSession = Depends(get_db),
 ):
-    """List semantic memories with optional category/source filter. No embedding query needed."""
+    """List semantic memories with optional category/source/origin filter. No embedding query needed."""
     base = select(SemanticMemory).order_by(SemanticMemory.created_at.desc())
     if category:
         base = base.where(SemanticMemory.category == category)
@@ -319,6 +320,11 @@ async def list_semantic_memories(
         base = base.where(SemanticMemory.source == source)
     if min_importance > 0:
         base = base.where(SemanticMemory.importance >= min_importance)
+    # ARIA-REV-104: Filter by origin metadata (user/autonomous/cron)
+    if origin:
+        base = base.where(
+            SemanticMemory.metadata_json["origin"].astext == origin
+        )
 
     count_stmt = select(func.count()).select_from(base.subquery())
     total = (await db.execute(count_stmt)).scalar() or 0
@@ -374,6 +380,7 @@ async def search_memories(
     limit: int = 5,
     category: str = None,
     source: str = None,
+    origin: str = None,
     min_importance: float = 0.0,
     db: AsyncSession = Depends(get_db),
 ):
@@ -392,6 +399,11 @@ async def search_memories(
         stmt = stmt.where(SemanticMemory.source == source)
     if min_importance > 0:
         stmt = stmt.where(SemanticMemory.importance >= min_importance)
+    # ARIA-REV-104: Filter by origin metadata (user/autonomous/cron)
+    if origin:
+        stmt = stmt.where(
+            SemanticMemory.metadata_json["origin"].astext == origin
+        )
 
     result = await db.execute(stmt)
     memories = []

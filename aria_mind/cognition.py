@@ -256,6 +256,15 @@ class Cognition:
         # Inject metacognitive awareness — Aria knows how she's performing
         context["metacognitive_state"] = self._get_metacognitive_summary()
 
+        # ARIA-REV-101: Apply metacognition strategy recommendations
+        try:
+            from aria_mind.metacognition import get_metacognitive_engine
+            mc = get_metacognitive_engine()
+            if mc._category_strategies:
+                context["metacognitive_strategies"] = mc._category_strategies
+        except Exception:
+            pass
+
         # Inject skill-routing hints for agent/runtime alignment
         if self._agents and hasattr(self._agents, "suggest_skills_for_task"):
             try:
@@ -328,7 +337,12 @@ class Cognition:
                     "attempts": attempt + 1,
                 },
             }
-        self._record_outcome(is_success, error_context)
+        self._record_outcome(
+            is_success,
+            error_context,
+            elapsed_ms=elapsed_ms,
+            category=context.get("task_category", "general"),
+        )
         
         # Step 7: Log thought with performance context
         await self.memory.log_thought(
@@ -361,8 +375,18 @@ class Cognition:
         
         return result
     
-    def _record_outcome(self, success: bool, error_context: dict[str, Any] | None = None) -> None:
-        """Update metacognitive metrics after each interaction."""
+    def _record_outcome(
+        self,
+        success: bool,
+        error_context: dict[str, Any] | None = None,
+        elapsed_ms: float = 0,
+        category: str = "general",
+    ) -> None:
+        """Update metacognitive metrics after each interaction.
+
+        ARIA-REV-101: Now also calls metacognition.record_task() so Aria's
+        learning loop is closed — outcomes feed back into strategy selection.
+        """
         if success:
             self._total_successes += 1
             self._streak += 1
@@ -382,6 +406,20 @@ class Cognition:
                     error_type=error_context.get("error_type", "unknown"),
                     context=error_context.get("context", {}),
                 )
+
+        # ARIA-REV-101: Feed outcome into metacognitive engine
+        try:
+            from aria_mind.metacognition import get_metacognitive_engine
+            engine = get_metacognitive_engine()
+            engine.record_task(
+                category=category,
+                success=success,
+                duration_ms=int(elapsed_ms),
+                error_type=error_context.get("error_type") if error_context else None,
+                confidence_at_start=self._confidence,
+            )
+        except Exception:
+            pass  # metacognition is supplementary — never break cognition
     
     def _get_metacognitive_summary(self) -> str:
         """Generate a self-awareness summary for context injection."""

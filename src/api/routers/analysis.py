@@ -9,6 +9,7 @@ HTTP façade for the web dashboard and external callers.
 Sentiment endpoints have been extracted to routers/sentiment.py.
 """
 
+import hashlib
 import logging
 import os
 from typing import Any
@@ -462,13 +463,14 @@ async def seed_semantic_memories(
                 continue
 
             if skip_existing:
-                fp = content[:100]
+                # ARIA-REV-116: Use content hash instead of fragile summary truncation
+                content_hash = hashlib.sha256(content.encode()).hexdigest()
                 exists = await db.execute(
                     select(func.count())
                     .select_from(SemanticMemory)
                     .where(
                         SemanticMemory.source == "seed_thoughts",
-                        SemanticMemory.summary == fp,
+                        SemanticMemory.metadata_json["content_hash"].astext == content_hash,
                     )
                 )
                 if (exists.scalar() or 0) > 0:
@@ -497,6 +499,7 @@ async def seed_semantic_memories(
                     "original_id": str(t.id),
                     "thought_category": cat,
                     "origin": origin,
+                    "content_hash": content_hash if skip_existing else hashlib.sha256(content.encode()).hexdigest(),
                     "created_at": t.created_at.isoformat() if t.created_at else None,
                 },
             )
@@ -534,13 +537,14 @@ async def seed_semantic_memories(
                 continue
 
             if skip_existing:
-                fp = content[:100]
+                # ARIA-REV-116: Use content hash instead of fragile summary truncation
+                content_hash = hashlib.sha256(content.encode()).hexdigest()
                 exists = await db.execute(
                     select(func.count())
                     .select_from(SemanticMemory)
                     .where(
                         SemanticMemory.source == "seed_activities",
-                        SemanticMemory.summary == fp,
+                        SemanticMemory.metadata_json["content_hash"].astext == content_hash,
                     )
                 )
                 if (exists.scalar() or 0) > 0:
@@ -585,6 +589,7 @@ async def seed_semantic_memories(
                     "skill": a.skill,
                     "success": a.success,
                     "origin": origin,
+                    "content_hash": content_hash if skip_existing else hashlib.sha256(content.encode()).hexdigest(),
                     "created_at": a.created_at.isoformat() if a.created_at else None,
                 },
             )

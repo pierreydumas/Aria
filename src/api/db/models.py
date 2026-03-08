@@ -712,6 +712,7 @@ Index("idx_semantic_category", SemanticMemory.category)
 Index("idx_semantic_importance", SemanticMemory.importance)
 Index("idx_semantic_created", SemanticMemory.created_at.desc())
 Index("idx_semantic_source", SemanticMemory.source)
+Index("idx_semantic_cat_importance", SemanticMemory.category, SemanticMemory.importance.desc())
 
 
 # ── Lessons Learned (S5-02) ──────────────────────────────────────────────────

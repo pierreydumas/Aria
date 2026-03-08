@@ -305,12 +305,16 @@ class MemoryManager:
             await self.remember(consolidation_key, consolidation_data, "consolidation")
 
         # Save as file artifact for human visibility
-        self.save_json_artifact(
+        # ARIA-REV-106: Verify write before clearing (atomic consolidation)
+        artifact_result = self.save_json_artifact(
             consolidation_data,
             f"consolidation_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.json",
             "knowledge",
             "consolidations",
         )
+        if not artifact_result.get("success"):
+            self.logger.error("Consolidation write failed — keeping short-term intact")
+            return {"consolidated": False, "reason": "Artifact write failed"}
 
         self._consolidation_count += 1
         self._last_consolidation = datetime.now(timezone.utc).isoformat()

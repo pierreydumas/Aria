@@ -317,7 +317,30 @@ class Heartbeat:
             get_metacognitive_engine().save()
         except Exception:
             pass
-        
+
+        # 10. ARIA-REV-103: Checkpoint short-term memory for restart survival
+        if self._mind.memory:
+            try:
+                await self._mind.memory.checkpoint_short_term()
+            except Exception:
+                pass
+
+        # 11. ARIA-REV-107: Emergency maintenance on resource pressure
+        try:
+            import psutil
+            mem_pct = psutil.virtual_memory().percent
+            disk_pct = psutil.disk_usage('/').percent
+            if mem_pct > 80 or disk_pct > 85:
+                self.logger.warning(
+                    "⚡ Resource pressure: memory=%.1f%% disk=%.1f%% — triggering emergency maintenance",
+                    mem_pct, disk_pct,
+                )
+                await self._emergency_maintenance()
+        except ImportError:
+            pass  # psutil not available in this environment
+        except Exception:
+            pass
+
         self.logger.debug(f"💓 Beat #{self._beat_count} — all systems nominal")
     
     async def _heal_subsystem(self, subsystem: str) -> bool:
@@ -390,6 +413,32 @@ class Heartbeat:
                 self.logger.info(f"🗂️ Archived {pruned} stale sessions (>24h)")
         except Exception as e:
             self.logger.debug(f"Session archiving skipped: {e}")
+
+        # ARIA-REV-108: Ghost session cleanup (0-message sessions >15 min old)
+        try:
+            ghost_result = await api.post(
+                "/api/engine/sessions/cleanup",
+                json={"max_age_hours": 0.25, "dry_run": False},
+            )
+            ghost_pruned = ghost_result.get("deleted", 0) if isinstance(ghost_result, dict) else 0
+            results["actions"].append({"op": "ghost_cleanup", "deleted": ghost_pruned})
+            if ghost_pruned:
+                self.logger.info(f"👻 Cleaned {ghost_pruned} ghost sessions")
+        except Exception as e:
+            self.logger.debug(f"Ghost session cleanup skipped: {e}")
+
+        # ARIA-REV-108: Stale sub-agent session cleanup (>1h old)
+        try:
+            stale_result = await api.post(
+                "/api/agent-manager/prune-stale-sessions",
+                json={"max_age_hours": 1, "agent_prefix": "sub-"},
+            )
+            stale_pruned = stale_result.get("pruned", 0) if isinstance(stale_result, dict) else 0
+            results["actions"].append({"op": "stale_subagent_cleanup", "pruned": stale_pruned})
+            if stale_pruned:
+                self.logger.info(f"🧹 Pruned {stale_pruned} stale sub-agent sessions")
+        except Exception as e:
+            self.logger.debug(f"Stale sub-agent cleanup skipped: {e}")
 
         # 2. Activity compression — archive activities >7 days old
         try:

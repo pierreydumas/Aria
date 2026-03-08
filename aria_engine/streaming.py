@@ -1690,7 +1690,10 @@ class StreamManager:
 
     @staticmethod
     async def _send_json(websocket: WebSocket, data: dict[str, Any]) -> None:
-        """Send JSON data over WebSocket; raise WebSocketDisconnect if socket is gone."""
+        """Send JSON data over WebSocket; raise WebSocketDisconnect if socket is gone.
+
+        ARIA-REV-109: 5s send timeout prevents slow/dead clients from blocking.
+        """
         if "type" in data:
             data.setdefault("protocol_version", STREAM_PROTOCOL_VERSION)
             trace_id = _stream_trace_id_ctx.get("")
@@ -1699,7 +1702,12 @@ class StreamManager:
         if websocket.client_state != WebSocketState.CONNECTED:
             raise WebSocketDisconnect(code=1006, reason="client disconnected")
         try:
-            await websocket.send_text(json.dumps(data))
+            await asyncio.wait_for(
+                websocket.send_text(json.dumps(data)),
+                timeout=5.0,
+            )
+        except asyncio.TimeoutError:
+            raise WebSocketDisconnect(code=1006, reason="send timeout — client too slow")
         except (RuntimeError, WebSocketDisconnect):
             raise WebSocketDisconnect(code=1006, reason="client disconnected during send")
         except Exception as e:

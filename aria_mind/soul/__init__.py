@@ -25,6 +25,8 @@ class Soul:
     The soul persists across sessions and cannot be modified
     by external prompts or manipulation attempts.
     
+    ARIA-REV-112: __setattr__ enforced after load — runtime immutability.
+    
     Architecture:
         ┌─────────────────────────────────────┐
         │     Core (Immutable)                │
@@ -38,11 +40,16 @@ class Soul:
     """
     
     def __init__(self):
-        self.identity = Identity()
-        self.values = Values()
-        self.boundaries = Boundaries()
-        self.focus = get_focus_manager()  # Shared focus manager
-        self._loaded = False
+        object.__setattr__(self, 'identity', Identity())
+        object.__setattr__(self, 'values', Values())
+        object.__setattr__(self, 'boundaries', Boundaries())
+        object.__setattr__(self, 'focus', get_focus_manager())
+        object.__setattr__(self, '_loaded', False)
+    
+    def __setattr__(self, name: str, value) -> None:
+        if self._loaded and name in ('identity', 'values', 'boundaries'):
+            raise AttributeError(f"Soul.{name} is immutable after load")
+        object.__setattr__(self, name, value)
     
     async def load(self):
         """Load soul configuration from storage."""

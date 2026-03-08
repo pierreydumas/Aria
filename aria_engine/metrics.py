@@ -129,6 +129,14 @@ class AriaMetrics:
             registry=reg,
         )
 
+        # -- LLM fallback metrics (ARIA-REV-117) --
+        self.llm_fallback_total = Counter(
+            "aria_llm_fallback_total",
+            "Total LLM fallback events",
+            ["primary_model", "fallback_model"],
+            registry=reg,
+        )
+
         # -- Agent metrics --
         self.agent_routing_total = Counter(
             "aria_agent_routing_total",

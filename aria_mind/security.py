@@ -199,7 +199,7 @@ class InjectionResult:
     
     @property
     def blocked(self) -> bool:
-        return self.threat_level in (ThreatLevel.HIGH, ThreatLevel.CRITICAL)
+        return self.threat_level in (ThreatLevel.MEDIUM, ThreatLevel.HIGH, ThreatLevel.CRITICAL)
 
 
 class PromptGuard:
@@ -219,7 +219,7 @@ class PromptGuard:
         block_threshold: ThreatLevel = ThreatLevel.HIGH,
     ):
         self.patterns = INJECTION_PATTERNS + (custom_patterns or [])
-        self.block_threshold = block_threshold
+        self.block_threshold = ThreatLevel.MEDIUM  # ARIA-REV-102: block MEDIUM+ threats
         self._severity_order = [
             ThreatLevel.NONE,
             ThreatLevel.LOW,

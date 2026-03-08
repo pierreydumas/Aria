@@ -219,6 +219,17 @@ async def run_startup():
     
     # Connect skills to cognition
     mind.cognition.set_skill_registry(registry)
+
+    # ARIA-REV-113: Initialize working memory and restore from checkpoint
+    wm = registry.get("working_memory")
+    if wm:
+        try:
+            ok = await wm.initialize()
+            if ok:
+                await wm.restore_checkpoint()
+                print("   ✓ Working memory restored from checkpoint")
+        except Exception as e:
+            logger.debug(f"Working memory init skipped: {e}")
     
     # =========================================================================
     # Phase 3: Initialize Agents

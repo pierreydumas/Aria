@@ -358,6 +358,15 @@ class LLMGateway:
                         idx + 1,
                         len(candidates),
                     )
+                    # ARIA-REV-117: Record fallback metric
+                    try:
+                        from aria_engine.metrics import METRICS
+                        METRICS.llm_fallback_total.labels(
+                            primary_model=candidates[0],
+                            fallback_model=candidate,
+                        ).inc()
+                    except Exception:
+                        pass
 
                 return LLMResponse(
                     content=content,
@@ -485,6 +494,15 @@ class LLMGateway:
                         idx + 1,
                         len(candidates),
                     )
+                    # ARIA-REV-117: Record fallback metric
+                    try:
+                        from aria_engine.metrics import METRICS
+                        METRICS.llm_fallback_total.labels(
+                            primary_model=candidates[0],
+                            fallback_model=candidate,
+                        ).inc()
+                    except Exception:
+                        pass
                 return
 
             except Exception as e:

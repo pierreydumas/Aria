@@ -70,6 +70,9 @@ class ToolRegistry:
         self._initialized_skills: set[str] = set()
         self._timeout = timeout_seconds
         self._consent_mode = os.getenv("ARIA_CONSENT_MODE", "enforced").strip().lower()
+        # ARIA-REV-115: Idempotency cache for tool calls (prevents double-execution on retry)
+        self._executed_cache: dict[str, ToolResult] = {}
+        self._executed_cache_max = 200
 
     @staticmethod
     def _has_explicit_consent(args: dict[str, Any]) -> bool:
@@ -565,6 +568,11 @@ class ToolRegistry:
         Returns:
             ToolResult with stringified content
         """
+        # ARIA-REV-115: Idempotency — return cached result for duplicate tool_call_id
+        if tool_call_id and tool_call_id in self._executed_cache:
+            logger.debug("Idempotent replay for tool_call_id=%s", tool_call_id)
+            return self._executed_cache[tool_call_id]
+
         start = time.monotonic()
 
         tool = self._tools.get(function_name)
@@ -679,13 +687,22 @@ class ToolRegistry:
             # Propagate skill-level success/failure
             skill_success = getattr(result, "success", True) if hasattr(result, "success") else True
 
-            return ToolResult(
+            tool_result = ToolResult(
                 tool_call_id=tool_call_id,
                 name=function_name,
                 content=content,
                 success=bool(skill_success),
                 duration_ms=elapsed_ms,
             )
+
+            # ARIA-REV-115: Cache successful results for idempotency
+            if tool_call_id and tool_result.success:
+                if len(self._executed_cache) >= self._executed_cache_max:
+                    # Evict oldest entry
+                    self._executed_cache.pop(next(iter(self._executed_cache)))
+                self._executed_cache[tool_call_id] = tool_result
+
+            return tool_result
 
         except asyncio.TimeoutError:
             elapsed_ms = int((time.monotonic() - start) * 1000)
