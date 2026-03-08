@@ -22,7 +22,6 @@ Aria_moltbot/
 ├── pyproject.toml                # Python project configuration
 ├── Makefile                      # Development shortcuts
 ├── Dockerfile                    # Agent container build
-├── Dockerfile.test               # Test container build
 │
 ├── aria_mind/                    # Engine workspace (mounted to gateway)
 │   ├── SOUL.md                   # Persona, boundaries, model preferences
