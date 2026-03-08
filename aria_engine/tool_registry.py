@@ -611,6 +611,15 @@ class ToolRegistry:
         else:
             args = arguments
 
+        if not isinstance(args, dict):
+            args = {"input": str(args)}
+
+        # Parameter name mapping for common LLM variations.
+        # Some models use generic "input" field instead of specific parameter names.
+        if "input" in args and "content" not in args and function_name == "api_client__write_artifact":
+            args["content"] = args.pop("input")
+            logger.debug("Mapped 'input' -> 'content' for %s", function_name)
+
         # Consent checkpoint (small central guardrail)
         if self._consent_mode == "enforced":
             requires_consent, reason = self._is_high_impact(function_name)

@@ -67,8 +67,35 @@ async def write_artifact(body: ArtifactWriteRequest):
         folder = folder / body.subfolder
 
     try:
-        folder.mkdir(parents=True, exist_ok=True)
+        # Ensure base path exists and is writable.
+        if not ARIA_MEMORIES_PATH.exists():
+            logger.error("ARIA_MEMORIES_PATH does not exist: %s", ARIA_MEMORIES_PATH)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Storage path not configured: {ARIA_MEMORIES_PATH}",
+            )
+
+        # Create parent directories for category/subfolder.
+        logger.debug("Creating folder: %s", folder)
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+        except (OSError, PermissionError) as e:
+            logger.error("Failed to create folder %s: %s", folder, e)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Permission denied creating folder: {folder.relative_to(ARIA_MEMORIES_PATH)}",
+            )
+
+        # Verify folder exists before write.
+        if not folder.exists():
+            logger.error("Folder does not exist after mkdir: %s", folder)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to create storage folder: {folder.relative_to(ARIA_MEMORIES_PATH)}",
+            )
+
         filepath = folder / body.filename
+        logger.debug("Writing to filepath: %s", filepath)
 
         # Validate JSON payloads when filename ends with .json
         if body.filename.lower().endswith(".json"):

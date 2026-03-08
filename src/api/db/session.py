@@ -7,6 +7,7 @@ ORM:    SQLAlchemy 2.0 async
 
 import logging
 import os
+import re
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -19,6 +20,19 @@ from config import DATABASE_URL
 from .models import Base
 
 logger = logging.getLogger("aria.db")
+
+
+# ── Security: Table name validation ───────────────────────────────
+
+def _validate_table_name(table_name: str) -> str:
+    """Validate table name contains only safe characters (alphanumeric, underscore, dot).
+    
+    Raises ValueError if table name contains SQL injection risk characters.
+    Used for dynamic table name construction in migration/maintenance code.
+    """
+    if not re.match(r'^[a-zA-Z0-9_.]+$', table_name):
+        raise ValueError(f"Invalid table name: {table_name}")
+    return table_name
 
 
 # ── URL helpers ──────────────────────────────────────────────────────────────
@@ -181,29 +195,33 @@ async def ensure_schema() -> None:
         ]
         for old_tbl, new_tbl in _migration_pairs:
             try:
-                sp = f"sp_mig_{old_tbl[:30]}"
+                # Validate table names to prevent SQL injection (defense in depth)
+                old_tbl_safe = _validate_table_name(old_tbl)
+                new_tbl_safe = _validate_table_name(new_tbl)
+                
+                sp = f"sp_mig_{old_tbl_safe[:30]}"
                 await conn.execute(text(f"SAVEPOINT {sp}"))
                 # Check if old table exists and has rows
                 check = await conn.execute(text(
                     f"SELECT EXISTS (SELECT 1 FROM information_schema.tables "
-                    f"WHERE table_schema='public' AND table_name='{old_tbl}')"
+                    f"WHERE table_schema='public' AND table_name='{old_tbl_safe}')"
                 ))
                 if not check.scalar():
                     await conn.execute(text(f"RELEASE SAVEPOINT {sp}"))
                     continue
-                cnt = await conn.execute(text(f"SELECT count(*) FROM public.{old_tbl}"))
+                cnt = await conn.execute(text(f"SELECT count(*) FROM public.{old_tbl_safe}"))
                 row_count = cnt.scalar()
                 if row_count == 0:
                     await conn.execute(text(f"RELEASE SAVEPOINT {sp}"))
                     continue
                 pk_check = await conn.execute(text(
                     f"SELECT column_name FROM information_schema.key_column_usage "
-                    f"WHERE table_schema='aria_engine' AND table_name='{new_tbl.split('.')[-1]}' "
+                    f"WHERE table_schema='aria_engine' AND table_name='{new_tbl_safe.split('.')[-1]}' "
                     f"AND constraint_name LIKE '%pkey'"
                 ))
                 pk_col = pk_check.scalar() or "id"
                 await conn.execute(text(
-                    f"INSERT INTO {new_tbl} SELECT * FROM public.{old_tbl} "
+                    f"INSERT INTO {new_tbl_safe} SELECT * FROM public.{old_tbl_safe} "
                     f"ON CONFLICT ({pk_col}) DO NOTHING"
                 ))
                 await conn.execute(text(f"RELEASE SAVEPOINT {sp}"))

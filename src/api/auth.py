@@ -28,6 +28,7 @@ ARIA_API_KEY = os.environ.get("ARIA_API_KEY", "")
 ARIA_ADMIN_KEY = os.environ.get("ARIA_ADMIN_KEY", "")
 
 # S-16: Production mode = fail-closed when keys are not set
+# SEC-03: Enforce non-empty keys in all environments (dev + production)
 _IS_PRODUCTION = os.environ.get("ARIA_ENV", "development").lower() in ("production", "prod")
 
 if not ARIA_API_KEY:

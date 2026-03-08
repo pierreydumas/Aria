@@ -14,6 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import ARIA_ADMIN_TOKEN, SERVICE_CONTROL_ENABLED
+from db.session import _validate_table_name
 from deps import get_db
 
 router = APIRouter(tags=["Admin"])
@@ -272,8 +273,10 @@ async def run_maintenance(db: AsyncSession = Depends(get_db)):
     results = {}
     for table in VACUUM_TABLES:
         try:
+            # Validate table name to prevent SQL injection (defense in depth)
+            table_safe = _validate_table_name(table)
             # VACUUM cannot run in a transaction, use ANALYZE instead
-            await db.execute(text(f"ANALYZE {table}"))
+            await db.execute(text(f"ANALYZE {table_safe}"))
             results[table] = "analyzed"
         except Exception as e:
             logger.warning("Data integrity check error for %s: %s", table, e)
