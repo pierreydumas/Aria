@@ -518,8 +518,8 @@ Use this as strict operating instructions for autonomous agents.
 > Use this catalog as a prompt hint; agent should adapt to available tooling.
 
 - `python3 scripts/generate_endpoint_matrix.py`
-- `python3 scripts/runtime_smoke_check.py`
-- `python3 scripts/guardrail_web_api_path.py`
+- `python3 tests/e2e/runtime_smoke_check.py`
+- `python3 tests/integration/guardrail_web_api_path.py`
 - `docker compose ps`
 - `docker compose logs --no-color --tail=120 <service>`
 - `pytest -q` (or targeted subset)
@@ -530,7 +530,7 @@ Use this as strict operating instructions for autonomous agents.
 ```md
 | Timestamp | Command | Scope | Result | Notes |
 |-----------|---------|-------|--------|-------|
-| 2026-02-26T... | python3 scripts/runtime_smoke_check.py | runtime smoke | PASS | report at ... |
+| 2026-02-26T... | python3 tests/e2e/runtime_smoke_check.py | runtime smoke | PASS | report at ... |
 ```
 
 ---

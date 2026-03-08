@@ -1,5 +1,9 @@
 # Model Centralisation Sprint — Zero Hardcoded Model Names
 
+> **Status:** PLANNED (update to IN\_PROGRESS or COMPLETED when work begins)  
+> **Last reviewed:** 2026-03-07  
+> If completed, archive to `docs/archive/sprints/MODEL_CENTRALISATION_COMPLETED.md`
+
 > **Copy-paste this entire prompt into a new Claude session.**
 > It contains everything needed to rework the Aria codebase so that
 > `aria_models/models.yaml` is the **only** place model names exist.
@@ -80,7 +84,7 @@ Before ANY action, read ALL of these files to build full context. Do not skip an
 | `src/api/routers/engine_focus.py` | 100-200 | `"qwen3-coder-free"` L126, `"qwen3-mlx"` L188 |
 | `src/api/routers/lessons.py` | 15-35 | `"qwen3-mlx"` in text string L27 |
 | `src/api/routers/providers.py` | 70-90 | `"kimi"` as dict key L79 |
-| `scripts/benchmark_models.py` | 30-35 | 3 hardcoded models L32 |
+| `tests/load/benchmark_models.py` | 30-35 | 3 hardcoded models L32 |
 
 ### Soul & Identity (DO NOT MODIFY)
 | File | Purpose |
@@ -258,10 +262,10 @@ They should be driven by a `"thinking_params"` or `"provider"` field in models.y
 
 | # | File | Line | Value |
 |---|------|------|-------|
-| 38 | `scripts/benchmark_models.py` | L32 | `["qwen3-mlx", "trinity-free", "chimera-free"]` |
-| 39 | `scripts/audit_invoke.py` | L144 | `"qwen2.5:3b"` |
-| 40 | `scripts/check_architecture.py` | L38 | `"gpt-4", "gpt-3.5-turbo", ...` |
-| 41 | `scripts/audit_skills.py` | L95-97 | `"kimi"`, `"gpt-4"`, `"gpt-3.5"` |
+| 38 | `tests/load/benchmark_models.py` | L32 | `["qwen3-mlx", "trinity-free", "chimera-free"]` |
+| 39 | `tests/integration/audit_invoke.py` | L144 | `"qwen2.5:3b"` |
+| 40 | `tests/check_architecture.py` | L38 | `"gpt-4", "gpt-3.5-turbo", ...` |
+| 41 | `tests/integration/audit_skills.py` | L95-97 | `"kimi"`, `"gpt-4"`, `"gpt-3.5"` |
 
 ### P4 — Miscellaneous (2 references) — Fix
 
@@ -1058,7 +1062,7 @@ models may not be in our YAML.
 
 #### Fix
 
-**`scripts/benchmark_models.py` L32:**
+**`tests/load/benchmark_models.py` L32:**
 ```python
 # BEFORE:
 DEFAULT_MODELS = ["qwen3-mlx", "trinity-free", "chimera-free"]
@@ -1073,7 +1077,7 @@ except Exception:
     DEFAULT_MODELS = []
 ```
 
-**`scripts/audit_invoke.py` L144:**
+**`tests/integration/audit_invoke.py` L144:**
 ```python
 # BEFORE:
 ("set_model", {"model": "qwen2.5:3b"}),
@@ -1082,7 +1086,7 @@ except Exception:
 # Add at top: from aria_models.loader import get_task_model
 ```
 
-**`scripts/check_architecture.py` L38** and **`scripts/audit_skills.py` L95-97:**
+**`tests/check_architecture.py` L38** and **`tests/integration/audit_skills.py` L95-97:**
 These are architecture-check scripts that DETECT hardcoded model names. They should
 remain as-is because their job is to flag violations. However, update the pattern list
 to be loaded from models.yaml:
@@ -1131,7 +1135,7 @@ balances["kimi"] = kimi_result ...
 
 #### Verification
 ```bash
-grep -rn '"qwen3-mlx"\|"trinity-free"\|"chimera-free"\|"qwen2.5:3b"' scripts/benchmark_models.py scripts/audit_invoke.py
+grep -rn '"qwen3-mlx"\|"trinity-free"\|"chimera-free"\|"qwen2.5:3b"' tests/load/benchmark_models.py tests/integration/audit_invoke.py
 # EXPECTED: 0 matches
 
 grep -rn '"qwen3-mlx"' src/api/routers/lessons.py

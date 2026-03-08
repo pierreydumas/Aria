@@ -1,6 +1,7 @@
 # Aria Complete Development Reference
 
-> **Version 3.0** | Last Updated: February 3, 2026  
+> **Version 3.0** | Last Updated: February 3, 2026 | **Last verified against codebase: 2026-03-07**  
+> ⚠️ Review quarterly — skill count, agent list, and Docker service list change frequently.  
 > Master reference for Aria's architecture, skills, agents, and deployment.
 
 ---
