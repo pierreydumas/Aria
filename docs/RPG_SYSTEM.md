@@ -246,9 +246,10 @@ Stored in `aria_memories/rpg/characters/` as YAML files following the Pathfinder
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/rpg_chat.py` | Interactive RPG chat CLI interface |
-| `scripts/rpg_roundtable.py` | Run RPG roundtable sessions |
-| `scripts/rpg_session.py` | RPG session management utilities |
+| `scripts/rpg/rpg_chat.py` | Interactive RPG chat CLI interface |
+| `scripts/rpg/rpg_roundtable.py` | Run RPG roundtable sessions |
+| `scripts/rpg/rpg_session.py` | RPG session management utilities |
+| `scripts/rpg/rpg_send.py` | Send campaign messages into an existing RPG session |
 
 ---
 

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """RPG Session Driver — Send messages to ARIA for Pathfinder 2e campaign."""
 import json
-import sys
 import os
+import sys
+from pathlib import Path
 
 # Ensure we use the right python
 try:
@@ -11,9 +12,11 @@ except ImportError:
     os.system("pip install httpx")
     import httpx
 
-API = "http://localhost:8000/api"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SESSIONS_DIR = REPO_ROOT / "aria_memories" / "rpg" / "sessions"
+API = os.environ.get("ARIA_API_BASE_URL", "http://localhost:8000/api").rstrip("/")
 TIMEOUT = 600
-SESSION_FILE = "aria_memories/rpg/sessions/active_session_id.txt"
+SESSION_FILE = SESSIONS_DIR / "active_session_id.txt"
 
 
 def get_client():
@@ -29,7 +32,8 @@ def create_session(client):
     resp.raise_for_status()
     data = resp.json()
     session_id = data["id"]
-    with open(SESSION_FILE, "w") as f:
+    SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+    with open(SESSION_FILE, "w", encoding="utf-8") as f:
         f.write(session_id)
     print(f"[NEW SESSION] {session_id}")
     return session_id
@@ -37,7 +41,7 @@ def create_session(client):
 
 def load_session():
     if os.path.exists(SESSION_FILE):
-        with open(SESSION_FILE) as f:
+        with open(SESSION_FILE, encoding="utf-8") as f:
             return f.read().strip()
     return None
 
@@ -69,8 +73,9 @@ def send(client, session_id, content, msg_num=0):
     data = resp.json()
     
     # Save response
-    path = f"aria_memories/rpg/sessions/session1_msg{msg_num}_response.json"
-    with open(path, "w") as f:
+    path = SESSIONS_DIR / f"session1_msg{msg_num}_response.json"
+    SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
     
     content_text = data.get("content", "") or ""
@@ -90,7 +95,7 @@ def send(client, session_id, content, msg_num=0):
             ok = "OK" if r.get("success") else "FAIL"
             print(f"  [{ok}] {r.get('name', '?')}")
     
-    return data
+    return data, path
 
 
 def main():
@@ -108,18 +113,18 @@ def main():
     if len(sys.argv) > 1:
         msg_file = sys.argv[1]
         msg_num = int(sys.argv[2]) if len(sys.argv) > 2 else 0
-        with open(msg_file) as f:
+        with open(msg_file, encoding="utf-8") as f:
             content = f.read()
     else:
-        print("Usage: python rpg_send.py <message_file> [msg_num]")
-        print("  Or pipe: echo 'message' | python rpg_send.py - [msg_num]")
+        print("Usage: python scripts/rpg/rpg_send.py <message_file> [msg_num]")
+        print("  Or pipe: echo 'message' | python scripts/rpg/rpg_send.py - [msg_num]")
         sys.exit(1)
     
     if msg_file == "-":
         content = sys.stdin.read()
     
-    result = send(client, session_id, content, msg_num)
-    print(f"\n[SAVED] aria_memories/rpg/sessions/session1_msg{msg_num}_response.json")
+    result, saved_path = send(client, session_id, content, msg_num)
+    print(f"\n[SAVED] {saved_path}")
 
 
 if __name__ == "__main__":

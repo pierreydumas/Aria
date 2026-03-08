@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Send messages to specific RPG agents via chat sessions with tool execution."""
 from __future__ import annotations
+import os
 import httpx
 import json
 import sys
 import time
 from pathlib import Path
 
-BASE = "https://192.168.1.53"
-OUTDIR = Path(__file__).parent.parent / "aria_memories" / "rpg" / "sessions"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+BASE = os.environ.get("ARIA_BASE_URL", "http://localhost:8000").rstrip("/")
+OUTDIR = REPO_ROOT / "aria_memories" / "rpg" / "sessions"
 
 
 def create_session(agent_id: str, title: str) -> str:

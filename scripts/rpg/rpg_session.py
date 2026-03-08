@@ -4,11 +4,16 @@ RPG Session Driver — Interact with ARIA's RPG system via the API.
 Claude plays as Thorin Ashveil, ARIA is the DM + Seraphina companion.
 """
 import json
+import os
 import sys
 import time
+from pathlib import Path
+
 import httpx
 
-API_BASE = "http://localhost:8000/api"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SESSIONS_DIR = REPO_ROOT / "aria_memories" / "rpg" / "sessions"
+API_BASE = os.environ.get("ARIA_API_BASE_URL", "http://localhost:8000/api").rstrip("/")
 TIMEOUT = 300  # 5 min per request (tool loops can be long)
 
 client = httpx.Client(base_url=API_BASE, timeout=TIMEOUT)
@@ -87,7 +92,8 @@ def run_campaign():
     print(f"\n📋 Full response keys: {list(result.keys()) if isinstance(result, dict) else 'not dict'}")
     
     # Save session ID for continuation
-    with open("aria_memories/rpg/sessions/current_session.txt", "w") as f:
+    SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+    with open(SESSIONS_DIR / "current_session.txt", "w", encoding="utf-8") as f:
         f.write(session_id)
     
     return session_id, result
@@ -96,4 +102,4 @@ def run_campaign():
 if __name__ == "__main__":
     session_id, result = run_campaign()
     print(f"\n\n🎯 Session ID for continuation: {session_id}")
-    print("Run next messages with: python scripts/rpg_session.py <session_id>")
+    print("Run next messages with: python scripts/rpg/rpg_session.py <session_id>")

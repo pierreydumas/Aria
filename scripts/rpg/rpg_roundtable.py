@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Launch RPG roundtable sessions with ARIA's multi-agent system."""
 from __future__ import annotations
+import os
 import httpx
 import json
 import sys
 from pathlib import Path
 from typing import Optional
 
-BASE_URL = "https://192.168.1.53"
-SESSIONS_DIR = Path(__file__).parent.parent / "aria_memories" / "rpg" / "sessions"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+BASE_URL = os.environ.get("ARIA_BASE_URL", "http://localhost:8000").rstrip("/")
+SESSIONS_DIR = REPO_ROOT / "aria_memories" / "rpg" / "sessions"
 
 
 def launch_roundtable(topic: str, agent_ids: list[str], rounds: int = 3,
