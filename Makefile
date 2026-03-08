@@ -73,10 +73,10 @@ format: ## Auto-format code
 check: lint test-quick ## Lint + quick tests
 
 verify-deploy: ## Run deployment verification script
-	./scripts/verify_deployment.sh --quick
+	./tests/e2e/verify_deployment.sh --quick
 
 guardrail: ## Fail-fast check for Mac/Web->Docker API path auth & CSRF regressions
-	python scripts/guardrail_web_api_path.py
+	python tests/integration/guardrail_web_api_path.py
 
 watchdog: ## Run one health watchdog cycle for aria-api
 	./scripts/health_watchdog.sh aria-api

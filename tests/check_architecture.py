@@ -11,7 +11,7 @@ Checks for:
 6. soul/ directory integrity
 
 Usage:
-    python scripts/check_architecture.py [--verbose]
+    python tests/check_architecture.py [--verbose]
 """
 
 import os
@@ -111,8 +111,9 @@ def check_hardcoded_models():
                 for model in HARDCODED_MODELS:
                     if model in line:
                         violations.append(f"  🟡 [MODEL] {rel}:{i}: hardcoded '{model}'")
-        except Exception:
-            pass
+        except (OSError, UnicodeDecodeError):
+            # Skip files that can't be read
+            continue
     return violations
 
 
@@ -130,8 +131,9 @@ def check_secrets():
                 for pattern, desc in SECRET_PATTERNS:
                     if re.search(pattern, line, re.IGNORECASE):
                         violations.append(f"  🔴 [SECRET] {rel}:{i}: possible {desc}")
-        except Exception:
-            pass
+        except (OSError, UnicodeDecodeError):
+            # Skip files that can't be read
+            continue
     return violations
 
 
@@ -160,8 +162,9 @@ def check_hardcoded_ports():
                     port = match.group(1)
                     if port in KNOWN_DEFAULT_PORTS:
                         violations.append(f"  🟡 [PORT] {rel}:{i}: hardcoded port={port} — use env var with default")
-        except Exception:
-            pass
+        except (OSError, UnicodeDecodeError):
+            # Skip files that can't be read
+            continue
     return violations
 
 
@@ -178,8 +181,9 @@ def check_duplicate_js():
                 match = re.search(r'function\s+(\w+)\s*\(', line)
                 if match:
                     func_locations[match.group(1)].append(rel)
-        except Exception:
-            pass
+        except (OSError, UnicodeDecodeError):
+            # Skip files that can't be read
+            continue
     for func_name, files in func_locations.items():
         unique_files = list(set(files))
         if len(unique_files) > 1:
@@ -207,8 +211,9 @@ def check_skill_coupling():
                                         "pipeline", "pipeline_executor", "pipeline_skill", "catalog"):
                         file_rel = pyfile.relative_to(WORKSPACE).as_posix()
                         violations.append(f"  🟡 [COUPLING] {file_rel}:{i}: '{skill_dir}' imports '{imported}'")
-        except Exception:
-            pass
+        except (OSError, UnicodeDecodeError):
+            # Skip files that can't be read
+            continue
     return violations
 
 

@@ -6,7 +6,7 @@ if [[ "${1:-}" == "--quick" ]]; then
   QUICK=1
 fi
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COMPOSE_FILE="$ROOT_DIR/stacks/brain/docker-compose.yml"
 STACK_ENV_FILE="$ROOT_DIR/stacks/brain/.env"
 LOG_FILE="$ROOT_DIR/aria_memories/logs/deploy_verify_$(date +%Y%m%d_%H%M%S).log"

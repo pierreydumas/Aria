@@ -10,4 +10,4 @@ if git diff --cached --name-only | grep -E '^(aria_memories/|aria_mind/aria_memo
 	exit 1
 fi
 
-python3 scripts/check_architecture.py
+python3 tests/check_architecture.py

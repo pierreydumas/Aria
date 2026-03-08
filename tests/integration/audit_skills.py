@@ -13,7 +13,7 @@ Verifies:
 
 Usage:
   cd /app          # or repo root
-  python scripts/audit_skills.py
+    python tests/integration/audit_skills.py
 """
 
 import importlib
@@ -24,7 +24,7 @@ from pathlib import Path
 
 # ── Setup ────────────────────────────────────────────────────────────────────
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))    # make aria_skills importable
 
 SKILLS_DIR = REPO_ROOT / "aria_skills"
@@ -93,10 +93,10 @@ FORBIDDEN_IMPORTS = [
 FORBIDDEN_MODEL_PATTERNS: list[str] = []
 try:
     import pathlib as _pl
-    sys.path.insert(0, str(_pl.Path(__file__).resolve().parent.parent))
+    sys.path.insert(0, str(_pl.Path(__file__).resolve().parents[2]))
     from aria_models.loader import list_all_model_ids as _lam
     FORBIDDEN_MODEL_PATTERNS = [f'"{m}"' for m in _lam()]
-except Exception:
+except (ImportError, AttributeError, OSError, ValueError):
     FORBIDDEN_MODEL_PATTERNS = [
         '"moonshot-v1-8k"',
         '"kimi"',
@@ -128,7 +128,7 @@ def check_imports() -> tuple[list, list]:
         except AttributeError as e:
             print(f"  [FAIL] {name}: AttributeError - {e}")
             failed.append((name, str(e)))
-        except Exception as e:
+        except (ImportError, AttributeError, TypeError, ValueError, RuntimeError) as e:
             print(f"  [FAIL] {name}: {type(e).__name__} - {e}")
             failed.append((name, str(e)))
     return passed, failed
@@ -141,7 +141,8 @@ def check_no_db_in_skills() -> list[str]:
         rel = py.relative_to(REPO_ROOT)
         try:
             text = py.read_text(encoding="utf-8", errors="replace")
-        except Exception:
+        except (OSError, UnicodeDecodeError):
+            # Skip files that can't be read
             continue
         for pattern in FORBIDDEN_IMPORTS:
             if pattern in text:
@@ -163,7 +164,8 @@ def check_no_hardcoded_models() -> list[str]:
         rel = py.relative_to(REPO_ROOT)
         try:
             text = py.read_text(encoding="utf-8", errors="replace")
-        except Exception:
+        except (OSError, UnicodeDecodeError):
+            # Skip files that can't be read
             continue
         for pattern in FORBIDDEN_MODEL_PATTERNS:
             if pattern in text:
@@ -193,7 +195,7 @@ def check_api_client_coverage() -> tuple[list, list]:
                 present.append(method)
             else:
                 missing.append(method)
-    except Exception as e:
+    except (ImportError, AttributeError, TypeError, ValueError, RuntimeError) as e:
         print(f"  [FAIL] Could not import AriaAPIClient: {e}")
         return [], API_CLIENT_REQUIRED_METHODS
     return present, missing
@@ -207,7 +209,7 @@ def check_registry() -> int:
         from aria_skills.registry import SkillRegistry
         count = len(SkillRegistry._skill_classes)
         return count
-    except Exception as e:
+    except (ImportError, AttributeError, TypeError, ValueError, RuntimeError) as e:
         print(f"  [FAIL] SkillRegistry error: {e}")
         return -1
 

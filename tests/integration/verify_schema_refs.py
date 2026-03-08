@@ -6,8 +6,8 @@ Checks that every table/column defined in SQLAlchemy models has a matching
 definition in the init SQL scripts, and vice-versa.
 
 Usage:
-    python scripts/verify_schema_refs.py
-    python scripts/verify_schema_refs.py --verbose
+    python tests/integration/verify_schema_refs.py
+    python tests/integration/verify_schema_refs.py --verbose
 """
 
 import argparse
@@ -15,7 +15,7 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 MODELS_PY = ROOT / "src" / "api" / "db" / "models.py"

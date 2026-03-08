@@ -64,11 +64,12 @@ async def run_post_audit():
                     detail = ""
                     try:
                         detail = resp.json().get("detail", "")[:80]
-                    except:
+                    except (ValueError, KeyError, TypeError):
+                        # JSON decode failed or unexpected structure
                         detail = resp.text[:80]
                     errors.append((route, f"HTTP {resp.status_code}: {detail}"))
                 print(f"  {status:4s} | {method} {route}")
-            except Exception as e:
+            except (httpx.RequestError, httpx.TimeoutException, ValueError, TypeError) as e:
                 print(f"  ERR  | {method} {route} | {type(e).__name__}: {str(e)[:60]}")
                 failed += 1
                 errors.append((route, f"{type(e).__name__}: {str(e)[:60]}"))

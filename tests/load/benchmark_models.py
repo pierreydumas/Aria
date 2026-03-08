@@ -6,9 +6,9 @@ TICKET-19 — Local Model Optimization
 Measures latency and output token count for each model × task category.
 
 Usage:
-    python scripts/benchmark_models.py
-    python scripts/benchmark_models.py --models qwen3-mlx trinity-free
-    python scripts/benchmark_models.py --help
+    python tests/load/benchmark_models.py
+    python tests/load/benchmark_models.py --models qwen3-mlx trinity-free
+    python tests/load/benchmark_models.py --help
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ except ImportError:
 LITELLM_URL = os.environ.get("LITELLM_URL", "http://localhost:18793")
 try:
     import pathlib as _pl
-    sys.path.insert(0, str(_pl.Path(__file__).resolve().parent.parent))
+    sys.path.insert(0, str(_pl.Path(__file__).resolve().parents[2]))
     from aria_models.loader import load_catalog as _lc
     _cat = _lc()
     DEFAULT_MODELS = [m.removeprefix("litellm/") for m in _cat.get("routing", {}).get("fallbacks", [])[:3]]

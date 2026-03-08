@@ -3,8 +3,8 @@
 # Aria — Locust load-test runner  (S-30)
 #
 # Usage:
-#   ./scripts/run-load-test.sh                     # default: 10 users, 1/s ramp
-#   USERS=100 RATE=5 DURATION=5m ./scripts/run-load-test.sh
+#   ./tests/load/run-load-test.sh                 # default: 10 users, 1/s ramp
+#   USERS=100 RATE=5 DURATION=5m ./tests/load/run-load-test.sh
 #
 # Environment variables:
 #   USERS      – peak concurrent users    (default: 10)
@@ -17,7 +17,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 USERS="${USERS:-10}"
 RATE="${RATE:-1}"

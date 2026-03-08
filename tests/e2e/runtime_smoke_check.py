@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 BRAIN_STACK_DIR = REPO_ROOT / "stacks" / "brain"
 OUT_PATH = REPO_ROOT / "aria_souvenirs" / "docs" / "runtime_smoke_2026-02-26.json"
 

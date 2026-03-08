@@ -5,7 +5,7 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 
-BASE = os.getenv("ARIA_BASE_URL", "https://192.168.1.53").rstrip("/")
+BASE = os.getenv("ARIA_BASE_URL", "http://localhost:8000").rstrip("/")
 API = BASE + "/api"
 
 
@@ -70,8 +70,9 @@ def main() -> int:
         for msg in messages:
             try:
                 message_tokens_sum += int(msg.get("tokens_input") or 0) + int(msg.get("tokens_output") or 0)
-            except Exception:
-                pass
+            except (ValueError, TypeError):
+                # Skip messages with invalid token counts
+                continue
 
         rows.append(
             {
