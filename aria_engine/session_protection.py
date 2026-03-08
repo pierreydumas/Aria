@@ -54,7 +54,7 @@ CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 # Prompt injection detection.
 # Patterns are regex heuristics layered under the L0 InputGuardSkill ML gate.
-# Log-only (never block) — false positives are possible; human review recommended.
+# HIGH+ severity types are BLOCKED (defense-in-depth). Lower severity: log-only.
 # To add patterns: append re.compile(..., re.I) entries.
 # Each entry is (compiled_pattern, threat_type_str) so that matches can be
 # persisted to aria_data.security_events with a meaningful type label.
@@ -94,6 +94,21 @@ INJECTION_PATTERNS: list[tuple[re.Pattern, str]] = [
 ]
 
 # ── Errors ────────────────────────────────────────────────────
+
+# Threat types that are blocked (not just logged). Defense-in-depth:
+# if PromptGuard (security.py) misses the pattern, session_protection blocks it.
+HIGH_SEVERITY_THREAT_TYPES = frozenset({
+    "jailbreak", "harmful_content", "safety_bypass",
+    "prompt_injection", "roleplay_override", "system_prompt_injection",
+})
+
+
+class PromptInjectionError(EngineError):
+    """Raised when a prompt injection attempt is detected and blocked."""
+
+    def __init__(self, threat_type: str):
+        super().__init__(f"Message blocked: detected {threat_type}")
+        self.threat_type = threat_type
 
 
 class RateLimitError(EngineError):
@@ -331,18 +346,23 @@ class SessionProtection:
         # 3. Sanitize content
         content = self.sanitize_content(content)
 
-        # 4. Check prompt injection — log + persist to security_events (non-blocking)
+        # 4. Check prompt injection — block HIGH+ severity, log all
         injection_match = self._check_injection(content, session_id, agent_id)
         if injection_match:
+            threat_type, threat_pattern = injection_match
+            blocked = threat_type in HIGH_SEVERITY_THREAT_TYPES
             asyncio.create_task(
                 self._log_security_event(
-                    threat_type=injection_match[0],
-                    threat_pattern=injection_match[1],
+                    threat_type=threat_type,
+                    threat_pattern=threat_pattern,
                     content_preview=content,
                     session_id=session_id,
                     agent_id=agent_id,
+                    blocked=blocked,
                 )
             )
+            if blocked:
+                raise PromptInjectionError(threat_type)
 
         # 5. Rate limiting — per session
         session_window = self._session_windows[session_id]
@@ -456,6 +476,7 @@ class SessionProtection:
         content_preview: str,
         session_id: str,
         agent_id: str,
+        blocked: bool = False,
     ) -> None:
         """Persist a security event to ``aria_data.security_events``.
 
@@ -496,7 +517,7 @@ class SessionProtection:
                     input_preview=preview,
                     source="engine_chat",
                     user_id=agent_id,
-                    blocked=False,
+                    blocked=blocked,
                     details={"session_id": session_id},
                 )
             )

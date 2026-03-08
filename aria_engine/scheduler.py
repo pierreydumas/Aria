@@ -504,7 +504,7 @@ class EngineScheduler:
                 "agent_id": agent_id,
                 "session_type": "cron",
                 "title": _title,
-                "metadata": {"cron_job_id": job_id, "job_name": job_name},
+                "metadata": {"cron_job_id": job_id, "job_name": job_name, "origin": "scheduler"},
             }
             if model:
                 session_body["model"] = model

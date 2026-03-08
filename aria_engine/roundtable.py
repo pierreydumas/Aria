@@ -621,7 +621,7 @@ class Roundtable:
                     title=title,
                     agent_id="roundtable",
                     session_type="roundtable",
-                    metadata_json={"participants": agent_ids},
+                    metadata_json={"participants": agent_ids, "origin": "roundtable"},
                 )
                 session.add(obj)
 

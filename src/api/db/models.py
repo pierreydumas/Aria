@@ -846,7 +846,7 @@ class EngineChatMessage(Base):
     tokens_output: Mapped[int | None] = mapped_column(Integer)
     cost: Mapped[float | None] = mapped_column(Numeric(10, 6))
     latency_ms: Mapped[int | None] = mapped_column(Integer)
-    embedding: Mapped[Any] = mapped_column(Vector(1536), nullable=True) if HAS_PGVECTOR else mapped_column(JSONB, nullable=True)
+    embedding: Mapped[Any] = mapped_column(Vector(768), nullable=True) if HAS_PGVECTOR else mapped_column(JSONB, nullable=True)
     metadata_json: Mapped[dict] = mapped_column("metadata", JSONB, server_default=text("'{}'::jsonb"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
 
@@ -923,7 +923,7 @@ class EngineChatMessageArchive(Base):
     tokens_output: Mapped[int | None] = mapped_column(Integer)
     cost: Mapped[float | None] = mapped_column(Numeric(10, 6))
     latency_ms: Mapped[int | None] = mapped_column(Integer)
-    embedding: Mapped[Any] = mapped_column(Vector(1536), nullable=True) if HAS_PGVECTOR else mapped_column(JSONB, nullable=True)
+    embedding: Mapped[Any] = mapped_column(Vector(768), nullable=True) if HAS_PGVECTOR else mapped_column(JSONB, nullable=True)
     metadata_json: Mapped[dict] = mapped_column("metadata", JSONB, server_default=text("'{}'::jsonb"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))

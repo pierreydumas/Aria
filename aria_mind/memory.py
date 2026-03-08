@@ -315,13 +315,34 @@ class MemoryManager:
         self._consolidation_count += 1
         self._last_consolidation = datetime.now(timezone.utc).isoformat()
 
+        # ── ARIA-REV-008: Promote high-importance entries before clearing ─
+        # Entries with importance >= 0.6 are saved to deep/ storage so they
+        # survive consolidation. This prevents lossy data loss of critical
+        # memories that would otherwise be discarded by _short_term.clear().
+        promoted = 0
+        for entry in entries:
+            score = entry.get("importance_score", 0)
+            if not score:
+                score = self.calculate_importance_score(
+                    entry.get("content", ""), entry.get("category", "general")
+                )
+            if score >= 0.6:
+                self.save_json_artifact(
+                    entry,
+                    f"promoted_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{promoted}.json",
+                    "deep",
+                    "promoted",
+                )
+                promoted += 1
+
         # Clear processed short-term entries to avoid re-consolidating the same data
         self._short_term.clear()
         self._category_frequency.clear()
 
         self.logger.info(
             f"🧠 Memory consolidation #{self._consolidation_count}: "
-            f"{len(entries)} entries → {len(summaries)} summaries, {len(lessons)} lessons"
+            f"{len(entries)} entries → {len(summaries)} summaries, "
+            f"{len(lessons)} lessons, {promoted} high-importance promoted"
         )
 
         return {

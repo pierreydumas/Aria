@@ -1414,7 +1414,7 @@ class StreamManager:
         session,
         current_content: str,
     ) -> list[dict[str, Any]]:
-        """Build conversation context from DB messages (same as ChatEngine)."""
+        """Build conversation context from DB messages + semantic memory."""
         from db.models import EngineChatMessage
         from sqlalchemy import select
 
@@ -1422,6 +1422,13 @@ class StreamManager:
 
         if session.system_prompt:
             messages.append({"role": "system", "content": session.system_prompt})
+
+        # ── ARIA-REV-001: Inject semantic memory into context ────────────
+        # Query the top-N most similar semantic memories for the current
+        # user message and prepend them as a system-level memory block.
+        memory_block = await self._retrieve_semantic_memories(db, current_content)
+        if memory_block:
+            messages.append({"role": "system", "content": memory_block})
 
         window = session.context_window or 50
         MIN_CONVERSATION_TURNS = 10  # always keep at least this many user+assistant msgs
@@ -1597,6 +1604,71 @@ class StreamManager:
 
         return messages
 
+    # ── ARIA-REV-001: Semantic Memory Retrieval ─────────────────────────────
+    SEMANTIC_MEMORY_LIMIT = 5
+    SEMANTIC_MEMORY_MIN_SIMILARITY = 0.3
+
+    async def _retrieve_semantic_memories(
+        self,
+        db,
+        user_message: str,
+    ) -> str | None:
+        """Query pgvector for memories semantically similar to user_message.
+
+        Returns a formatted string to inject as a system message, or None
+        if no relevant memories are found.
+        """
+        if not user_message or len(user_message.strip()) < 10:
+            return None
+
+        try:
+            from db.models import SemanticMemory
+            from sqlalchemy import select
+
+            # Generate embedding for the user message
+            from routers.memories import generate_embedding
+            query_embedding = await generate_embedding(user_message)
+
+            distance_col = SemanticMemory.embedding.cosine_distance(query_embedding).label("distance")
+            stmt = (
+                select(SemanticMemory.content, SemanticMemory.category, SemanticMemory.importance, distance_col)
+                .order_by("distance")
+                .limit(self.SEMANTIC_MEMORY_LIMIT)
+            )
+            result = await db.execute(stmt)
+            rows = result.all()
+
+            if not rows:
+                return None
+
+            # Filter by minimum similarity threshold
+            relevant = []
+            for content, category, importance, distance in rows:
+                similarity = 1 - (distance or 1.0)
+                if similarity >= self.SEMANTIC_MEMORY_MIN_SIMILARITY:
+                    relevant.append((content, category, importance, similarity))
+
+            if not relevant:
+                return None
+
+            # Format as a context block
+            lines = ["[Recalled Memories — relevant context from past experience]"]
+            for content, category, importance, similarity in relevant:
+                # Truncate long memories to keep context manageable
+                truncated = content[:500] + "..." if len(content) > 500 else content
+                lines.append(f"- [{category}] {truncated}")
+
+            logger.info(
+                "Semantic memory injection: %d memories retrieved (top similarity=%.3f)",
+                len(relevant),
+                relevant[0][3] if relevant else 0,
+            )
+            return "\n".join(lines)
+
+        except Exception as exc:
+            logger.debug("Semantic memory retrieval failed (non-fatal): %s", exc)
+            return None
+
     async def _keepalive(self, websocket: WebSocket, connection_id: str) -> None:
         """Send ping every ws_ping_interval seconds to keep connection alive."""
         try:
@@ -1618,15 +1690,18 @@ class StreamManager:
 
     @staticmethod
     async def _send_json(websocket: WebSocket, data: dict[str, Any]) -> None:
-        """Send JSON data over WebSocket, silently catching disconnection."""
+        """Send JSON data over WebSocket; raise WebSocketDisconnect if socket is gone."""
+        if "type" in data:
+            data.setdefault("protocol_version", STREAM_PROTOCOL_VERSION)
+            trace_id = _stream_trace_id_ctx.get("")
+            if trace_id:
+                data.setdefault("trace_id", trace_id)
+        if websocket.client_state != WebSocketState.CONNECTED:
+            raise WebSocketDisconnect(code=1006, reason="client disconnected")
         try:
-            if "type" in data:
-                data.setdefault("protocol_version", STREAM_PROTOCOL_VERSION)
-                trace_id = _stream_trace_id_ctx.get("")
-                if trace_id:
-                    data.setdefault("trace_id", trace_id)
-            if websocket.client_state == WebSocketState.CONNECTED:
-                await websocket.send_text(json.dumps(data))
+            await websocket.send_text(json.dumps(data))
+        except (RuntimeError, WebSocketDisconnect):
+            raise WebSocketDisconnect(code=1006, reason="client disconnected during send")
         except Exception as e:
             logger.debug("WS send_json failed: %s", e)
 

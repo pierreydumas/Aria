@@ -11,8 +11,8 @@ services:
     volumes:
       - aria_pg_data:/var/lib/postgresql/data
       - ./init-scripts:/docker-entrypoint-initdb.d:ro
-    ports:
-      - "${DB_PORT:-5432}:${DB_INTERNAL_PORT:-5432}"
+    # ARIA-REV-009: Ports removed — only accessible via Docker internal network.
+    # Use `docker exec aria-db psql` for direct access if needed.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
@@ -32,8 +32,7 @@ services:
     environment:
       TOKEN: ${BROWSERLESS_TOKEN:-}
       BROWSERLESS_INTERNAL_PORT: ${BROWSERLESS_INTERNAL_PORT:-3000}
-    ports:
-      - "${BROWSERLESS_PORT:-3000}:${BROWSERLESS_INTERNAL_PORT:-3000}"
+    # ARIA-REV-009: Ports removed — only accessible via Docker internal network.
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:$${BROWSERLESS_INTERNAL_PORT}/pressure || exit 1"]
       interval: 30s
@@ -232,8 +231,7 @@ services:
       LITELLM_INTERNAL_PORT: ${LITELLM_INTERNAL_PORT:-4000}
     volumes:
       - ./litellm-config.yaml:/app/config.yaml:ro
-    ports:
-      - "${LITELLM_PORT:-18793}:${LITELLM_INTERNAL_PORT:-4000}"
+    # ARIA-REV-009: Ports removed — only accessible via Docker internal network.
     command: ["--config", "/app/config.yaml"]
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:'+str($${LITELLM_INTERNAL_PORT})+'/health/readiness')\" || exit 1"]

@@ -11,9 +11,11 @@ Every beat is an opportunity to:
 - Grow confidence through consistent operation
 """
 import asyncio
+import hashlib
 import logging
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -89,6 +91,67 @@ class Heartbeat:
         "L2": {"max_goals": 3, "sub_agents": True,  "roundtable": False},
         "L3": {"max_goals": 5, "sub_agents": True,  "roundtable": True},
     }
+
+    # ── ARIA-REV-003: Kernel Integrity Verification ───────────────────────
+    # Kernel YAML files define Aria's immutable identity, values, and safety
+    # constraints. SHA-256 checksums are computed at first heartbeat and
+    # re-verified on every subsequent beat. Any mismatch is a CRITICAL event.
+    _KERNEL_FILES = [
+        "kernel/constitution.yaml",
+        "kernel/identity.yaml",
+        "kernel/values.yaml",
+        "kernel/safety_constraints.yaml",
+    ]
+    _kernel_checksums: dict[str, str] | None = None
+
+    def _compute_kernel_checksums(self) -> dict[str, str]:
+        """Compute SHA-256 checksums for all kernel files."""
+        kernel_dir = Path(__file__).parent
+        checksums = {}
+        for rel_path in self._KERNEL_FILES:
+            full_path = kernel_dir / rel_path
+            if full_path.exists():
+                checksums[rel_path] = hashlib.sha256(
+                    full_path.read_bytes()
+                ).hexdigest()
+            else:
+                self.logger.warning("Kernel file missing: %s", rel_path)
+        return checksums
+
+    def _verify_kernel_integrity(self) -> bool:
+        """Verify kernel files haven't been modified since first check.
+
+        On first call, computes and stores baseline checksums.
+        On subsequent calls, compares current checksums against baseline.
+        Returns True if all checksums match.
+        """
+        current = self._compute_kernel_checksums()
+        if self._kernel_checksums is None:
+            # First heartbeat — establish baseline
+            self._kernel_checksums = current
+            self.logger.info(
+                "Kernel integrity baseline established: %d files",
+                len(current),
+            )
+            return True
+
+        # Compare against baseline
+        tampered = []
+        for path, expected_hash in self._kernel_checksums.items():
+            actual = current.get(path)
+            if actual is None:
+                tampered.append(f"{path} (MISSING)")
+            elif actual != expected_hash:
+                tampered.append(f"{path} (MODIFIED)")
+
+        if tampered:
+            self.logger.critical(
+                "KERNEL TAMPERED: %s — Aria's core identity may be compromised!",
+                ", ".join(tampered),
+            )
+            return False
+
+        return True
 
     @property
     def is_healthy(self) -> bool:
@@ -176,6 +239,10 @@ class Heartbeat:
             "subsystems": dict(self._subsystem_health),
             "all_healthy": all(self._subsystem_health.values()),
         }
+
+        # ARIA-REV-003: Verify kernel file integrity on every heartbeat
+        kernel_ok = self._verify_kernel_integrity()
+        self._health_status["kernel_integrity"] = kernel_ok
         
         # Log to DB via api_client (replaces startup.py raw SQL)
         try:
@@ -243,6 +310,13 @@ class Heartbeat:
         if self._beats_since_maintenance >= self._maintenance_interval:
             self._beats_since_maintenance = 0
             await self._autonomous_maintenance()
+
+        # 9. Persist metacognition state
+        try:
+            from aria_mind.metacognition import get_metacognitive_engine
+            get_metacognitive_engine().save()
+        except Exception:
+            pass
         
         self.logger.debug(f"💓 Beat #{self._beat_count} — all systems nominal")
     
@@ -462,12 +536,32 @@ class Heartbeat:
             current_progress = int(float(goal.get("progress", 0) or 0))
             next_progress = min(100, current_progress + progress_step)
 
+            # --- Atomic goal transition: rollback on partial failure ---
+            prev_column = str(goal.get("board_column") or goal.get("column") or "backlog")
+
             await api.move_goal(goal_id=goal_ref, board_column="doing", position=0)
-            await api.update_goal(goal_id=goal_ref, progress=next_progress)
+            try:
+                await api.update_goal(goal_id=goal_ref, progress=next_progress)
+            except Exception as move_err:
+                self.logger.warning(f"Goal {goal_ref}: progress update failed, rolling back column → {prev_column}")
+                try:
+                    await api.move_goal(goal_id=goal_ref, board_column=prev_column, position=0)
+                except Exception:
+                    pass
+                raise move_err
 
             if next_progress >= 100:
-                await api.update_goal(goal_id=goal_ref, status="completed", progress=100)
-                await api.move_goal(goal_id=goal_ref, board_column="done", position=0)
+                try:
+                    await api.update_goal(goal_id=goal_ref, status="completed", progress=100)
+                    await api.move_goal(goal_id=goal_ref, board_column="done", position=0)
+                except Exception as done_err:
+                    self.logger.warning(f"Goal {goal_ref}: completion transition failed, rolling back to doing/{next_progress}%")
+                    try:
+                        await api.update_goal(goal_id=goal_ref, status="in_progress", progress=current_progress)
+                        await api.move_goal(goal_id=goal_ref, board_column="doing", position=0)
+                    except Exception:
+                        pass
+                    raise done_err
 
             activity_details = {
                 "goal_id": goal_ref,
@@ -493,7 +587,33 @@ class Heartbeat:
                 f"\U0001f3af Goal work [{focus_level}] {goal_ref}: "
                 f"{current_progress}% → {next_progress}%"
             )
+
+            # ── Metacognition feedback: record success ──
+            try:
+                from aria_mind.metacognition import get_metacognitive_engine
+                mc = get_metacognitive_engine()
+                insights = mc.record_task(
+                    category=str(goal.get("title") or "goal_work"),
+                    success=True,
+                    confidence_at_start=current_progress / 100.0,
+                )
+                if insights.get("failure_pattern"):
+                    self.logger.info(f"🧠 Metacognition insight: {insights['failure_pattern']}")
+            except Exception:
+                pass
+
         except Exception as e:
+            # ── Metacognition feedback: record failure ──
+            try:
+                from aria_mind.metacognition import get_metacognitive_engine
+                mc = get_metacognitive_engine()
+                mc.record_task(
+                    category="goal_work",
+                    success=False,
+                    error_type=type(e).__name__,
+                )
+            except Exception:
+                pass
             self.logger.debug(f"Goal check skipped: {e}")
 
     def _write_degraded_log(self, cycle: str, reason: str) -> None:
@@ -557,6 +677,13 @@ class Heartbeat:
             self.logger.info(f"\U0001fa9e Reflection complete [focus={focus_level}] ({len(reflection)} chars)")
         except Exception as e:
             self.logger.debug(f"Reflection skipped: {e}")
+
+        # Record reflection in metacognition
+        try:
+            from aria_mind.metacognition import get_metacognitive_engine
+            get_metacognitive_engine().record_reflection()
+        except Exception:
+            pass
     
     async def _write_surface_memory(self) -> None:
         """Write transient heartbeat state to surface memory tier."""
@@ -683,6 +810,13 @@ class Heartbeat:
 
             # 3. Medium → deep promotion (check for patterns)
             await self._promote_medium_to_deep(result)
+
+            # Record consolidation in metacognition
+            try:
+                from aria_mind.metacognition import get_metacognitive_engine
+                get_metacognitive_engine().record_consolidation()
+            except Exception:
+                pass
 
         except Exception as e:
             self.logger.debug(f"Consolidation skipped: {e}")

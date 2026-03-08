@@ -106,6 +106,7 @@ class SearchByVector(BaseModel):
     """Request body for POST /memories/semantic/search-by-vector."""
     embedding: list[float]
     category: str | None = None
+    source: str | None = None
     limit: int = 7
     min_importance: float = 0.0
 

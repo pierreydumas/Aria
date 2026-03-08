@@ -198,7 +198,7 @@ class ChatEngine:
                 message_count=0,
                 total_tokens=0,
                 total_cost=0,
-                metadata_json=metadata or {},
+                metadata_json={"origin": "api", **(metadata or {})},
                 created_at=now,
                 updated_at=now,
             )

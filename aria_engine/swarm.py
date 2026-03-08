@@ -674,7 +674,7 @@ class SwarmOrchestrator:
                     title=title,
                     agent_id="swarm",
                     session_type="swarm",
-                    metadata_json={"participants": agent_ids, "mode": "swarm"},
+                    metadata_json={"participants": agent_ids, "mode": "swarm", "origin": "swarm"},
                 )
                 session.add(obj)
 

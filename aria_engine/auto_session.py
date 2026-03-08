@@ -311,6 +311,8 @@ class AutoSessionManager:
                         ).op("||")(
                             cast({"ended": True, "end_reason": "idle_timeout"}, PG_JSONB)
                         ),
+                        status="ended",
+                        ended_at=func.now(),
                         updated_at=func.now(),
                     )
                 )
@@ -388,6 +390,8 @@ class AutoSessionManager:
                                 PG_JSONB,
                             )
                         ),
+                        status="ended",
+                        ended_at=func.now(),
                         updated_at=func.now(),
                     )
                 )
