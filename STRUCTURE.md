@@ -382,8 +382,7 @@ Aria_moltbot/
 │   ├── benchmarks.json
 │   ├── benchmarks.md
 │   └── archive/
-│       ├── AUDIT_REPORT.md
-│       └── DATA_MIGRATION_REPORT.md
+│       └── AUDIT_REPORT.md
 │
 ├── deploy/                       # Deployment utilities
 │   ├── grafana/

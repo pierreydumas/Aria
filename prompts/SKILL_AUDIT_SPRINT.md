@@ -19,7 +19,7 @@ Your name is **"Audit Agent"**. The project owner is **Najia**.
 
 ## Mission
 
-> Test 43 skills × 301 tools × 268 API routes. Everything must work.
+> Test 43 skills × 300+ tools × 240+ API routes. Everything must work.
 > What fails gets a ticket. What can be fixed now gets patched immediately.
 
 ### The Cycle (repeat for each skill)
@@ -77,7 +77,7 @@ Your name is **"Audit Agent"**. The project owner is **Najia**.
 
 ---
 
-## Skill Inventory (43 skills, 301 tools)
+## Skill Inventory (43 skills, 300+ tools)
 
 ### Layer 0 — Security Gate
 | Skill | Tools | Notes |
@@ -236,17 +236,41 @@ print(f'POST /api/ROUTE: {r.status_code} {r.text[:200]}')
 "
 ```
 
-### Step 4: Production Comparison
-```
-Ask Aria in production (via the web chat):
-"Aria, please test [skill_name] by running [tool_name] with these args: {...}
-and tell me the result."
+### Step 4: Ask Aria (Production Primary Source)
 
-Compare production result with dev result.
-If production works but dev doesn't → environment issue.
-If both fail the same way → code bug.
-If dev works but production doesn't → deployment issue.
+**Aria is not just a test subject — she is a co-investigator.**
+
+Before concluding a skill is broken, ask her:
+
 ```
+POST /api/engine/chat
+{
+  "message": "Aria, please run [skill_name].[tool_name] with these args: {...} and tell me the result. Also tell me if you've encountered any errors with this skill recently.",
+  "session_id": "audit-session"
+}
+```
+
+Then observe:
+```bash
+# Watch her logs in real-time:
+docker logs aria-engine -f --tail=50
+
+# Check her activity log for recent skill usage:
+curl http://localhost:8000/api/activities?skill=SKILL_NAME&limit=10
+
+# Check security events for any recent failures:
+curl http://localhost:8000/api/security-events?limit=20
+```
+
+Interpretation matrix:
+| Dev result | Aria's result | Conclusion |
+|-----------|--------------|------------|
+| PASS | PASS | ✅ Healthy |
+| FAIL | PASS | Environment issue (dev config missing) |
+| PASS | FAIL | Deployment issue (prod has old code) |
+| FAIL | FAIL same error | Code bug — fix it |
+| FAIL | FAIL different error | Two separate issues |
+| PASS | "I haven't used this recently" | Document gap — Aria never triggers this skill |
 
 ### Step 5: Verdict
 
@@ -500,7 +524,7 @@ What's different between dev and prod that affects test results.
 
 ## Environment
 
-- **Development:** Windows, Docker Desktop, `C:\git\Aria_moltbot`
+- **Development:** macOS, Docker Desktop, `/Users/najia/aria`
 - **Production:** Mac Mini, SSH user `najia`, `$MAC_HOST`
 - **Docker Stack:** 10 default services + sandbox/monitoring/tracing profiles
 - **Database:** PostgreSQL 17 + pgvector, schemas: `aria_data` (26 tables), `aria_engine` (14 tables), `litellm`
@@ -517,4 +541,5 @@ When you begin:
 2. Start the Docker stack: `cd stacks/brain && docker compose up -d`
 3. Verify health: `curl http://localhost:8000/health`
 4. Run `schema check all` first — it's fast and catches the most common bug class
-5. Ask Shiva: "Ready to start? Which phase first?"
+5. Ask Najia: "Ready to start? Which phase first?"
+6. Also ask **Aria in production** via web chat: "Aria, what is your current health status and which skills have you used recently?" — use her logs as a baseline.

@@ -22,9 +22,9 @@ Use **Section 4.1 (Strict Gap Analysis Mode)**.
 ```md
 Repository: Aria Blue v3.0.0 — Autonomous AI Agent Platform
 Stack: Python 3.13, FastAPI, Flask, SQLAlchemy 2.0 async, PostgreSQL 16, Docker Compose, LiteLLM, MLX
-Packages: aria_engine (orchestration), aria_agents (agent pool), aria_skills (40+ skills), aria_models (LLM routing), aria_mind (consciousness/soul)
-API: FastAPI at src/api/ — 31 router files, 222+ REST endpoints, 2 WebSocket, 1 GraphQL
-Dashboard: Flask + Chart.js at src/web/ — 43 templates
+Packages: aria_engine (orchestration), aria_agents (agent pool), aria_skills (43 active skills), aria_models (LLM routing), aria_mind (consciousness/soul)
+API: FastAPI at src/api/ — 36 router files, 240+ REST endpoints, 2 WebSocket, 1 GraphQL
+Dashboard: Flask + Chart.js at src/web/ — run `ls src/web/templates/ | wc -l` for current count
 Docker: stacks/brain/docker-compose.yml — 10+ services (db, api, web, engine, litellm, traefik, browser, tor, sandbox, monitoring)
 Tests: pytest — architecture compliance, unit, integration, E2E, load
 CI: GitHub Actions — .github/workflows/test.yml, tests.yml
@@ -527,7 +527,7 @@ For SKILLS.md, aria_skills/SKILL_STANDARD.md, aria_skills/SKILL_CREATION_GUIDE.m
 
 - [ ] Skill count in docs matches actual aria_skills/ subdirectories.
 - [ ] Each skill's layer in docs matches its skill.json "layer" field.
-- [ ] Skill hierarchy rules match scripts/check_architecture.py enforcement.
+- [ ] Skill hierarchy rules match tests/check_architecture.py enforcement.
 - [ ] BaseSkill interface description matches aria_skills/base.py.
 - [ ] SkillRegistry description matches aria_skills/registry.py.
 - [ ] SkillResult/SkillConfig/SkillStatus match base.py definitions.
@@ -995,10 +995,10 @@ These are the canonical code files that documentation must accurately describe. 
 ### Scripts & Testing
 | File | What It Defines |
 |------|----------------|
-| `scripts/check_architecture.py` | Architecture enforcement rules |
+| `tests/check_architecture.py` | Architecture enforcement rules |
 | `scripts/generate_endpoint_matrix.py` | Endpoint inventory generator |
-| `scripts/runtime_smoke_check.py` | Runtime smoke tests |
-| `scripts/guardrail_web_api_path.py` | Web/API path guardrails |
+| `tests/e2e/runtime_smoke_check.py` | Runtime smoke tests |
+| `tests/integration/guardrail_web_api_path.py` | Web/API path guardrails |
 | `tests/test_architecture.py` | Architecture compliance tests |
 | `tests/` | Full test suite |
 
@@ -1076,7 +1076,7 @@ done
 
 ### 10.8 Verifying Architecture Rules
 ```bash
-python3 scripts/check_architecture.py
+python3 tests/check_architecture.py
 pytest tests/test_architecture.py -v
 ```
 
@@ -2333,13 +2333,13 @@ grep -rn "os\.environ\|os\.getenv" src/ aria_engine/ aria_skills/ aria_mind/ ari
 grep -roh "\[.*\]([^)]*\.md[^)]*)" *.md docs/*.md 2>/dev/null
 
 # Architecture check
-python3 scripts/check_architecture.py
+python3 tests/check_architecture.py
 
 # Run all tests
 pytest tests/ -v --timeout=60
 
 # Smoke check
-python3 scripts/runtime_smoke_check.py
+python3 tests/e2e/runtime_smoke_check.py
 ```
 
 ---
