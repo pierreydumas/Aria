@@ -36,14 +36,14 @@ def _make_api_client():
 def _make_llm_skill():
     """Create a minimal LLMSkill stub for fallback chain tests."""
     try:
-        from aria_skills.llm import LLMSkill
+        from aria_skills.llm import LLMSkill, LLM_FALLBACK_CHAIN
         from aria_skills.base import SkillConfig
         cfg = SkillConfig(name="llm", config={"litellm_url": "http://localhost:4000/v1"})
         skill = LLMSkill(cfg)
         mock_http = AsyncMock()
         skill._client = mock_http
         skill._status = __import__("aria_skills.base", fromlist=["SkillStatus"]).SkillStatus.AVAILABLE
-        return skill, mock_http
+        return skill, mock_http, LLM_FALLBACK_CHAIN
     except Exception as e:
         pytest.skip(f"LLMSkill not importable: {e}")
 
@@ -128,14 +128,14 @@ async def test_llm_fallback_chain_skips_open_circuit():
     When primary model (qwen3-mlx) circuit is open, complete_with_fallback()
     skips it and succeeds via the next available model without any error.
     """
-    skill, mock_http = _make_llm_skill()
-    primary = "litellm/qwen3-mlx"
-    fallback = "litellm/trinity-free"
+    skill, mock_http, fallback_chain = _make_llm_skill()
+    primary = fallback_chain[0]["model"]
+    expected_fallback = next(entry["model"] for entry in fallback_chain if entry["model"] != primary)
 
     # Open circuit for primary
     skill._circuit_open_until[primary] = time.monotonic() + 999.0
 
-    # Mock HTTP: the call should be for the fallback model
+    # Mock HTTP: the call should be for the next available model in the chain.
     mock_http.post = AsyncMock(return_value=MagicMock(
         status_code=200,
         raise_for_status=MagicMock(),
@@ -149,8 +149,9 @@ async def test_llm_fallback_chain_skips_open_circuit():
     result = await skill.complete_with_fallback(messages)
 
     assert result.ok, f"Expected success, got: {result}"
-    assert result.data.get("_aria_model_used") == fallback, (
-        f"Expected fallback to {fallback}, used {result.data.get('_aria_model_used')}"
+    used_model = result.data.get("_aria_model_used")
+    assert used_model == expected_fallback, (
+        f"Expected fallback to {expected_fallback}, used {used_model}"
     )
     assert primary not in result.data.get("_aria_fallback_tried", []), (
         "Primary (open circuit) should not appear in tried list"

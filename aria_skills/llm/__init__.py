@@ -39,15 +39,23 @@ def _build_fallback_chain() -> list[dict]:
         catalog = _load_catalog()
         routing = catalog.get("routing", {})
         fallbacks: list[str] = routing.get("fallbacks", [])
-        tier_order = routing.get("tier_order", ["local", "free", "paid"])
 
-        # Build tier map from model definitions
+        # Build a tier map keyed by the routed alias used throughout the skill.
         models_map: dict[str, str] = {}
-        for _mkey, mval in catalog.get("models", {}).items():
-            provider_model = mval.get("litellm", {}).get("model") or mval.get("provider_model", "")
+        local_chat_models: list[str] = []
+        for model_key, mval in catalog.get("models", {}).items():
+            alias = f"litellm/{model_key}"
             tier = mval.get("tier", "paid")
-            if provider_model:
-                models_map[provider_model] = tier
+            models_map[alias] = tier
+
+            if tier != "local":
+                continue
+            if mval.get("type") == "embedding":
+                continue
+            if mval.get("maxTokens", 0) <= 0:
+                continue
+
+            local_chat_models.append(alias)
 
         chain = []
         for i, model_id in enumerate(fallbacks):
@@ -62,12 +70,10 @@ def _build_fallback_chain() -> list[dict]:
                     tier = "paid"
             chain.append({"model": model_id, "tier": tier, "priority": i + 1})
 
-        # Ensure local models from models.yaml are prepended if not in fallbacks
-        for _mkey, mval in catalog.get("models", {}).items():
-            if mval.get("tier") == "local":
-                local_id = mval.get("litellm", {}).get("model", "")
-                if local_id and not any(e["model"] == local_id for e in chain):
-                    chain.insert(0, {"model": local_id, "tier": "local", "priority": 0})
+        # Ensure chat-capable local models from models.yaml are prepended if not in fallbacks.
+        for local_id in reversed(local_chat_models):
+            if not any(entry["model"] == local_id for entry in chain):
+                chain.insert(0, {"model": local_id, "tier": "local", "priority": 0})
 
         return chain
     except Exception:
