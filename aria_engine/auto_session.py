@@ -172,6 +172,7 @@ class AutoSessionManager:
                 agent_id=agent_id,
                 title=title,
                 session_type="chat",
+                metadata={"origin": "auto"},
             )
             session_id = session["session_id"]
             auto_created = True
@@ -292,7 +293,7 @@ class AutoSessionManager:
                             not_(EngineChatSession.metadata_json.has_key("ended")),
                             EngineChatSession.metadata_json["ended"].astext == "false",
                         ),
-                        EngineChatSession.session_type == "chat",
+                        EngineChatSession.session_type.in_(["chat", "interactive"]),
                     )
                 )
             )
@@ -425,4 +426,5 @@ class AutoSessionManager:
         return await self._mgr.create_session(
             agent_id=agent_id,
             session_type="chat",
+            metadata={"origin": "auto"},
         )

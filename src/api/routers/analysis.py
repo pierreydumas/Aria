@@ -21,6 +21,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import (
     ActivityLog,
+    EngineChatMessageArchive,
+    EngineChatSessionArchive,
     SemanticMemory,
     Thought,
     WorkingMemory,
@@ -54,6 +56,66 @@ async def _generate_embedding(text: str) -> list[float]:
         )
         resp.raise_for_status()
         return resp.json()["data"][0]["embedding"]
+
+
+def _compact_text(text: str | None, limit: int = 280) -> str:
+    value = " ".join((text or "").split())
+    if len(value) <= limit:
+        return value
+    return value[: max(0, limit - 1)].rstrip() + "…"
+
+
+def _build_archived_session_memory(session, messages: list[Any]) -> tuple[str, str]:
+    """Build a concise semantic-memory payload for an archived session."""
+    title = (session.title or "").strip()
+    user_topics: list[str] = []
+    last_assistant = ""
+    tool_names: list[str] = []
+    seen_tools: set[str] = set()
+
+    for msg in messages:
+        if msg.role == "user" and msg.content and len(user_topics) < 2:
+            user_topics.append(_compact_text(msg.content, 220))
+        elif msg.role == "assistant" and msg.content:
+            last_assistant = _compact_text(msg.content, 360)
+
+        if isinstance(msg.tool_calls, list):
+            for call in msg.tool_calls:
+                if not isinstance(call, dict):
+                    continue
+                function = call.get("function") if isinstance(call.get("function"), dict) else {}
+                name = call.get("name") or function.get("name")
+                if not isinstance(name, str) or not name or name in seen_tools:
+                    continue
+                seen_tools.add(name)
+                tool_names.append(name)
+                if len(tool_names) >= 5:
+                    break
+
+    if not title and not user_topics and not last_assistant:
+        return "", ""
+
+    label = title or f"{session.agent_id} {session.session_type} session"
+    summary = _compact_text(f"Archived session: {label}", 100)
+
+    parts = [
+        f"Archived session: {label}",
+        f"Agent: {session.agent_id}",
+        f"Type: {session.session_type}",
+        f"Messages: {session.message_count or len(messages)}",
+    ]
+    if session.model:
+        parts.append(f"Model: {session.model}")
+    if user_topics:
+        parts.append("User topics:")
+        parts.extend(f"- {topic}" for topic in user_topics)
+    if last_assistant:
+        parts.append("Outcome:")
+        parts.append(last_assistant)
+    if tool_names:
+        parts.append("Tools used: " + ", ".join(tool_names))
+
+    return "\n".join(parts), summary
 
 
 
@@ -360,7 +422,7 @@ async def run_auto_compression(
     }
 
 
-# ── Seed: backfill semantic_memories from activity_log + thoughts ────────────
+# ── Seed: backfill semantic_memories from activities + thoughts + archives ───
 
 
 @router.post("/seed-memories")
@@ -369,10 +431,10 @@ async def seed_semantic_memories(
     skip_existing: bool = True,
     db: AsyncSession = Depends(get_db),
 ):
-    """Backfill semantic_memories from activity_log + thoughts.
+    """Backfill semantic_memories from activities, thoughts, and archives.
 
-    Reads recent activities and thoughts, generates embeddings via LiteLLM,
-    and stores them in semantic_memories so pattern_recognition,
+    Reads recent activities, thoughts, and concise archived-session summaries,
+    generates embeddings via LiteLLM, and stores them in semantic_memories so pattern_recognition,
     sentiment_analysis, and unified_search have data to work with.
     """
     import logging
@@ -421,16 +483,20 @@ async def seed_semantic_memories(
                 errors += 1
 
             cat = t.category or "general"
+            # Derive origin: thoughts from user interactions vs autonomous cognition
+            origin = "user" if cat in ("user_input", "security") else "autonomous"
+            importance = 0.7 if origin == "user" else 0.6
             mem = SemanticMemory(
                 content=content[:5000],
                 summary=content[:100],
                 category=f"thought_{cat}",
                 embedding=embedding,
-                importance=0.6,
+                importance=importance,
                 source="seed_thoughts",
                 metadata_json={
                     "original_id": str(t.id),
                     "thought_category": cat,
+                    "origin": origin,
                     "created_at": t.created_at.isoformat() if t.created_at else None,
                 },
             )
@@ -488,9 +554,19 @@ async def seed_semantic_memories(
                 embedding = [0.0] * 768
                 errors += 1
 
+            # Classify origin from action name
+            _cron_actions = {"cron_execution", "heartbeat", "session_cleanup",
+                             "memory_consolidation", "db_maintenance", "memory_bridge"}
+            if a.action in _cron_actions or (a.action or "").startswith("cron_"):
+                origin = "cron"
+            elif a.action in ("goal_work", "goal_blocked") and (details.get("job") or details.get("cron")):
+                origin = "cron"
+            else:
+                origin = "user"
+
             importance = 0.4
             if a.action.startswith("goal"):
-                importance = 0.7
+                importance = 0.7 if origin == "user" else 0.55
             elif a.action == "cron_execution":
                 importance = 0.3
             elif not a.success:
@@ -508,7 +584,114 @@ async def seed_semantic_memories(
                     "action": a.action,
                     "skill": a.skill,
                     "success": a.success,
+                    "origin": origin,
                     "created_at": a.created_at.isoformat() if a.created_at else None,
+                },
+            )
+            db.add(mem)
+            seeded += 1
+        await db.commit()
+
+    # ── 3. Archived sessions → semantic_memories ──
+    archived_limit = min(limit, 25)
+    archive_stmt = (
+        select(EngineChatSessionArchive)
+        .where(
+            EngineChatSessionArchive.message_count > 0,
+            EngineChatSessionArchive.session_type.notin_(["cron", "swarm", "subagent"]),
+        )
+        .order_by(EngineChatSessionArchive.archived_at.desc())
+        .limit(archived_limit)
+    )
+    archived_sessions = (await db.execute(archive_stmt)).scalars().all()
+
+    archived_messages_by_session: dict[Any, list[EngineChatMessageArchive]] = {}
+    if archived_sessions:
+        archive_session_ids = [s.id for s in archived_sessions]
+        archive_message_stmt = (
+            select(EngineChatMessageArchive)
+            .where(EngineChatMessageArchive.session_id.in_(archive_session_ids))
+            .order_by(
+                EngineChatMessageArchive.session_id.asc(),
+                EngineChatMessageArchive.created_at.asc(),
+            )
+        )
+        archive_messages = (await db.execute(archive_message_stmt)).scalars().all()
+        for msg in archive_messages:
+            archived_messages_by_session.setdefault(msg.session_id, []).append(msg)
+
+    for i in range(0, len(archived_sessions), batch_size):
+        batch = archived_sessions[i : i + batch_size]
+        for s in batch:
+            if skip_existing:
+                exists = await db.execute(
+                    select(func.count())
+                    .select_from(SemanticMemory)
+                    .where(SemanticMemory.source == "seed_archived_sessions")
+                    .where(
+                        SemanticMemory.metadata_json["original_session_id"].astext == str(s.id)
+                    )
+                )
+                if (exists.scalar() or 0) > 0:
+                    skipped += 1
+                    continue
+
+            content, summary = _build_archived_session_memory(
+                s,
+                archived_messages_by_session.get(s.id, []),
+            )
+            if not content:
+                skipped += 1
+                continue
+
+            try:
+                embedding = await _generate_embedding(content[:2000])
+            except Exception as e:
+                logger.warning("Embedding failed for archived session %s: %s", s.id, e)
+                embedding = [0.0] * 768
+                errors += 1
+
+            # Classify origin — prefer metadata tag, fall back to session_type
+            meta_origin = (s.metadata_json or {}).get("origin", "")
+            if meta_origin == "auto":
+                origin = "autonomous"     # auto_session (cron/system path)
+            elif s.session_type == "interactive":
+                origin = "user"           # Najia from web UI
+            elif s.session_type == "chat" and not meta_origin:
+                origin = "mixed"          # legacy chat, no tag
+            elif s.session_type == "roundtable":
+                origin = "autonomous"
+            else:
+                origin = "autonomous"
+
+            importance = 0.55
+            if origin == "user":
+                importance = 0.75
+            elif origin == "mixed":
+                importance = 0.6
+            elif s.session_type == "roundtable":
+                importance = 0.6
+            if (s.message_count or 0) >= 20:
+                importance = min(0.85, importance + 0.05)
+
+            mem = SemanticMemory(
+                content=content[:5000],
+                summary=summary,
+                category="archived_session",
+                embedding=embedding,
+                importance=importance,
+                source="seed_archived_sessions",
+                metadata_json={
+                    "original_session_id": str(s.id),
+                    "agent_id": s.agent_id,
+                    "session_type": s.session_type,
+                    "origin": origin,
+                    "title": s.title,
+                    "message_count": s.message_count,
+                    "model": s.model,
+                    "created_at": s.created_at.isoformat() if s.created_at else None,
+                    "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+                    "archived_at": s.archived_at.isoformat() if s.archived_at else None,
                 },
             )
             db.add(mem)
@@ -522,5 +705,6 @@ async def seed_semantic_memories(
         "sources": {
             "thoughts": len(thoughts),
             "activities": len(activities),
+            "archived_sessions": len(archived_sessions),
         },
     }

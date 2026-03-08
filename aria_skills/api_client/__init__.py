@@ -1384,7 +1384,7 @@ class AriaAPIClient(BaseSkill):
     async def seed_memories(
         self, limit: int = 100, skip_existing: bool = True,
     ) -> SkillResult:
-        """Backfill semantic_memories from recent activities + thoughts.
+        """Backfill semantic_memories from recent activities, thoughts, and archived session summaries.
 
         Calls POST /analysis/seed-memories which generates embeddings via
         LiteLLM and stores them in pgvector for pattern recognition,
