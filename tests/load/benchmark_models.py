@@ -7,7 +7,7 @@ Measures latency and output token count for each model × task category.
 
 Usage:
     python tests/load/benchmark_models.py
-    python tests/load/benchmark_models.py --models qwen3-mlx trinity-free
+    python tests/load/benchmark_models.py --models qwen3.5_mlx trinity
     python tests/load/benchmark_models.py --help
 """
 
@@ -229,7 +229,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         epilog=(
             "Examples:\n"
             "  python benchmark_models.py\n"
-            "  python benchmark_models.py --models qwen3-mlx trinity-free\n"
+            "  python benchmark_models.py --models qwen3.5_mlx trinity\n"
             "  LITELLM_URL=http://remote:4000 python benchmark_models.py\n"
         ),
     )

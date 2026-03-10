@@ -3,7 +3,7 @@
 Unified Search — Full Production Implementation.
 
 Merges three retrieval backends using Reciprocal Rank Fusion (RRF):
-  1. Semantic search  — pgvector cosine similarity (nomic-embed-text 768d)
+    1. Semantic search  — pgvector cosine similarity (embedding, 768d)
   2. Knowledge graph  — ILIKE entity/relation search via skill graph
   3. Memory search    — Full-text keyword search on memories table
 

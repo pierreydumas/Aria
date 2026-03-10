@@ -37,7 +37,7 @@ def test_build_thinking_params_claude():
 
 def test_build_thinking_params_qwen():
     """Qwen models registered in YAML get enable_thinking flag."""
-    params = build_thinking_params("qwen3-mlx", enable=True)
+    params = build_thinking_params("qwen3.5_mlx", enable=True)
     assert params["extra_body"]["enable_thinking"] is True
 
 
@@ -156,7 +156,7 @@ async def test_get_current_model(switcher):
 async def test_set_thinking_mode_enable(switcher):
     """Enabling thinking mode stores the flag and returns params."""
     switcher._status = SkillStatus.AVAILABLE
-    switcher._current_model = "qwen3-mlx"  # Must be in YAML with thinking_params
+    switcher._current_model = "qwen3.5_mlx"  # Must be in YAML with thinking_params
     result = await switcher.set_thinking_mode(enabled=True)
     assert result.success is True
     assert result.data["thinking_enabled"] is True
@@ -179,7 +179,7 @@ async def test_get_thinking_mode(switcher):
     """get_thinking_mode reflects current state."""
     switcher._status = SkillStatus.AVAILABLE
     switcher._thinking_enabled = True
-    switcher._current_model = "qwen3-mlx"  # Must be in YAML with thinking_params
+    switcher._current_model = "qwen3.5_mlx"  # Must be in YAML with thinking_params
     result = await switcher.get_thinking_mode()
     assert result.success is True
     assert result.data["thinking_enabled"] is True

@@ -87,7 +87,7 @@ sessions_config = [
         "question": (
             "Aria, ALL 92 non-roundtable sessions belong to agent=aria. "
             "Agents aria-analyst, aria-coder, aria-creative, aria-talk are registered but have 0 sessions each. "
-            "6 engine agents registered (deepseek-free, kimi, qwen3-mlx, trinity-free, qwen3-coder-free) "
+            "4 engine models registered (kimi, qwen3.5_mlx, trinity, embedding) "
             "but their display IDs are blank in the DB. "
             "As PO: is this expected? Should Shiva be able to talk to aria-analyst directly? "
             "What needs to change so other agents actually respond?"

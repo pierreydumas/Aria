@@ -173,6 +173,14 @@ class UpdateTask(BaseModel):
     result: str | None = None
 
 
+class PurgeTasks(BaseModel):
+    """Request body for POST /operations/tasks/purge."""
+    task_ids: list[str] = Field(default_factory=list)
+    statuses: list[str] = Field(default_factory=list)
+    older_than_days: int | None = None
+    include_all: bool = False
+
+
 # ── proposals.py ───────────────────────────────────────────────────────────
 
 class CreateProposal(BaseModel):
@@ -229,6 +237,32 @@ class UpdateSession(BaseModel):
     messages_count: int | None = None
     tokens_used: int | None = None
     cost_usd: float | None = None
+
+
+# ── sources.py ─────────────────────────────────────────────────────────────
+
+class CreateWebsiteSource(BaseModel):
+    """Request body for POST /sources."""
+    url: str
+    name: str
+    category: str = "general"
+    rating: str = "preferred"
+    reason: str | None = None
+    alternative: str | None = None
+    last_used: str | None = None
+    metadata: dict = Field(default_factory=dict)
+
+
+class UpdateWebsiteSource(BaseModel):
+    """Request body for PATCH /sources/{source_id}."""
+    url: str | None = None
+    name: str | None = None
+    category: str | None = None
+    rating: str | None = None
+    reason: str | None = None
+    alternative: str | None = None
+    last_used: str | None = None
+    metadata: dict | None = None
 
 
 # ── social.py ──────────────────────────────────────────────────────────────

@@ -143,6 +143,7 @@ def generate_model_list(catalog: dict) -> list[dict]:
             "model_name": model_id,
             "litellm_params": params,
             "model_info": model_info,
+            "litellm_comments": entry.get("litellm_comments", {}),
         })
 
         # Emit alias entries
@@ -151,6 +152,7 @@ def generate_model_list(catalog: dict) -> list[dict]:
                 "model_name": alias,
                 "litellm_params": dict(params),
                 "model_info": dict(model_info),
+                "litellm_comments": entry.get("litellm_comments", {}),
             })
 
     return entries
@@ -161,11 +163,15 @@ def _write_model_list_yaml(entries: list[dict], indent: str = "  ") -> str:
     lines = []
     for entry in entries:
         mn = entry["model_name"]
+        litellm_comments = entry.get("litellm_comments") or {}
         lines.append(f"  - model_name: {mn}")
 
         # litellm_params
         lines.append(f"    litellm_params:")
         for k, v in entry["litellm_params"].items():
+            comment = litellm_comments.get(k)
+            if comment:
+                lines.append(f"      # {comment}")
             lines.append(f"      {k}: {_format_scalar(v)}")
 
         # model_info

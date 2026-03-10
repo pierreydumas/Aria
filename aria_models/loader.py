@@ -14,6 +14,18 @@ _cache: dict[str, Any] = {}
 _cache_timestamp: float = 0.0
 
 
+def _build_alias_index(catalog: dict[str, Any] | None) -> dict[str, str]:
+    models = catalog.get("models", {}) if catalog else {}
+    alias_index: dict[str, str] = {}
+    for canonical_id, entry in models.items():
+        alias_index[canonical_id] = canonical_id
+        if not isinstance(entry, dict):
+            continue
+        for alias in entry.get("aliases", []):
+            alias_index.setdefault(alias, canonical_id)
+    return alias_index
+
+
 def _load_yaml_or_json(path: Path) -> dict[str, Any]:
     content = path.read_text(encoding="utf-8")
     # JSON is valid YAML; parse JSON first for zero dependencies.
@@ -232,18 +244,25 @@ def validate_models(path: Path | None = None) -> list[str]:
     return errors
 
 
-def normalize_model_id(model_id: str) -> str:
+def normalize_model_id(model_id: str, catalog: dict[str, Any] | None = None) -> str:
     if not model_id:
         return model_id
     if "/" in model_id:
-        return model_id.split("/", 1)[1]
-    return model_id
+        model_id = model_id.split("/", 1)[1]
+
+    try:
+        resolved_catalog = catalog or load_catalog()
+    except Exception:
+        return model_id
+
+    alias_index = _build_alias_index(resolved_catalog)
+    return alias_index.get(model_id, model_id)
 
 
 def get_model_entry(model_id: str, catalog: dict[str, Any] | None = None) -> dict[str, Any] | None:
     catalog = catalog or load_catalog()
     models = catalog.get("models", {}) if catalog else {}
-    normalized = normalize_model_id(model_id)
+    normalized = normalize_model_id(model_id, catalog=catalog)
     return models.get(normalized)
 
 
@@ -288,7 +307,7 @@ def get_primary_model_full(catalog: dict[str, Any] | None = None) -> str:
 
 
 def get_embedding_model(catalog: dict[str, Any] | None = None) -> str:
-    """Return the embedding model key (e.g. 'nomic-embed-text')."""
+    """Return the embedding model key (e.g. 'embedding')."""
     return get_task_model("embedding", catalog)
 
 
@@ -303,7 +322,7 @@ def get_fallback_chain(catalog: dict[str, Any] | None = None) -> list[dict[str, 
     models_def = catalog.get("models", {}) if catalog else {}
     chain: list[dict[str, Any]] = []
     for i, model_id in enumerate(routing.get("fallbacks", [])):
-        bare = normalize_model_id(model_id)
+        bare = normalize_model_id(model_id, catalog=catalog)
         tier = models_def.get(bare, {}).get("tier", "unknown")
         chain.append({"model": model_id, "tier": tier, "priority": i + 1})
     return chain
@@ -498,7 +517,7 @@ def build_litellm_config_entries(catalog: dict[str, Any] | None = None) -> list[
             item["model_info"]["output_cost_per_token"] = 0
         entries.append(item)
         
-        # Also emit alias entries (e.g. kimi-k2.5 → same litellm_params)
+        # Also emit alias entries so legacy callers can keep working.
         for alias in entry.get("aliases", []):
             alias_item = {
                 "model_name": alias,

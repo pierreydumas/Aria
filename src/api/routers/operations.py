@@ -8,10 +8,10 @@ import json as json_lib
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, update, text
+from sqlalchemy import delete, select, update, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,11 +34,59 @@ from schemas.requests import (
     CreateHeartbeat,
     CreatePerformanceReview,
     CreateTask,
+    PurgeTasks,
     UpdateTask,
 )
 
 router = APIRouter(tags=["Operations"])
 logger = logging.getLogger("aria.api.operations")
+
+OPEN_TASK_STATUSES = {"pending", "in_progress"}
+TERMINAL_TASK_STATUSES = {"done", "completed", "failed", "cancelled"}
+NON_PERSISTENT_HEARTBEAT_STATUSES = {"test", "audit"}
+NON_PERSISTENT_HEARTBEAT_JOB_PREFIXES = (
+    "test-heartbeat",
+    "route-audit-heartbeat",
+    "api-client-audit-heartbeat",
+)
+
+
+def _normalize_task_status(status: str | None) -> str | None:
+    if status is None:
+        return None
+    normalized = status.strip().lower()
+    return normalized or None
+
+
+def _expand_task_status_filters(statuses: list[str]) -> list[str]:
+    expanded: set[str] = set()
+    for raw in statuses:
+        normalized = _normalize_task_status(raw)
+        if not normalized:
+            continue
+        if normalized == "open":
+            expanded.update(OPEN_TASK_STATUSES)
+        elif normalized == "terminal":
+            expanded.update(TERMINAL_TASK_STATUSES)
+        else:
+            expanded.add(normalized)
+    return sorted(expanded)
+
+
+def _should_persist_heartbeat(status: str | None, job_name: str | None) -> bool:
+    if os.getenv("ARIA_PERSIST_TEST_HEARTBEATS") == "1":
+        return True
+
+    normalized_status = (status or "").strip().lower()
+    normalized_job_name = (job_name or "").strip().lower()
+
+    if normalized_status in NON_PERSISTENT_HEARTBEAT_STATUSES:
+        return False
+
+    return not any(
+        normalized_job_name.startswith(prefix)
+        for prefix in NON_PERSISTENT_HEARTBEAT_JOB_PREFIXES
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -184,8 +232,18 @@ async def get_heartbeats(limit: int = 50, db: AsyncSession = Depends(get_db)):
 @router.post("/heartbeat")
 async def create_heartbeat(body: CreateHeartbeat, db: AsyncSession = Depends(get_db)):
     normalized_details = body.details if isinstance(body.details, dict) else {"raw": body.details}
+    heartbeat_id = uuid.uuid4()
+
+    if not _should_persist_heartbeat(body.status, body.job_name):
+        logger.info(
+            "Skipping persistence for non-production heartbeat job_name=%s status=%s",
+            body.job_name,
+            body.status,
+        )
+        return {"id": str(heartbeat_id), "created": True, "persisted": False}
+
     hb = HeartbeatLog(
-        id=uuid.uuid4(),
+        id=heartbeat_id,
         beat_number=body.beat_number,
         job_name=body.job_name,
         status=body.status,
@@ -195,7 +253,7 @@ async def create_heartbeat(body: CreateHeartbeat, db: AsyncSession = Depends(get
     )
     db.add(hb)
     await db.commit()
-    return {"id": str(hb.id), "created": True}
+    return {"id": str(hb.id), "created": True, "persisted": True}
 
 
 @router.get("/heartbeat/latest")
@@ -244,8 +302,14 @@ async def get_pending_tasks(
     status: str | None = None, db: AsyncSession = Depends(get_db)
 ):
     stmt = select(PendingComplexTask).order_by(PendingComplexTask.created_at.desc())
-    if status:
-        stmt = stmt.where(PendingComplexTask.status == status)
+    normalized_status = _normalize_task_status(status)
+    if normalized_status:
+        if normalized_status == "open":
+            stmt = stmt.where(PendingComplexTask.status.in_(sorted(OPEN_TASK_STATUSES)))
+        elif normalized_status == "terminal":
+            stmt = stmt.where(PendingComplexTask.status.in_(sorted(TERMINAL_TASK_STATUSES)))
+        else:
+            stmt = stmt.where(PendingComplexTask.status == normalized_status)
     result = await db.execute(stmt)
     rows = result.scalars().all()
     return {"tasks": [t.to_dict() for t in rows], "count": len(rows)}
@@ -253,13 +317,14 @@ async def get_pending_tasks(
 
 @router.post("/tasks")
 async def create_pending_task(body: CreateTask, db: AsyncSession = Depends(get_db)):
+    normalized_status = _normalize_task_status(body.status) or "pending"
     task = PendingComplexTask(
         task_id=body.task_id or f"task-{str(uuid.uuid4())[:8]}",
         task_type=body.task_type,
         description=body.description,
         agent_type=body.agent_type,
         priority=body.priority,
-        status=body.status,
+        status=normalized_status,
     )
     db.add(task)
     await db.commit()
@@ -270,16 +335,75 @@ async def create_pending_task(body: CreateTask, db: AsyncSession = Depends(get_d
 async def update_pending_task(
     task_id: str, body: UpdateTask, db: AsyncSession = Depends(get_db)
 ):
-    status = body.status
-    result_text = body.result
-    values: dict = {"status": status, "result": result_text}
-    if status == "completed":
-        values["completed_at"] = text("NOW()")
-    await db.execute(
+    values: dict = {}
+
+    normalized_status = _normalize_task_status(body.status)
+    if normalized_status is not None:
+        values["status"] = normalized_status
+        if normalized_status in TERMINAL_TASK_STATUSES:
+            values["completed_at"] = text("NOW()")
+        elif normalized_status in OPEN_TASK_STATUSES:
+            values["completed_at"] = None
+
+    if body.result is not None:
+        values["result"] = body.result
+
+    if not values:
+        raise HTTPException(status_code=400, detail="No task updates provided")
+
+    result = await db.execute(
         update(PendingComplexTask).where(PendingComplexTask.task_id == task_id).values(**values)
     )
+    if not result.rowcount:
+        raise HTTPException(status_code=404, detail="Task not found")
     await db.commit()
-    return {"updated": True}
+    return {"updated": True, "task_id": task_id}
+
+
+@router.delete("/tasks/{task_id}")
+async def delete_pending_task(task_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        delete(PendingComplexTask).where(PendingComplexTask.task_id == task_id)
+    )
+    if not result.rowcount:
+        raise HTTPException(status_code=404, detail="Task not found")
+    await db.commit()
+    return {"deleted": True, "task_id": task_id}
+
+
+@router.post("/tasks/purge")
+async def purge_pending_tasks(body: PurgeTasks, db: AsyncSession = Depends(get_db)):
+    stmt = delete(PendingComplexTask)
+    task_ids = [task_id.strip() for task_id in body.task_ids if task_id and task_id.strip()]
+    filters = []
+
+    if body.include_all:
+        statuses = []
+    elif task_ids:
+        statuses = []
+        filters.append(PendingComplexTask.task_id.in_(task_ids))
+    else:
+        statuses = _expand_task_status_filters(body.statuses or sorted(TERMINAL_TASK_STATUSES))
+        if not statuses:
+            raise HTTPException(status_code=400, detail="No purge targets provided")
+        filters.append(PendingComplexTask.status.in_(statuses))
+
+    if body.older_than_days is not None:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=body.older_than_days)
+        filters.append(PendingComplexTask.created_at < cutoff)
+
+    for task_filter in filters:
+        stmt = stmt.where(task_filter)
+
+    result = await db.execute(stmt)
+    await db.commit()
+    return {
+        "purged": result.rowcount or 0,
+        "task_ids": task_ids,
+        "statuses": statuses,
+        "include_all": body.include_all,
+        "older_than_days": body.older_than_days,
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────────────

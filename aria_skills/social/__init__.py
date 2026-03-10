@@ -367,3 +367,77 @@ class SocialSkill(BaseSkill):
                     deleted = self._posts.pop(i)
                     return SkillResult.ok({"deleted": post_id, "content": deleted["content"][:50]})
             return SkillResult.fail(f"Post not found: {post_id}")
+
+    # ── Website Sources (journalist/research) ────────────────────────────
+
+    @logged_method()
+    async def source_add(
+        self,
+        url: str,
+        name: str,
+        category: str = "general",
+        rating: str = "preferred",
+        reason: str | None = None,
+        alternative: str | None = None,
+        last_used: str | None = None,
+    ) -> SkillResult:
+        """Add or update a website source for research recall."""
+        try:
+            result = await self._api.create_source(
+                url=url,
+                name=name,
+                category=category,
+                rating=rating,
+                reason=reason,
+                alternative=alternative,
+                last_used=last_used,
+            )
+            if not result:
+                raise Exception(result.error)
+            return result
+        except Exception as e:
+            return SkillResult.fail(f"Failed to add source: {e}")
+
+    @logged_method()
+    async def source_list(
+        self,
+        category: str | None = None,
+        rating: str | None = None,
+        q: str | None = None,
+        limit: int = 50,
+    ) -> SkillResult:
+        """List website sources with optional filters."""
+        try:
+            result = await self._api.get_sources(
+                limit=limit,
+                category=category,
+                rating=rating,
+                q=q,
+            )
+            if not result:
+                raise Exception(result.error)
+            return result
+        except Exception as e:
+            return SkillResult.fail(f"Failed to list sources: {e}")
+
+    @logged_method()
+    async def source_remove(self, source_id: str) -> SkillResult:
+        """Remove a website source."""
+        try:
+            result = await self._api.delete_source(source_id)
+            if not result:
+                raise Exception(result.error)
+            return result
+        except Exception as e:
+            return SkillResult.fail(f"Failed to remove source: {e}")
+
+    @logged_method()
+    async def source_stats(self) -> SkillResult:
+        """Get website source statistics by rating and category."""
+        try:
+            result = await self._api.get_sources_stats()
+            if not result:
+                raise Exception(result.error)
+            return result
+        except Exception as e:
+            return SkillResult.fail(f"Failed to get source stats: {e}")

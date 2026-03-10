@@ -1,243 +1,53 @@
-# Aria LiteLLM Config — trimmed to confirmed working models
-# Original source: aria_models/models.yaml → scripts/generate_configs.py
+# AUTO-GENERATED from aria_models/models.yaml
+# Generated: 2026-03-10T22:12:48Z
+# Source SHA-256: 708b06e6dd7b26b13cb272d466c47c6e1f345a72bc5845bfe9a91748f6a44146
+# Do not hand-edit model_list — edit models.yaml and re-run:
+#   python scripts/generate_litellm_config.py
+
 model_list:
-# ── Moonshot/Kimi (Paid — PRIMARY) ───────────────────────────
-- model_name: trinity-free
-  litellm_params:
-    model: openrouter/arcee-ai/trinity-large-preview:free
-    api_key: os.environ/OPEN_ROUTER_KEY
-  model_info:
-    max_tokens: 8192
-    input_cost_per_token: 0
-    output_cost_per_token: 0
-- model_name: solar-pro-3-free
-  litellm_params:
-    model: openrouter/upstage/solar-pro-3:free
-    api_key: os.environ/OPEN_ROUTER_KEY
-  model_info:
-    max_tokens: 8192
-    input_cost_per_token: 0
-    output_cost_per_token: 0
-- model_name: lfm-25-thinking-free
-  litellm_params:
-    model: openrouter/liquid/lfm-2.5-1.2b-thinking:free
-    api_key: os.environ/OPEN_ROUTER_KEY
-  model_info:
-    max_tokens: 8192
-    input_cost_per_token: 0
-    output_cost_per_token: 0
-- model_name: lfm-25-instruct-free
-  litellm_params:
-    model: openrouter/liquid/lfm-2.5-1.2b-instruct:free
-    api_key: os.environ/OPEN_ROUTER_KEY
-  model_info:
-    max_tokens: 8192
-    input_cost_per_token: 0
-    output_cost_per_token: 0
-- model_name: chimera-free
-  litellm_params:
-    model: openrouter/tngtech/deepseek-r1t2-chimera:free
-    api_key: os.environ/OPEN_ROUTER_KEY_DEEP
-  model_info:
-    max_tokens: 8192
-    input_cost_per_token: 0
-    output_cost_per_token: 0
-- model_name: trinity-mini-free
-  litellm_params:
-    model: openrouter/arcee-ai/trinity-mini:free
-    api_key: os.environ/OPEN_ROUTER_KEY
-  model_info:
-    max_tokens: 8192
-    input_cost_per_token: 0
-    output_cost_per_token: 0
-- model_name: tng-r1t-chimera-free
-  litellm_params:
-    model: openrouter/tngtech/tng-r1t-chimera:free
-    api_key: os.environ/OPEN_ROUTER_KEY
-  model_info:
-    max_tokens: 8192
-    input_cost_per_token: 0
-    output_cost_per_token: 0
-- model_name: nemotron-nano-12b-v2-vl-free
-  litellm_params:
-    model: openrouter/nvidia/nemotron-nano-12b-v2-vl:free
-    api_key: os.environ/OPEN_ROUTER_KEY
-  model_info:
-    max_tokens: 8192
-    input_cost_per_token: 0
-    output_cost_per_token: 0
-- model_name: qwen3-coder-free
-  litellm_params:
-    model: openrouter/qwen/qwen3-coder:free
-    api_key: os.environ/OPEN_ROUTER_KEY
-  model_info:
-    max_tokens: 8192
-    input_cost_per_token: 0
-    output_cost_per_token: 0
-- model_name: qwen3-next-free
-  litellm_params:
-    model: openrouter/qwen/qwen3-next-80b-a3b-instruct:free
-    api_key: os.environ/OPEN_ROUTER_KEY
-  model_info:
-    max_tokens: 8192
-    input_cost_per_token: 0
-    output_cost_per_token: 0
-- model_name: nemotron-nano-9b-v2-free
-  litellm_params:
-    model: openrouter/nvidia/nemotron-nano-9b-v2:free
-    api_key: os.environ/OPEN_ROUTER_KEY
-  model_info:
-    max_tokens: 8192
-    input_cost_per_token: 0
-    output_cost_per_token: 0
-- model_name: glm-free
-  litellm_params:
-    model: openrouter/z-ai/glm-4.5-air:free
-    api_key: os.environ/OPEN_ROUTER_KEY
-  model_info:
-    max_tokens: 8192
-    input_cost_per_token: 0
-    output_cost_per_token: 0
-- model_name: deepseek-free
-  litellm_params:
-    model: openrouter/deepseek/deepseek-r1-0528:free
-    api_key: os.environ/OPEN_ROUTER_KEY_DEEP
-  model_info:
-    max_tokens: 8192
-    input_cost_per_token: 0
-    output_cost_per_token: 0
-- model_name: nemotron-free
-  litellm_params:
-    model: openrouter/nvidia/nemotron-3-nano-30b-a3b:free
-    api_key: os.environ/OPEN_ROUTER_KEY_DEEP
-  model_info:
-    max_tokens: 8192
-    input_cost_per_token: 0
-    output_cost_per_token: 0
-- model_name: gpt-oss-free
-  litellm_params:
-    model: openrouter/openai/gpt-oss-120b:free
-    api_key: os.environ/OPEN_ROUTER_KEY
-  model_info:
-    max_tokens: 8192
-    input_cost_per_token: 0
-    output_cost_per_token: 0
-- model_name: gpt-oss-small-free
-  litellm_params:
-    model: openrouter/openai/gpt-oss-20b:free
-    api_key: os.environ/OPEN_ROUTER_KEY
-  model_info:
-    max_tokens: 8192
-    input_cost_per_token: 0
-    output_cost_per_token: 0
-- model_name: venice-dolphin-free
-  litellm_params:
-    model: openrouter/cognitivecomputations/dolphin-mistral-24b-venice-edition:free
-    api_key: os.environ/OPEN_ROUTER_KEY
-  model_info:
-    max_tokens: 8192
-    input_cost_per_token: 0
-    output_cost_per_token: 0
-- model_name: gemma-3n-e2b-free
-  litellm_params:
-    model: openrouter/google/gemma-3n-e2b-it:free
-    api_key: os.environ/OPEN_ROUTER_KEY
-  model_info:
-    max_tokens: 4096
-    input_cost_per_token: 0
-    output_cost_per_token: 0
-- model_name: gemma-3n-e4b-free
-  litellm_params:
-    model: openrouter/google/gemma-3n-e4b-it:free
-    api_key: os.environ/OPEN_ROUTER_KEY
-  model_info:
-    max_tokens: 4096
-    input_cost_per_token: 0
-    output_cost_per_token: 0
-- model_name: kimi
-  litellm_params:
-    model: moonshot/kimi-k2.5
-    api_key: os.environ/MOONSHOT_KIMI_KEY
-    api_base: https://api.moonshot.ai/v1
-  model_info:
-    max_tokens: 16384
-- model_name: kimi-k2.5
-  litellm_params:
-    model: moonshot/kimi-k2.5
-    api_key: os.environ/MOONSHOT_KIMI_KEY
-    api_base: https://api.moonshot.ai/v1
-  model_info:
-    max_tokens: 16384
-- model_name: kimi-local
-  litellm_params:
-    model: moonshot/kimi-k2.5
-    api_key: os.environ/MOONSHOT_KIMI_KEY
-    api_base: https://api.moonshot.ai/v1
-  model_info:
-    max_tokens: 16384
-- model_name: kimi-k2-thinking
-  litellm_params:
-    model: moonshot/kimi-k2-thinking
-    api_key: os.environ/MOONSHOT_KIMI_KEY
-    api_base: https://api.moonshot.ai/v1
-  model_info:
-    max_tokens: 16384
-- model_name: kimi-k2-thinking-turbo
-  litellm_params:
-    model: moonshot/kimi-k2-thinking
-    api_key: os.environ/MOONSHOT_KIMI_KEY
-    api_base: https://api.moonshot.ai/v1
-  model_info:
-    max_tokens: 16384
-# ── MLX Local (Mac Mini — always running) ─────────────────────
-- model_name: qwen3-mlx
-  litellm_params:
-    model: openai/mlx-community/Qwen3.5-4B-MLX-4bit
-    # OLD 9B: openai/mlx-community/Qwen3.5-9B-MLX-4bit
-    # OLD 3: openai/mlx-community/Qwen3-4B-Instruct-2507-4bit
-    api_base: os.environ/MLX_API_BASE
-    api_key: not-needed
-  model_info:
-    max_tokens: 8192
-    input_cost_per_token: 0
-    output_cost_per_token: 0
-# ── Ollama Local (embedding + fallback) ───────────────────────
-- model_name: nomic-embed-text
-  litellm_params:
-    model: ollama/nomic-embed-text
-    api_base: os.environ/OLLAMA_API_BASE
-  model_info:
-    max_tokens: 8192
-    input_cost_per_token: 0
-    output_cost_per_token: 0
-# - model_name: qwen-cpu-fallback
-#   litellm_params:
-#     model: ollama/qwen2.5:3b
-#     api_base: http://host.docker.internal:11434
-#   model_info:
-#     max_tokens: 4096
-#     input_cost_per_token: 0
-#     output_cost_per_token: 0
-# - model_name: phi4-mini-local
-#   litellm_params:
-#     model: ollama/phi4-mini:3.8b
-#     api_base: http://host.docker.internal:11434
-#   model_info:
-#     max_tokens: 4096
-#     input_cost_per_token: 0
-#     output_cost_per_token: 0
-# - model_name: qwen3-local
-#   litellm_params:
-#     model: ollama/qwen3:8b
-#     api_base: http://host.docker.internal:11434
-#   model_info:
-#     max_tokens: 4096
-#     input_cost_per_token: 0
-#     output_cost_per_token: 0
+  - model_name: qwen3.5_mlx
+    litellm_params:
+      # OLD 9B: openai/mlx-community/Qwen3.5-9B-MLX-4bit
+      model: openai/mlx-community/Qwen3.5-4B-MLX-4bit
+      api_base: "http://host.docker.internal:8080/v1"
+      api_key: not-needed
+    model_info:
+      max_tokens: 131072
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+
+  - model_name: embedding
+    litellm_params:
+      model: ollama/nomic-embed-text
+      api_base: "http://host.docker.internal:11434"
+    model_info:
+      max_tokens: 8192
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+
+  - model_name: trinity
+    litellm_params:
+      model: "openrouter/arcee-ai/trinity-large-preview:free"
+      api_key: os.environ/OPEN_ROUTER_KEY
+    model_info:
+      max_tokens: 131072
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+
+  - model_name: kimi
+    litellm_params:
+      model: moonshot/kimi-k2.5
+      api_base: "https://api.moonshot.ai/v1"
+      api_key: os.environ/MOONSHOT_KIMI_KEY
+    model_info:
+      max_tokens: 256000
+      input_cost_per_token: 0.56
+      output_cost_per_token: 2.94
+
+general_settings:
+  database_url: os.environ/DATABASE_URL
+  master_key: os.environ/LITELLM_MASTER_KEY
+
 litellm_settings:
   drop_params: true
   set_verbose: false
-
-general_settings:
-  database_url: "os.environ/DATABASE_URL"
-  master_key: "os.environ/LITELLM_MASTER_KEY"

@@ -225,7 +225,7 @@ When I switch focus, I should prioritize these skills:
 | `moltbook` | 1 post/30min | Quality over quantity |
 | `moltbook` comments | 50/day | |
 | `database` | No hard limit | Batch queries when possible |
-| `llm` | Model dependent | Use local qwen3-mlx first |
+| `llm` | Model dependent | Use local qwen3.5_mlx first |
 | `market_data` | API dependent | Cache results |
 | Background tasks | 30 min timeout | |
 

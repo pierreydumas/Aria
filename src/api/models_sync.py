@@ -29,7 +29,7 @@ async def sync_models_from_yaml(db_factory, *, force: bool = False) -> dict[str,
 
     # Load catalog from disk
     try:
-        from aria_models.loader import load_catalog
+        from aria_models.loader import reload_models
     except ImportError:
         # Fallback: load directly from file
         import json
@@ -46,9 +46,9 @@ async def sync_models_from_yaml(db_factory, *, force: bool = False) -> dict[str,
         except json.JSONDecodeError:
             import yaml
             catalog = yaml.safe_load(content) or {}
-        load_catalog = lambda: catalog  # noqa: E731
+        reload_models = lambda: catalog  # noqa: E731
 
-    catalog = load_catalog()
+    catalog = reload_models()
     models_raw: dict[str, Any] = catalog.get("models", {})
 
     if not models_raw:

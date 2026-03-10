@@ -1,0 +1,20 @@
+{
+  "name": "token_router",
+  "version": "1.0.0",
+  "description": "Intelligent model selection based on task complexity and budget constraints",
+  "author": "Aria Blue",
+  "entry_point": "__init__.py",
+  "functions": [
+    "analyze_task",
+    "route_request",
+    "get_budget_status",
+    "check_thresholds"
+  ],
+  "config": {
+    "daily_budget_default": 100000,
+    "warning_threshold": 0.8,
+    "critical_threshold": 0.95
+  },
+  "tags": ["optimization", "budget", "model_selection", "intelligent_routing"],
+  "dependencies": []
+}

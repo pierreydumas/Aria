@@ -5,7 +5,7 @@
   "author": "Aria Team",
   "layer": 3,
   "dependencies": ["api_client", "moltbook"],
-  "focus_affinity": ["social", "creative"],
+  "focus_affinity": ["social", "creative", "journalist"],
   "tools": [
     {
       "name": "social_post",
@@ -95,6 +95,93 @@
           }
         },
         "required": ["content", "platform", "scheduled_for"]
+      }
+    },
+    {
+      "name": "source_add",
+      "description": "Add or update a website source for research recall. Upserts by URL.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Full URL of the website (e.g. https://docs.python.org)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable name (e.g. Python Docs)"
+          },
+          "category": {
+            "type": "string",
+            "description": "Category (e.g. ML Framework, Hardware/AI, System, Documentation)"
+          },
+          "rating": {
+            "type": "string",
+            "enum": ["preferred", "caution", "avoid"],
+            "description": "Source reliability rating"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why this source is preferred/avoided"
+          },
+          "alternative": {
+            "type": "string",
+            "description": "Alternative source if this one is rated caution/avoid"
+          },
+          "last_used": {
+            "type": "string",
+            "description": "ISO timestamp of last use"
+          }
+        },
+        "required": ["url", "name"]
+      }
+    },
+    {
+      "name": "source_list",
+      "description": "List website sources with optional filters by category, rating, or search query.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "description": "Filter by category"
+          },
+          "rating": {
+            "type": "string",
+            "enum": ["preferred", "caution", "avoid"],
+            "description": "Filter by rating"
+          },
+          "q": {
+            "type": "string",
+            "description": "Search name, URL, or reason"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum results (default: 50)"
+          }
+        }
+      }
+    },
+    {
+      "name": "source_remove",
+      "description": "Remove a website source by ID.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "description": "UUID of the source to remove"
+          }
+        },
+        "required": ["source_id"]
+      }
+    },
+    {
+      "name": "source_stats",
+      "description": "Get website source statistics grouped by rating and category.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
       }
     }
   ],

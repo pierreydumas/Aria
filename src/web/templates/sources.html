@@ -1,0 +1,460 @@
+{% extends "base.html" %}
+{% block title %}Website Sources{% endblock %}
+
+{% block extra_css %}
+<style>
+    .sources-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+    .sources-header h1 {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+    .sources-stats {
+        display: flex;
+        gap: 1rem;
+    }
+    .stat-badge {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        padding: 0.5rem 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .stat-badge .value {
+        font-weight: 600;
+        color: var(--accent-primary);
+    }
+    .rating-tabs {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 1.5rem;
+    }
+    .rating-tab {
+        padding: 0.5rem 1rem;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        color: var(--text-secondary);
+        transition: all 0.2s;
+    }
+    .rating-tab:hover {
+        background: var(--bg-tertiary);
+    }
+    .rating-tab.active {
+        background: var(--accent-primary);
+        color: white;
+        border-color: var(--accent-primary);
+    }
+    .sources-container {
+        display: grid;
+        gap: 1rem;
+    }
+    .source-card {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-lg);
+        padding: 1.25rem;
+        transition: all 0.2s;
+    }
+    .source-card:hover {
+        border-color: var(--accent-primary);
+    }
+    .source-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 0.75rem;
+    }
+    .source-rating {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.2rem 0.6rem;
+        border-radius: var(--radius-sm);
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+    .rating-preferred { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+    .rating-caution { background: rgba(234, 179, 8, 0.15); color: #eab308; }
+    .rating-avoid { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+    .source-category {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        padding: 0.2rem 0.5rem;
+        border-radius: var(--radius-sm);
+        font-size: 0.75rem;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+    }
+    .source-name {
+        font-weight: 600;
+        color: var(--text-primary);
+        font-size: 1rem;
+    }
+    .source-url {
+        color: var(--accent-primary);
+        font-size: 0.85rem;
+        text-decoration: none;
+        word-break: break-all;
+    }
+    .source-url:hover { text-decoration: underline; }
+    .source-reason {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+        margin-top: 0.5rem;
+        line-height: 1.5;
+    }
+    .source-alternative {
+        color: var(--text-tertiary);
+        font-size: 0.8rem;
+        margin-top: 0.3rem;
+        font-style: italic;
+    }
+    .source-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 0.75rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid var(--border-color);
+        font-size: 0.8rem;
+        color: var(--text-tertiary);
+    }
+    .source-meta { display: flex; gap: 1rem; align-items: center; }
+    .source-actions { display: flex; gap: 0.5rem; }
+    .btn-sm {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.75rem;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border-color);
+        background: var(--bg-secondary);
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .btn-sm:hover { border-color: var(--accent-primary); color: var(--accent-primary); }
+    .btn-sm.danger:hover { border-color: #ef4444; color: #ef4444; }
+
+    /* Search bar */
+    .search-bar {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 1.5rem;
+    }
+    .search-bar input {
+        flex: 1;
+        padding: 0.5rem 1rem;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        color: var(--text-primary);
+        font-size: 0.9rem;
+    }
+    .search-bar input:focus {
+        outline: none;
+        border-color: var(--accent-primary);
+    }
+
+    /* Add source modal */
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; }
+    .modal.active { display: flex; }
+    .modal-content {
+        background: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-lg);
+        padding: 2rem;
+        width: 90%;
+        max-width: 500px;
+        max-height: 80vh;
+        overflow-y: auto;
+    }
+    .modal-content h2 { margin-bottom: 1rem; font-size: 1.25rem; }
+    .form-group { margin-bottom: 1rem; }
+    .form-group label { display: block; font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.3rem; }
+    .form-group input, .form-group select, .form-group textarea {
+        width: 100%;
+        padding: 0.5rem;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-sm);
+        color: var(--text-primary);
+        font-size: 0.9rem;
+    }
+    .form-group textarea { resize: vertical; min-height: 60px; }
+    .form-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
+    .btn { padding: 0.5rem 1rem; border-radius: var(--radius-md); cursor: pointer; border: 1px solid var(--border-color); transition: all 0.2s; }
+    .btn-primary { background: var(--accent-primary); color: white; border-color: var(--accent-primary); }
+    .btn-secondary { background: var(--bg-secondary); color: var(--text-primary); }
+
+    .empty-state {
+        text-align: center;
+        padding: 3rem;
+        color: var(--text-tertiary);
+    }
+    .empty-state p { margin-top: 0.5rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="sources-header">
+    <h1>🔗 Website Sources <span class="stat-badge">Total: <span class="value" id="total-count">0</span></span></h1>
+    <div class="sources-stats">
+        <span class="stat-badge">✅ Preferred: <span class="value" id="preferred-count">0</span></span>
+        <span class="stat-badge">⚠️ Caution: <span class="value" id="caution-count">0</span></span>
+        <span class="stat-badge">❌ Avoid: <span class="value" id="avoid-count">0</span></span>
+        <button class="btn btn-primary" onclick="openAddModal()">+ Add Source</button>
+    </div>
+</div>
+
+<div class="search-bar">
+    <input type="text" id="search-input" placeholder="Search sources by name, URL, or reason..." oninput="debouncedSearch()">
+</div>
+
+<div class="rating-tabs">
+    <button class="rating-tab active" data-rating="all" onclick="filterByRating('all', this)">All</button>
+    <button class="rating-tab" data-rating="preferred" onclick="filterByRating('preferred', this)">✅ Preferred</button>
+    <button class="rating-tab" data-rating="caution" onclick="filterByRating('caution', this)">⚠️ Caution</button>
+    <button class="rating-tab" data-rating="avoid" onclick="filterByRating('avoid', this)">❌ Avoid</button>
+</div>
+
+<div class="sources-container" id="sources-list">
+    <div class="empty-state">
+        <h3>Loading sources...</h3>
+    </div>
+</div>
+
+<div id="pagination-container"></div>
+
+<!-- Add/Edit Source Modal -->
+<div class="modal" id="add-modal">
+    <div class="modal-content">
+        <h2 id="modal-title">Add Website Source</h2>
+        <input type="hidden" id="edit-id" value="">
+        <div class="form-group">
+            <label for="source-url">URL *</label>
+            <input type="url" id="source-url" placeholder="https://example.com" required>
+        </div>
+        <div class="form-group">
+            <label for="source-name">Name *</label>
+            <input type="text" id="source-name" placeholder="Example Site" required>
+        </div>
+        <div class="form-group">
+            <label for="source-category">Category</label>
+            <input type="text" id="source-category" placeholder="e.g. ML Framework, Documentation" value="general">
+        </div>
+        <div class="form-group">
+            <label for="source-rating">Rating</label>
+            <select id="source-rating">
+                <option value="preferred">✅ Preferred</option>
+                <option value="caution">⚠️ Use With Caution</option>
+                <option value="avoid">❌ Avoid</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="source-reason">Reason</label>
+            <textarea id="source-reason" placeholder="Why this source is preferred/avoided..."></textarea>
+        </div>
+        <div class="form-group">
+            <label for="source-alternative">Alternative (if caution/avoid)</label>
+            <input type="text" id="source-alternative" placeholder="Better alternative source">
+        </div>
+        <div class="form-actions">
+            <button class="btn btn-secondary" onclick="closeAddModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="submitSource()">Save</button>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const API = '/api/sources';
+let currentRating = 'all';
+let currentSearch = '';
+let currentPage = 1;
+let searchTimer = null;
+
+function debouncedSearch() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+        currentSearch = document.getElementById('search-input').value.trim();
+        currentPage = 1;
+        loadSources();
+    }, 300);
+}
+
+function filterByRating(rating, el) {
+    document.querySelectorAll('.rating-tab').forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
+    currentRating = rating;
+    currentPage = 1;
+    loadSources();
+}
+
+async function loadSources() {
+    let url = `${API}?page=${currentPage}&limit=25`;
+    if (currentRating !== 'all') url += `&rating=${currentRating}`;
+    if (currentSearch) url += `&q=${encodeURIComponent(currentSearch)}`;
+
+    try {
+        const resp = await fetch(url);
+        const data = await resp.json();
+        const items = data.items || data.posts || [];
+        const total = data.total || 0;
+
+        document.getElementById('total-count').textContent = total;
+        renderSources(items);
+        renderPagination(total, currentPage, 25);
+    } catch (e) {
+        document.getElementById('sources-list').innerHTML = '<div class="empty-state"><h3>Error loading sources</h3><p>' + e.message + '</p></div>';
+    }
+
+    // Load stats
+    try {
+        const statsResp = await fetch(`${API}/stats/summary`);
+        const stats = await statsResp.json();
+        document.getElementById('preferred-count').textContent = (stats.by_rating || {}).preferred || 0;
+        document.getElementById('caution-count').textContent = (stats.by_rating || {}).caution || 0;
+        document.getElementById('avoid-count').textContent = (stats.by_rating || {}).avoid || 0;
+        document.getElementById('total-count').textContent = stats.total || 0;
+    } catch (e) { /* stats are non-critical */ }
+}
+
+function renderSources(items) {
+    const container = document.getElementById('sources-list');
+    if (!items.length) {
+        container.innerHTML = '<div class="empty-state"><h3>🔗 No sources found</h3><p>Add your first website source using the button above.</p></div>';
+        return;
+    }
+    container.innerHTML = items.map(s => {
+        const ratingClass = `rating-${s.rating || 'preferred'}`;
+        const ratingIcon = s.rating === 'avoid' ? '❌' : s.rating === 'caution' ? '⚠️' : '✅';
+        const lastUsed = s.last_used ? new Date(s.last_used).toLocaleDateString() : '—';
+        const created = s.created_at ? new Date(s.created_at).toLocaleDateString() : '—';
+        return `
+        <div class="source-card">
+            <div class="source-header">
+                <div>
+                    <span class="source-name">${esc(s.name)}</span>
+                    <span class="source-category">${esc(s.category || 'general')}</span>
+                </div>
+                <span class="source-rating ${ratingClass}">${ratingIcon} ${esc(s.rating || 'preferred')}</span>
+            </div>
+            <a href="${esc(s.url)}" class="source-url" target="_blank" rel="noopener">${esc(s.url)}</a>
+            ${s.reason ? `<div class="source-reason">${esc(s.reason)}</div>` : ''}
+            ${s.alternative ? `<div class="source-alternative">💡 Alternative: ${esc(s.alternative)}</div>` : ''}
+            <div class="source-footer">
+                <div class="source-meta">
+                    <span>Added: ${created}</span>
+                    <span>Last used: ${lastUsed}</span>
+                </div>
+                <div class="source-actions">
+                    <button class="btn-sm" onclick='editSource(${JSON.stringify(s).replace(/'/g, "&#39;")})'>Edit</button>
+                    <button class="btn-sm danger" onclick="deleteSource('${s.id}')">Delete</button>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function renderPagination(total, page, limit) {
+    const pages = Math.ceil(total / limit);
+    if (pages <= 1) { document.getElementById('pagination-container').innerHTML = ''; return; }
+    let html = '<div class="aria-pagination" style="margin-top:1rem;display:flex;gap:0.5rem;justify-content:center;">';
+    for (let i = 1; i <= pages; i++) {
+        html += `<button class="rating-tab ${i === page ? 'active' : ''}" onclick="goPage(${i})">${i}</button>`;
+    }
+    html += '</div>';
+    document.getElementById('pagination-container').innerHTML = html;
+}
+
+function goPage(p) { currentPage = p; loadSources(); }
+
+function esc(str) {
+    if (!str) return '';
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+}
+
+function openAddModal() {
+    document.getElementById('modal-title').textContent = 'Add Website Source';
+    document.getElementById('edit-id').value = '';
+    document.getElementById('source-url').value = '';
+    document.getElementById('source-name').value = '';
+    document.getElementById('source-category').value = 'general';
+    document.getElementById('source-rating').value = 'preferred';
+    document.getElementById('source-reason').value = '';
+    document.getElementById('source-alternative').value = '';
+    document.getElementById('add-modal').classList.add('active');
+}
+
+function editSource(s) {
+    document.getElementById('modal-title').textContent = 'Edit Website Source';
+    document.getElementById('edit-id').value = s.id;
+    document.getElementById('source-url').value = s.url || '';
+    document.getElementById('source-name').value = s.name || '';
+    document.getElementById('source-category').value = s.category || 'general';
+    document.getElementById('source-rating').value = s.rating || 'preferred';
+    document.getElementById('source-reason').value = s.reason || '';
+    document.getElementById('source-alternative').value = s.alternative || '';
+    document.getElementById('add-modal').classList.add('active');
+}
+
+function closeAddModal() {
+    document.getElementById('add-modal').classList.remove('active');
+}
+
+async function submitSource() {
+    const editId = document.getElementById('edit-id').value;
+    const payload = {
+        url: document.getElementById('source-url').value.trim(),
+        name: document.getElementById('source-name').value.trim(),
+        category: document.getElementById('source-category').value.trim() || 'general',
+        rating: document.getElementById('source-rating').value,
+        reason: document.getElementById('source-reason').value.trim() || null,
+        alternative: document.getElementById('source-alternative').value.trim() || null,
+    };
+    if (!payload.url || !payload.name) { alert('URL and Name are required'); return; }
+
+    try {
+        let resp;
+        if (editId) {
+            resp = await fetch(`${API}/${editId}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+        } else {
+            resp = await fetch(API, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+        }
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        closeAddModal();
+        loadSources();
+    } catch (e) {
+        alert('Failed to save source: ' + e.message);
+    }
+}
+
+async function deleteSource(id) {
+    if (!confirm('Delete this source?')) return;
+    try {
+        await fetch(`${API}/${id}`, { method: 'DELETE' });
+        loadSources();
+    } catch (e) {
+        alert('Failed to delete: ' + e.message);
+    }
+}
+
+// Load on page ready
+document.addEventListener('DOMContentLoaded', loadSources);
+</script>
+{% endblock %}

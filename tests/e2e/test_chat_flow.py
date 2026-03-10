@@ -134,6 +134,14 @@ def test_model_manager_loads(page: Page):
     assert body_text and len(body_text.strip()) > 100, "Model manager page appears empty"
 
 
+def test_task_queue_manager_loads(page: Page):
+    """Task queue manager page renders the queue management UI."""
+    page.goto(f"{BASE_URL}/task-queue")
+    page.wait_for_timeout(3000)
+    body_text = page.locator("body").text_content()
+    assert body_text and len(body_text.strip()) > 100, "Task queue manager page appears empty"
+
+
 def test_sentiment_page_loads(page: Page):
     """Sentiment dashboard loads without error."""
     errors: list[str] = []

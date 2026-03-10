@@ -53,7 +53,7 @@
     .task-status { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
     .task-status.pending { background: rgba(245,158,11,0.2); color: #f59e0b; }
     .task-status.in_progress { background: rgba(59,130,246,0.2); color: #3b82f6; }
-    .task-status.completed { background: rgba(34,197,94,0.2); color: #22c55e; }
+    .task-status.completed, .task-status.done { background: rgba(34,197,94,0.2); color: #22c55e; }
     .task-meta { font-size: 12px; color: var(--text-muted); display: flex; gap: 12px; flex-wrap: wrap; }
 
     .empty-state { text-align: center; padding: 50px 20px; color: var(--text-secondary); background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 12px; }
@@ -81,7 +81,10 @@
         <h1>📊 Performance & Tasks</h1>
         <p>Track reviews, tasks & performance analytics</p>
     </div>
-    <button class="btn-add" onclick="showAddReviewModal()">➕ Add Review</button>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <a class="btn btn-secondary btn-sm" href="/task-queue">📋 Open Queue Manager</a>
+        <button class="btn-add" onclick="showAddReviewModal()">➕ Add Review</button>
+    </div>
 </div>
 
 <div class="stats-grid">
@@ -208,7 +211,7 @@ async function loadPerformance() {
         // Stats
         const pending = _tasks.filter(t => t.status === 'pending').length;
         const inProgress = _tasks.filter(t => t.status === 'in_progress').length;
-        const completed = _tasks.filter(t => t.status === 'completed').length;
+        const completed = _tasks.filter(t => ['completed', 'done'].includes(String(t.status || '').toLowerCase())).length;
 
         document.getElementById('review-count').textContent = _reviews.length;
         document.getElementById('pending-tasks').textContent = pending;

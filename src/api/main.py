@@ -569,6 +569,7 @@ except ImportError:
     from routers.security import router as security_router
     from routers.knowledge import router as knowledge_router
     from routers.social import router as social_router
+    from routers.sources import router as sources_router
     from routers.operations import router as operations_router
     from routers.records import router as records_router
     from routers.admin import router as admin_router, files_router
@@ -607,6 +608,7 @@ app.include_router(providers_router, dependencies=_api_deps)
 app.include_router(security_router, dependencies=_api_deps)
 app.include_router(knowledge_router, dependencies=_api_deps)
 app.include_router(social_router, dependencies=_api_deps)
+app.include_router(sources_router, dependencies=_api_deps)
 app.include_router(operations_router, dependencies=_api_deps)
 app.include_router(records_router, dependencies=_api_deps)
 app.include_router(admin_router, dependencies=_admin_deps)  # Admin needs elevated key

@@ -89,7 +89,7 @@ TESTS = {
         ("create_security_event", {"threat_level": "LOW", "threat_type": "audit_test", "source": "audit", "blocked": False}),
         ("create_thought", {"content": "[audit] connectivity test", "category": "audit"}),
         ("set_memory", {"key": "__audit_test__", "value": "audit_probe", "category": "audit"}),
-        ("create_heartbeat", {"beat_number": 0, "status": "healthy", "details": {"audit": True}}),
+        ("create_heartbeat", {"beat_number": 0, "job_name": "api-client-audit-heartbeat", "status": "audit", "details": {"audit": True}}),
         ("create_performance_log", {"review_period": "audit_test"}),
         ("create_entity", {"name": "__audit_entity__", "entity_type": "audit", "properties": {"test": True}}),
         ("create_social_post", {"content": "[audit] connectivity test", "platform": "moltbook", "visibility": "private"}),

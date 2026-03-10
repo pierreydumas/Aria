@@ -827,6 +827,7 @@ class ChatEngine:
             db.add(assistant_msg)
 
             # ── 6. Update session counters ────────────────────────────────
+            should_auto_title = not session.title and (session.message_count or 0) == 0
             new_msg_count = 2 + intermediate_assistant_count  # user + intermediate assistants + final assistant
             if accumulated_tool_results:
                 new_msg_count += len(accumulated_tool_results)
@@ -837,7 +838,7 @@ class ChatEngine:
             session.updated_at = datetime.now(timezone.utc)
 
             # ── 7. Auto-generate title from first message ─────────────────
-            if not session.title and session.message_count <= 2:
+            if should_auto_title:
                 session.title = self._generate_title(content)
 
             await db.commit()

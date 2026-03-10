@@ -407,9 +407,18 @@ def create_app():
     def social():
         return render_template('social.html')
 
+    @app.route('/sources')
+    def sources():
+        return render_template('sources.html')
+
     @app.route('/performance')
     def performance():
         return render_template('performance.html')
+
+    @app.route('/task-queue')
+    @app.route('/queue-manager')
+    def task_queue_manager():
+        return render_template('task_queue_manager.html')
 
     @app.route('/security')
     def security():

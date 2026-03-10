@@ -12,17 +12,24 @@ All routing goes through [LiteLLM](https://github.com/BerriAI/litellm) with auto
 
 | Tier | Strategy | Cost |
 |------|----------|------|
-| **Local** | MLX on Apple Silicon (Metal GPU) | Free — ~25-35 tok/s |
-| **Free** | OpenRouter free-tier models | Free — rate-limited |
-| **Paid** | Cloud APIs (last resort) | Per-token billing |
+| **Local** | MLX chat + Ollama embeddings on Apple Silicon | Free |
+| **Free** | Curated OpenRouter free models | Free — rate-limited |
+| **Paid** | Moonshot/Kimi long-context fallback | Per-token billing |
 
 The routing priority, fallback chain, and all model definitions are in a single source of truth:
 
 **→ [`aria_models/models.yaml`](aria_models/models.yaml)**
 
-This file defines every model alias, provider, tier, context window, and pricing. Nothing else should duplicate this information.
+This file defines every model id, provider, tier, context window, and pricing. Nothing else should duplicate this information.
 
 ---
+
+## Active Models
+
+- `qwen3.5_mlx` — local MLX chat model for fast local work
+- `embedding` — local Ollama embedding model for semantic memory
+- `trinity` — main OpenRouter free chat model
+- `kimi` — Moonshot K2.5 for long-context and summarization tasks
 
 ## How It Works
 
@@ -33,11 +40,11 @@ Aria (or Agent)
 LiteLLM Router (:18793)
      │
      ├─► Local: MLX Server (host:8080, Metal GPU)
-     ├─► Free:  OpenRouter (multiple models)
+     ├─► Free:  OpenRouter (Trinity)
      └─► Paid:  Cloud APIs (fallback only)
 ```
 
-- LiteLLM receives a model alias (e.g., `litellm/qwen3-mlx`)
+- LiteLLM receives a model alias (e.g., `litellm/qwen3.5_mlx`)
 - Routes to the correct provider based on `models.yaml` configuration
 - Automatic failover follows the `routing.fallbacks` chain
 - All usage is tracked for cost monitoring

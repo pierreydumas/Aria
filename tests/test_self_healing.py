@@ -125,7 +125,7 @@ async def test_retry_with_exponential_backoff():
 @pytest.mark.asyncio
 async def test_llm_fallback_chain_skips_open_circuit():
     """
-    When primary model (qwen3-mlx) circuit is open, complete_with_fallback()
+    When primary model (qwen3.5_mlx) circuit is open, complete_with_fallback()
     skips it and succeeds via the next available model without any error.
     """
     skill, mock_http, fallback_chain = _make_llm_skill()

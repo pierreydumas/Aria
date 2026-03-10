@@ -320,9 +320,8 @@ class EngineRouter:
 
         Example chain:
             [
-                {"agent_id": "analyst", "model": "deepseek-free"},       # primary
-                {"agent_id": "analyst", "model": "qwen3-next-free"},     # fallback_model
-                {"agent_id": "aria",    "model": "qwen3-mlx"},           # parent
+                {"agent_id": "analyst", "model": "trinity"},            # primary
+                {"agent_id": "aria",    "model": "qwen3.5_mlx"},        # parent
             ]
         """
         chain: list[dict[str, str]] = []

@@ -175,6 +175,41 @@ Index("idx_posts_posted", SocialPost.posted_at.desc())
 Index("idx_posts_post_id", SocialPost.post_id)
 
 
+class WebsiteSource(Base):
+    """Curated website preferences and reviews for research recall.
+
+    Tracks preferred, cautionary, and avoided sources so Aria (journalist focus
+    and any research skill) can build knowledge-graph entities and semantic
+    memory from her browsing history.
+    """
+
+    __tablename__ = "website_sources"
+    __table_args__ = (
+        UniqueConstraint("url", name="uq_ws_url"),
+        {"schema": "aria_data"},
+    )
+
+    id: Mapped[Any] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    category: Mapped[str] = mapped_column(String(100), server_default=text("'general'"))
+    rating: Mapped[str] = mapped_column(String(20), server_default=text("'preferred'"))
+    reason: Mapped[str | None] = mapped_column(Text)
+    alternative: Mapped[str | None] = mapped_column(Text)
+    last_used: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    metadata_json: Mapped[dict] = mapped_column("metadata", JSONB, server_default=text("'{}'::jsonb"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
+
+
+Index("idx_ws_url", WebsiteSource.url)
+Index("idx_ws_category", WebsiteSource.category)
+Index("idx_ws_rating", WebsiteSource.rating)
+Index("idx_ws_last_used", WebsiteSource.last_used.desc())
+Index("idx_ws_created", WebsiteSource.created_at.desc())
+Index("idx_ws_metadata_gin", WebsiteSource.metadata_json, postgresql_using="gin")
+
+
 # ── Scheduling / Operations ──────────────────────────────────────────────────
 
 class HourlyGoal(Base):
@@ -1064,7 +1099,7 @@ class FocusProfileEntry(Base):
     # Optional model override — stores slug from models.yaml, not hardcoded name
     model_override: Mapped[str | None] = mapped_column(
         String(200),
-        comment="model_id slug (e.g. 'qwen3-coder-free'). Resolved via models.yaml."
+        comment="model_id slug (e.g. 'trinity'). Resolved via models.yaml."
     )
 
     # Skills auto-injected when focus is activated

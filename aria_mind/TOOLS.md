@@ -172,6 +172,7 @@ aria-api-client.mark_proposal_implemented({"proposal_id": "UUID", "reviewed_by":
 | 📈 Trading | `aria-market-data`, `aria-portfolio` |
 | 🎨 Creative | `aria-llm`, `aria-memeothy` |
 | 🌐 Social | `aria-moltbook`, `aria-social`, `aria-telegram` |
+| 🔗 Sources | `aria-social.source_add`, `aria-social.source_list`, `aria-social.source_remove`, `aria-social.source_stats` |
 | 🧠 Cognitive | `aria-working-memory`, `aria-pipeline-skill`, `aria-conversation-summary`, `aria-memory-compression`, `aria-sentiment-analysis`, `aria-pattern-recognition`, `aria-unified-search` |
 | ⚡ Utility | `aria-api-client`, `aria-litellm` |
 
@@ -198,6 +199,8 @@ aria-pipeline-skill.run({"pipeline": "deep_research", "params": {"topic": "AI sa
 
 ```yaml
 aria-social.social_post({"content": "Hello world!", "platform": "moltbook"})
+aria-social.source_add({"url": "https://example.com", "name": "Example", "category": "Documentation", "rating": "preferred", "reason": "Authoritative source"})
+aria-social.source_list({"rating": "preferred"})
 aria-health.health_check_all({})
 aria-knowledge-graph.kg_add_entity({"name": "Python", "type": "language"})
 aria-database.fetch_all({"query": "SELECT * FROM goals LIMIT 5"})

@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aria_engine.session_titles import resolve_session_title
 from db.models import AgentSession, EngineChatMessage, EngineChatSession, ModelUsage
 from deps import get_db, get_litellm_db
 from pagination import paginate_query, build_paginated_response
@@ -407,11 +408,15 @@ def _engine_session_to_dict(s, chat_tokens: int | None = None, model_tokens: int
     """Convert an EngineChatSession ORM object to a JSON-serializable dict."""
     resolved_model_tokens = int(s.total_tokens or 0) if model_tokens is None else int(model_tokens)
     resolved_chat_tokens = 0 if chat_tokens is None else int(chat_tokens)
+    metadata = s.metadata_json or {}
+    resolved_title = s.title
+    if s.session_type == "cron":
+        resolved_title = resolve_session_title(s.title, s.session_type, metadata, s.created_at)
     return {
         "id": str(s.id),
         "agent_id": s.agent_id,
         "session_type": s.session_type,
-        "title": s.title,
+        "title": resolved_title,
         "model": s.model,
         "started_at": _dt_iso_utc(s.created_at),
         "ended_at": _dt_iso_utc(s.ended_at),
@@ -421,5 +426,5 @@ def _engine_session_to_dict(s, chat_tokens: int | None = None, model_tokens: int
         "chat_tokens": resolved_chat_tokens,
         "cost_usd": float(s.total_cost) if s.total_cost else 0,
         "status": s.status,
-        "metadata": s.metadata_json or {},
+        "metadata": metadata,
     }

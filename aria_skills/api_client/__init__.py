@@ -703,7 +703,89 @@ class AriaAPIClient(BaseSkill):
             return SkillResult.ok(resp.json())
         except Exception as e:
             return SkillResult.fail(f"Failed to create social post: {e}")
-    
+
+    # ========================================
+    # Website Sources
+    # ========================================
+    async def get_sources(
+        self,
+        limit: int = 50,
+        page: int = 1,
+        category: str | None = None,
+        rating: str | None = None,
+        q: str | None = None,
+    ) -> SkillResult:
+        """Get website sources (paginated, filterable)."""
+        try:
+            url = f"/sources?limit={limit}&page={page}"
+            if category:
+                url += f"&category={category}"
+            if rating:
+                url += f"&rating={rating}"
+            if q:
+                url += f"&q={q}"
+            resp = await self._request_with_retry("GET", url)
+            data = resp.json()
+            return SkillResult.ok(data)
+        except Exception as e:
+            return SkillResult.fail(f"Failed to get sources: {e}")
+
+    async def create_source(
+        self,
+        url: str,
+        name: str,
+        category: str = "general",
+        rating: str = "preferred",
+        reason: str | None = None,
+        alternative: str | None = None,
+        last_used: str | None = None,
+        metadata: dict | None = None,
+    ) -> SkillResult:
+        """Create or upsert a website source."""
+        try:
+            data = {
+                "url": url,
+                "name": name,
+                "category": category,
+                "rating": rating,
+            }
+            if reason:
+                data["reason"] = reason
+            if alternative:
+                data["alternative"] = alternative
+            if last_used:
+                data["last_used"] = last_used
+            if metadata:
+                data["metadata"] = metadata
+            resp = await self._request_with_retry("POST", "/sources", json=data)
+            return SkillResult.ok(resp.json())
+        except Exception as e:
+            return SkillResult.fail(f"Failed to create source: {e}")
+
+    async def update_source(self, source_id: str, data: dict) -> SkillResult:
+        """Update a website source."""
+        try:
+            resp = await self._request_with_retry("PATCH", f"/sources/{source_id}", json=data)
+            return SkillResult.ok(resp.json())
+        except Exception as e:
+            return SkillResult.fail(f"Failed to update source: {e}")
+
+    async def delete_source(self, source_id: str) -> SkillResult:
+        """Delete a website source."""
+        try:
+            resp = await self._request_with_retry("DELETE", f"/sources/{source_id}")
+            return SkillResult.ok(resp.json())
+        except Exception as e:
+            return SkillResult.fail(f"Failed to delete source: {e}")
+
+    async def get_sources_stats(self) -> SkillResult:
+        """Get website sources summary statistics."""
+        try:
+            resp = await self._request_with_retry("GET", "/sources/stats/summary")
+            return SkillResult.ok(resp.json())
+        except Exception as e:
+            return SkillResult.fail(f"Failed to get sources stats: {e}")
+
     # ========================================
     # Heartbeat
     # ========================================
@@ -728,15 +810,19 @@ class AriaAPIClient(BaseSkill):
         self,
         beat_number: int = 0,
         status: str = "healthy",
-        details: dict | None = None
+        details: dict | str | list | None = None,
+        job_name: str | None = None,
     ) -> SkillResult:
         """Log a heartbeat."""
         try:
-            resp = await self._request_with_retry("POST", "/heartbeat", json={
+            payload: dict[str, Any] = {
                 "beat_number": beat_number,
                 "status": status,
-                "details": details or {}
-            })
+                "details": details or {},
+            }
+            if job_name:
+                payload["job_name"] = job_name
+            resp = await self._request_with_retry("POST", "/heartbeat", json=payload)
             return SkillResult.ok(resp.json())
         except Exception as e:
             return SkillResult.fail(f"Failed to create heartbeat: {e}")

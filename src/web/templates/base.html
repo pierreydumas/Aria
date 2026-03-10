@@ -300,15 +300,18 @@
 
                     <!-- Social Dropdown (reorganized: +RPG +Roundtable) -->
                     <div class="nav-dropdown">
-                        <button class="nav-dropdown-toggle {% if '/social' in request.path or '/rpg' in request.path or '/roundtable' in request.path %}active{% endif %}">
+                        <button class="nav-dropdown-toggle {% if '/social' in request.path or '/sources' in request.path or '/rpg' in request.path or '/roundtable' in request.path %}active{% endif %}">
                             Social
                             <svg class="chevron" viewBox="0 0 16 16" fill="currentColor">
                                 <path d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
                             </svg>
                         </button>
                         <div class="nav-dropdown-menu">
-                            <a href="/social" class="{% if '/social' in request.path %}active{% endif %}">
+                            <a href="/social" class="{% if request.path == '/social' %}active{% endif %}">
                                 📱 Social
+                            </a>
+                            <a href="/sources" class="{% if '/sources' in request.path %}active{% endif %}">
+                                🔗 Sources
                             </a>
                             <a href="/rpg" class="{% if '/rpg' in request.path %}active{% endif %}">
                                 🎲 RPG
@@ -376,7 +379,7 @@
 
                     <!-- Operations Dropdown (S-07: slimmed) -->
                     <div class="nav-dropdown">
-                        <button class="nav-dropdown-toggle {% if '/heartbeat' in request.path or '/performance' in request.path or '/services' in request.path %}active{% endif %}">
+                        <button class="nav-dropdown-toggle {% if '/heartbeat' in request.path or '/performance' in request.path or '/services' in request.path or '/task-queue' in request.path or '/queue-manager' in request.path %}active{% endif %}">
                             <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
                                 <path d="M9.405 1.05c-.413-1.4-2.397-1.4-2.81 0l-.1.34a1.464 1.464 0 0 1-2.105.872l-.31-.17c-1.283-.698-2.686.705-1.987 1.987l.169.311c.446.82.023 1.841-.872 2.105l-.34.1c-1.4.413-1.4 2.397 0 2.81l.34.1a1.464 1.464 0 0 1 .872 2.105l-.17.31c-.698 1.283.705 2.686 1.987 1.987l.311-.169a1.464 1.464 0 0 1 2.105.872l.1.34c.413 1.4 2.397 1.4 2.81 0l.1-.34a1.464 1.464 0 0 1 2.105-.872l.31.17c1.283.698 2.686-.705 1.987-1.987l-.169-.311a1.464 1.464 0 0 1 .872-2.105l.34-.1c1.4-.413 1.4-2.397 0-2.81l-.34-.1a1.464 1.464 0 0 1-.872-2.105l.17-.31c.698-1.283-.705-2.686-1.987-1.987l-.311.169a1.464 1.464 0 0 1-2.105-.872l-.1-.34zM8 10.93a2.929 2.929 0 1 1 0-5.86 2.929 2.929 0 0 1 0 5.858z"/>
                             </svg>
@@ -391,6 +394,9 @@
                             </a>
                             <a href="/performance" class="{% if '/performance' in request.path %}active{% endif %}">
                                 📈 Performance
+                            </a>
+                            <a href="/task-queue" class="{% if '/task-queue' in request.path or '/queue-manager' in request.path %}active{% endif %}">
+                                📋 Queue Manager
                             </a>
                             <a href="/services" class="{% if '/services' == request.path %}active{% endif %}">
                                 ⚙️ Services

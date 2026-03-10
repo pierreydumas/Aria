@@ -18,8 +18,65 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from apscheduler import AsyncScheduler, ConflictPolicy
-from apscheduler.datastores.sqlalchemy import SQLAlchemyDataStore
+try:
+    from apscheduler import AsyncScheduler, ConflictPolicy
+    from apscheduler.datastores.sqlalchemy import SQLAlchemyDataStore
+except ImportError:
+    from apscheduler.jobstores.base import JobLookupError
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+    class ConflictPolicy:
+        replace = "replace"
+
+    class AsyncScheduler:
+        def __init__(self, data_store: Any | None = None):
+            self._scheduler = AsyncIOScheduler()
+            self._started = False
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def start_in_background(self):
+            if not self._started:
+                self._scheduler.start()
+                self._started = True
+
+        async def stop(self):
+            if self._started:
+                self._scheduler.shutdown(wait=False)
+                self._started = False
+
+        async def add_schedule(
+            self,
+            func,
+            trigger,
+            id: str,
+            kwargs: dict[str, Any],
+            conflict_policy: str | None = None,
+            misfire_grace_time: int | None = None,
+        ):
+            self._scheduler.add_job(
+                func,
+                trigger=trigger,
+                id=id,
+                kwargs=kwargs,
+                replace_existing=(conflict_policy == ConflictPolicy.replace),
+                misfire_grace_time=misfire_grace_time,
+            )
+
+        async def remove_schedule(self, schedule_id: str):
+            try:
+                self._scheduler.remove_job(schedule_id)
+            except JobLookupError:
+                pass
+
+    class SQLAlchemyDataStore:
+        def __init__(self, engine: Any):
+            self.engine = engine
+
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy import select, insert, update, delete, func
@@ -28,6 +85,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine, async_sessi
 from aria_engine.config import EngineConfig
 from aria_engine.exceptions import SchedulerError
 from aria_engine.metrics import METRICS
+from aria_engine.session_titles import (
+    canonical_session_job_key,
+    humanize_session_label,
+    resolve_cron_job_display_name,
+)
 from db.models import EngineCronJob, ActivityLog
 
 # aria-api base URL.
@@ -389,7 +451,7 @@ class EngineScheduler:
                             payload=payload,
                             session_mode=session_mode,
                             model=model,
-                            job_name=job_name,
+                            job_name=resolve_cron_job_display_name(job_name, job_id),
                         ),
                         timeout=max_duration,
                     ) or {}
@@ -409,8 +471,9 @@ class EngineScheduler:
                     tokens = dispatch_result.get("total_tokens", 0)
                     cost = dispatch_result.get("cost_usd", 0)
                     details = f"model={model}, tokens={tokens}, cost=${cost}" if model else "OK"
+                    heartbeat_job_name = resolve_cron_job_display_name(job_name, job_id)
                     await self._write_heartbeat_log(
-                        job_name=job_id,
+                        job_name=heartbeat_job_name,
                         status="success",
                         details=details,
                         duration_ms=elapsed_ms,
@@ -454,8 +517,9 @@ class EngineScheduler:
             )
 
             # Write heartbeat log entry for failure
+            heartbeat_job_name = resolve_cron_job_display_name(job_name, job_id)
             await self._write_heartbeat_log(
-                job_name=job_id,
+                job_name=heartbeat_job_name,
                 status="error",
                 details=last_error or "Unknown error",
                 duration_ms=elapsed_ms,
@@ -490,6 +554,8 @@ class EngineScheduler:
             return {}
 
         async with aiohttp.ClientSession() as http:
+            display_job_name = resolve_cron_job_display_name(job_name, job_id)
+            job_key = canonical_session_job_key(job_id, job_name)
             # S-103: Build auth headers for API calls
             _headers = {}
             _api_key = os.getenv("ARIA_API_KEY", "")
@@ -537,12 +603,16 @@ class EngineScheduler:
             # Build a human-readable title: "⏱ work_cycle · 14:30"
             from datetime import datetime as _dt
             _time_label = _dt.now().strftime("%H:%M")
-            _title = f"⏱ {job_name} · {_time_label}" if job_name else None
+            _title = f"⏱ {display_job_name} · {_time_label}" if display_job_name else None
             session_body: dict = {
                 "agent_id": agent_id,
                 "session_type": "cron",
                 "title": _title,
-                "metadata": {"cron_job_id": job_id, "job_name": job_name, "origin": "scheduler"},
+                "metadata": {
+                    "cron_job_id": job_id,
+                    "job_name": display_job_name,
+                    "origin": "scheduler",
+                },
             }
             if model:
                 session_body["model"] = model
@@ -629,19 +699,19 @@ class EngineScheduler:
             _productive_jobs = {"work_cycle", "social_post", "browser_research",
                                 "six_hour_review", "morning_checkin", "daily_reflection",
                                 "weekly_summary"}
-            if job_name in _productive_jobs:
+            if job_key in _productive_jobs:
                 assistant_content = result.get("content", "") or ""
                 # 2b-i. Create thought for cognitive pipeline
                 try:
                     if len(assistant_content) > 30:
                         thought_content = (
-                            f"[{job_name}] {assistant_content[:500]}"
+                            f"[{job_key}] {assistant_content[:500]}"
                         )
                         async with http.post(
                             f"{_API_BASE}/api/thoughts",
                             json={
                                 "content": thought_content,
-                                "category": "work_cycle" if job_name == "work_cycle" else "reflection",
+                                "category": "work_cycle" if job_key == "work_cycle" else "reflection",
                             },
                             headers=_headers,
                         ) as thought_resp:
@@ -657,7 +727,7 @@ class EngineScheduler:
                         async with http.post(
                             f"{_API_BASE}/api/working-memory",
                             json={
-                                "key": f"last_{job_name}",
+                                "key": f"last_{job_key}",
                                 "value": {
                                     "summary": assistant_content[:400],
                                     "model": result.get("model", ""),
@@ -667,7 +737,7 @@ class EngineScheduler:
                                 "category": "cron_output",
                                 "importance": 0.7,
                                 "ttl_hours": 48,
-                                "source": f"scheduler.{job_name}",
+                                "source": f"scheduler.{job_key}",
                             },
                             headers=_headers,
                         ) as wm_resp:
@@ -843,6 +913,7 @@ class EngineScheduler:
                     "session_mode": job_data.get("session_mode", "isolated"),
                     "max_duration": job_data.get("max_duration_seconds", 300),
                     "retry_count": job_data.get("retry_count", 0),
+                    "job_name": job_data.get("name", job_id),
                 },
             )
 
@@ -907,6 +978,7 @@ class EngineScheduler:
                             "session_mode": job["session_mode"],
                             "max_duration": job["max_duration_seconds"],
                             "retry_count": job["retry_count"],
+                            "job_name": job.get("name", job_id),
                         },
                     )
 
@@ -956,6 +1028,7 @@ class EngineScheduler:
                 session_mode=job["session_mode"],
                 max_duration=job["max_duration_seconds"],
                 retry_count=0,  # No retry for manual triggers
+                job_name=job.get("name", job_id),
             )
         )
         self._active_executions[job_id] = task

@@ -68,6 +68,57 @@ class TestTaskLifecycle:
             if our_tasks:
                 assert our_tasks[0].get('status') == 'done'
 
+    def test_05_delete_task(self, api):
+        """DELETE /tasks/{task_id} -> remove it from the queue."""
+        task_id = getattr(TestTaskLifecycle, '_task_id', None)
+        if not task_id:
+            pytest.skip('no task created')
+        r = api.delete(f'/tasks/{task_id}')
+        assert r.status_code in (200, 404), f'Delete task failed: {r.status_code} {r.text}'
+        if r.status_code == 200:
+            data = r.json()
+            assert data.get('deleted') is True
+
+
+class TestTaskPurge:
+    """Queue purge endpoint should support explicit task-id cleanup."""
+
+    def test_01_create_purge_target(self, api, uid):
+        payload = {
+            'task_id': f'purge-{uid}',
+            'task_type': 'cleanup',
+            'description': f'Queue purge test target {uid}',
+            'agent_type': 'coder',
+            'priority': 'low',
+            'status': 'pending',
+        }
+        r = api.post('/tasks', json=payload)
+        if r.status_code in (502, 503):
+            pytest.skip('tasks service unavailable')
+        assert r.status_code in (200, 201), f'Create purge target failed: {r.status_code} {r.text}'
+        TestTaskPurge._task_id = payload['task_id']
+
+    def test_02_purge_by_task_id(self, api):
+        task_id = getattr(TestTaskPurge, '_task_id', None)
+        if not task_id:
+            pytest.skip('no purge target created')
+        r = api.post('/tasks/purge', json={'task_ids': [task_id]})
+        assert r.status_code in (200, 422), f'Purge task failed: {r.status_code} {r.text}'
+        if r.status_code == 200:
+            data = r.json()
+            assert data.get('purged', 0) >= 1
+
+    def test_03_verify_purged(self, api):
+        task_id = getattr(TestTaskPurge, '_task_id', None)
+        if not task_id:
+            pytest.skip('no purge target created')
+        r = api.get('/tasks')
+        assert r.status_code == 200
+        data = r.json()
+        tasks = data.get('tasks', data) if isinstance(data, dict) else data
+        task_ids = [t.get('task_id', '') for t in tasks if isinstance(t, dict)]
+        assert task_id not in task_ids
+
 
 class TestHeartbeatFlow:
     """Heartbeat: create -> list -> latest."""
@@ -76,7 +127,8 @@ class TestHeartbeatFlow:
         """POST /heartbeat -> create with beat_number, status, details."""
         payload = {
             'beat_number': 99999,
-            'status': 'healthy',
+            'job_name': f'test-heartbeat-flow-{uid}',
+            'status': 'test',
             'details': {'uptime_hours': 72, 'ref': uid},
         }
         r = api.post('/heartbeat', json=payload)
@@ -85,6 +137,7 @@ class TestHeartbeatFlow:
         assert r.status_code in (200, 201), f'Create heartbeat failed: {r.status_code} {r.text}'
         data = r.json()
         assert 'id' in data or 'created' in data, f'Missing id/created: {data}'
+        assert data.get('persisted') is False
         TestHeartbeatFlow._uid = uid
 
     def test_02_list_heartbeats(self, api):
@@ -222,33 +275,37 @@ class TestHeartbeatPayloadCompat:
 
     def test_heartbeat_string_details(self, api):
         """POST /heartbeat with `details` as a plain string must return 200."""
-        r = api.post('/heartbeat', json={"status": "healthy", "details": "ok"})
+        r = api.post('/heartbeat', json={"job_name": "test-heartbeat-string", "status": "test", "details": "ok"})
         if r.status_code in (502, 503):
             pytest.skip('heartbeat service unavailable')
         assert r.status_code in (200, 201), f'Expected 200/201 for string details, got {r.status_code}: {r.text}'
         data = r.json()
         assert 'id' in data or 'created' in data
+        assert data.get('persisted') is False
 
     def test_heartbeat_list_details(self, api):
         """POST /heartbeat with `details` as a list must return 200."""
-        r = api.post('/heartbeat', json={"status": "healthy", "details": ["event_a", "event_b"]})
+        r = api.post('/heartbeat', json={"job_name": "test-heartbeat-list", "status": "test", "details": ["event_a", "event_b"]})
         if r.status_code in (502, 503):
             pytest.skip('heartbeat service unavailable')
         assert r.status_code in (200, 201), f'Expected 200/201 for list details, got {r.status_code}: {r.text}'
+        assert r.json().get('persisted') is False
 
     def test_heartbeat_null_details(self, api):
         """POST /heartbeat with `details` omitted (null) must return 200."""
-        r = api.post('/heartbeat', json={"status": "healthy"})
+        r = api.post('/heartbeat', json={"job_name": "test-heartbeat-null", "status": "test"})
         if r.status_code in (502, 503):
             pytest.skip('heartbeat service unavailable')
         assert r.status_code in (200, 201), f'Expected 200/201 for null details, got {r.status_code}: {r.text}'
+        assert r.json().get('persisted') is False
 
     def test_heartbeat_dict_details_still_works(self, api):
         """POST /heartbeat with `details` as a dict must still return 200 (regression guard)."""
-        r = api.post('/heartbeat', json={"status": "healthy", "details": {"uptime": 99}})
+        r = api.post('/heartbeat', json={"job_name": "test-heartbeat-dict", "status": "test", "details": {"uptime": 99}})
         if r.status_code in (502, 503):
             pytest.skip('heartbeat service unavailable')
         assert r.status_code in (200, 201), f'Expected 200/201 for dict details, got {r.status_code}: {r.text}'
+        assert r.json().get('persisted') is False
 
 
 class TestApiKeyRotations:

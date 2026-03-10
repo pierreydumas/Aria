@@ -75,7 +75,7 @@ Aria's resilience is built in four phases across the Skills layer.
 
 ### Phase 3 — LLM Fallback Chain (S-45)
 - `aria_skills/llm/__init__.py` — `LLMSkill` — new skill.
-- `LLM_FALLBACK_CHAIN` priority list: `litellm/qwen3-mlx` (local) → `litellm/trinity-free` (free) → `litellm/qwen3-next-free` (free) → `litellm/deepseek-free` → `litellm/kimi` (paid).
+- `LLM_FALLBACK_CHAIN` priority list: `litellm/qwen3.5_mlx` (local) → `litellm/trinity` (free) → `litellm/kimi` (paid).
 - `complete_with_fallback(messages)` iterates chain, skips open circuits, records success/failure per model.
 - `complete(messages, model=None)` pins to a specific model with auto-fallback on failure.
 - `get_circuit_status()` returns live per-model circuit state.

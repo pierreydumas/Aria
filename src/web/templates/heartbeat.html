@@ -546,12 +546,64 @@
 }
 
 .log-details {
-    max-width: 300px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    max-width: 360px;
+    white-space: normal;
     color: var(--text-muted);
     font-size: 0.85rem;
+    line-height: 1.45;
+}
+
+.log-detail-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.log-detail-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: baseline;
+}
+
+.log-detail-label {
+    color: var(--text-dim);
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.log-detail-value {
+    color: var(--text-secondary);
+}
+
+.log-detail-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.log-detail-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(124, 58, 237, 0.12);
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.log-detail-badge.ok {
+    background: var(--success-bg);
+    color: var(--success);
+}
+
+.log-detail-badge.warn {
+    background: rgba(245, 158, 11, 0.14);
+    color: #f59e0b;
 }
 
 /* Toast */
@@ -649,6 +701,189 @@ function normalizeJobStatus(status) {
     if (['ok', 'success', 'completed', 'healthy', 'active'].includes(s)) return 'ok';
     if (['error', 'failed', 'fail', 'unhealthy'].includes(s)) return 'error';
     return s || 'unknown';
+}
+
+function isPlainObject(value) {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isStructuredHeartbeatLog(log) {
+    const details = isPlainObject(log?.details) ? log.details : null;
+    if (!details) return false;
+
+    if (details.timestamp || details.beat_number) return true;
+    if (details.all_healthy !== undefined || details.kernel_integrity !== undefined) return true;
+    if (isPlainObject(details.subsystems) && Object.keys(details.subsystems).length > 0) return true;
+    if (isPlainObject(details.checks) && Object.keys(details.checks).length > 0) return true;
+
+    return false;
+}
+
+function isCountableHeartbeatLog(log) {
+    return Boolean(log?.job_name) || isStructuredHeartbeatLog(log);
+}
+
+function formatDetailLabel(key) {
+    return String(key || '')
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatDetailScalar(value) {
+    if (value === null || value === undefined || value === '') return '-';
+    if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+    if (typeof value === 'number' && Number.isFinite(value)) return value.toLocaleString();
+    if (Array.isArray(value)) return value.map((item) => formatDetailScalar(item)).join(', ');
+    if (isPlainObject(value)) {
+        return Object.entries(value)
+            .map(([key, nested]) => `${formatDetailLabel(key)}: ${formatDetailScalar(nested)}`)
+            .join(' • ');
+    }
+    return String(value);
+}
+
+function formatTokenBadge(value) {
+    const parsed = Number(String(value || '').replace(/,/g, '').trim());
+    if (!Number.isFinite(parsed)) return `${String(value || '').trim()} tokens`;
+    return `${parsed.toLocaleString()} tokens`;
+}
+
+function formatCostBadge(value) {
+    const text = String(value || '').trim();
+    const parsed = Number(text.replace(/^\$/, ''));
+    if (!Number.isFinite(parsed)) return text;
+    const rounded = parsed.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
+    return `$${rounded}`;
+}
+
+function buildDetailLine(label, value) {
+    if (!value || value === '-') return '';
+    return `
+        <div class="log-detail-line">
+            <span class="log-detail-label">${escapeHtml(label)}</span>
+            <span class="log-detail-value">${escapeHtml(value)}</span>
+        </div>
+    `;
+}
+
+function buildDetailBadges(items) {
+    const badges = items.filter(Boolean);
+    if (badges.length === 0) return '';
+    return `
+        <div class="log-detail-badges">
+            ${badges.map(({ text, tone }) => `<span class="log-detail-badge ${tone || ''}">${escapeHtml(text)}</span>`).join('')}
+        </div>
+    `;
+}
+
+function parseDelimitedDetailString(value) {
+    const text = String(value || '').trim();
+    if (!text.includes('=')) return null;
+
+    const parsed = {};
+    for (const part of text.split(',')) {
+        const trimmed = part.trim();
+        const index = trimmed.indexOf('=');
+        if (index === -1) continue;
+        const key = trimmed.slice(0, index).trim().toLowerCase();
+        const rawValue = trimmed.slice(index + 1).trim();
+        if (key) parsed[key] = rawValue;
+    }
+    return Object.keys(parsed).length ? parsed : null;
+}
+
+function formatStructuredHeartbeatDetails(details) {
+    const badges = [
+        details.all_healthy === true ? { text: 'All Healthy', tone: 'ok' } : null,
+        details.all_healthy === false ? { text: 'Needs Attention', tone: 'warn' } : null,
+        details.beat_number !== undefined ? { text: `Beat #${details.beat_number}` } : null,
+        details.kernel_integrity === true ? { text: 'Kernel OK', tone: 'ok' } : null,
+        details.kernel_integrity === false ? { text: 'Kernel Issue', tone: 'warn' } : null,
+    ];
+
+    const subsystemText = isPlainObject(details.subsystems)
+        ? Object.entries(details.subsystems)
+            .map(([name, healthy]) => `${formatDetailLabel(name)} ${healthy ? 'OK' : 'Issue'}`)
+            .join(' • ')
+        : '';
+
+    return `
+        <div class="log-detail-stack">
+            ${buildDetailBadges(badges)}
+            ${buildDetailLine('Subsystems', subsystemText)}
+        </div>
+    `;
+}
+
+function formatObjectDetails(details) {
+    const lines = Object.entries(details)
+        .filter(([key]) => key !== 'raw')
+        .slice(0, 4)
+        .map(([key, value]) => buildDetailLine(formatDetailLabel(key), formatDetailScalar(value)))
+        .join('');
+
+    if (lines) {
+        return `<div class="log-detail-stack">${lines}</div>`;
+    }
+
+    return `<span class="log-detail-value">-</span>`;
+}
+
+function formatRawDetail(raw) {
+    if (Array.isArray(raw)) {
+        return `
+            <div class="log-detail-stack">
+                ${buildDetailLine('Events', raw.map((item) => formatDetailScalar(item)).join(' • '))}
+            </div>
+        `;
+    }
+
+    if (typeof raw === 'string') {
+        const parsed = parseDelimitedDetailString(raw);
+        if (parsed) {
+            const badges = [
+                parsed.model ? { text: `Model ${parsed.model}` } : null,
+                parsed.tokens ? { text: formatTokenBadge(parsed.tokens) } : null,
+                parsed.cost ? { text: `Cost ${formatCostBadge(parsed.cost)}` } : null,
+            ];
+            const remaining = Object.entries(parsed)
+                .filter(([key]) => !['model', 'tokens', 'cost'].includes(key))
+                .map(([key, value]) => buildDetailLine(formatDetailLabel(key), formatDetailScalar(value)))
+                .join('');
+
+            return `
+                <div class="log-detail-stack">
+                    ${buildDetailBadges(badges)}
+                    ${remaining}
+                </div>
+            `;
+        }
+
+        return `<div class="log-detail-stack">${buildDetailLine('Summary', raw)}</div>`;
+    }
+
+    return `<div class="log-detail-stack">${buildDetailLine('Value', formatDetailScalar(raw))}</div>`;
+}
+
+function formatLogDetails(log) {
+    const details = log?.details;
+    const title = isPlainObject(details) || Array.isArray(details)
+        ? JSON.stringify(details)
+        : String(details || '-');
+
+    if (isStructuredHeartbeatLog(log) && isPlainObject(details)) {
+        return { html: formatStructuredHeartbeatDetails(details), title };
+    }
+
+    if (isPlainObject(details) && Object.prototype.hasOwnProperty.call(details, 'raw')) {
+        return { html: formatRawDetail(details.raw), title };
+    }
+
+    if (isPlainObject(details)) {
+        return { html: formatObjectDetails(details), title };
+    }
+
+    return { html: formatRawDetail(details), title };
 }
 
 // Utility: relative time formatting
@@ -995,7 +1230,7 @@ function updateLogStats() {
     
     const recentLogs = allLogs.filter(log => {
         const logTime = new Date(log.executed_at || log.created_at);
-        return logTime >= oneDayAgo;
+        return isCountableHeartbeatLog(log) && logTime >= oneDayAgo;
     });
     
     const successful = recentLogs.filter(log => normalizeJobStatus(log.status) === 'ok').length;
@@ -1118,14 +1353,12 @@ function filterLogs() {
         
         // Get icon and name, fallback to job_name if not found in scheduledJobs
         const jobInfo = scheduledJobs.find(j => j.id === log.job_name || j.name === log.job_name);
-        const fallbackHeartbeat = (!log.job_name && String(log.status || '').toLowerCase() === 'healthy') ||
-            (typeof log.details === 'object' && log.details && (log.details.timestamp || log.details.beat_number));
-        const icon = jobInfo?.icon || (fallbackHeartbeat ? '💓' : (jobIcons[log.job_name] || '📋'));
-        const displayName = jobInfo?.name || log.job_name || (fallbackHeartbeat ? 'Heartbeat Tick' : 'Unknown Job');
+        const structuredHeartbeat = isStructuredHeartbeatLog(log);
+        const anonymousManualLog = !log.job_name && !structuredHeartbeat;
+        const icon = jobInfo?.icon || (structuredHeartbeat ? '💓' : (jobIcons[log.job_name] || '📋'));
+        const displayName = jobInfo?.name || log.job_name || (structuredHeartbeat ? 'Heartbeat Tick' : (anonymousManualLog ? 'Manual Heartbeat Log' : 'Unknown Job'));
         
-        // details may be JSONB object or string
-        const detailStr = typeof log.details === 'object' && log.details !== null
-            ? JSON.stringify(log.details) : (log.details || '-');
+        const detailView = formatLogDetails(log);
         // duration stored as duration_ms
         const durationMs = log.duration_ms || log.duration;
 
@@ -1136,7 +1369,7 @@ function filterLogs() {
                     ${displayName}
                 </td>
                 <td><span class="log-status ${statusClass}">${status}</span></td>
-                <td class="log-details" title="${escapeHtml(detailStr)}">${escapeHtml(detailStr)}</td>
+                <td class="log-details" title="${escapeHtml(detailView.title)}">${detailView.html}</td>
                 <td>${executedAt ? formatRelativeTime(new Date(executedAt)) : '-'}</td>
                 <td>${durationMs ? formatDuration(durationMs) : '-'}</td>
             </tr>

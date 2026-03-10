@@ -14,7 +14,7 @@ POST_TESTS = [
     ("POST", "/activities", {"action": "audit_route_test", "skill": "audit", "type": "audit"}, [200, 201]),
     ("POST", "/thoughts", {"content": "[route-audit] test thought", "category": "audit"}, [200, 201]),
     ("POST", "/memories", {"key": "__route_audit__", "value": "probe", "category": "audit"}, [200, 201]),
-    ("POST", "/heartbeat", {"beat_number": 0, "status": "healthy", "details": {"route_audit": True}}, [200, 201]),
+    ("POST", "/heartbeat", {"beat_number": 0, "job_name": "route-audit-heartbeat", "status": "audit", "details": {"route_audit": True}}, [200, 201]),
     ("POST", "/goals", {"title": "[route-audit] test goal", "description": "auto-test", "priority": 3, "status": "pending"}, [200, 201]),
     ("POST", "/hourly-goals", {"hour_slot": 23, "goal_type": "audit", "description": "route audit", "status": "pending"}, [200, 201]),
     ("POST", "/knowledge-graph/entities", {"name": "__route_audit__", "entity_type": "audit", "properties": {"test": True}}, [200, 201]),

@@ -61,10 +61,10 @@ class LLMGateway:
 
     Usage:
         gateway = LLMGateway(config)
-        response = await gateway.complete(messages, model="step-35-flash-free")
+        response = await gateway.complete(messages, model="trinity")
 
         # Streaming:
-        async for chunk in gateway.stream(messages, model="qwen3-mlx"):
+        async for chunk in gateway.stream(messages, model="qwen3.5_mlx"):
             print(chunk.content, end="")
     """
 

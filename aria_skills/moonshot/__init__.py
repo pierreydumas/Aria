@@ -33,7 +33,7 @@ class MoonshotSkill(BaseSkill):
     
     Config:
         api_key: Moonshot API key (or env:MOONSHOT_API_KEY)
-        model: Model name (default: kimi-k2.5)
+        model: Model name (default: kimi)
     """
     
     def __init__(self, config: SkillConfig):

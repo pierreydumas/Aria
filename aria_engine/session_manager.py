@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from aria_engine.config import EngineConfig
 from aria_engine.exceptions import EngineError
+from aria_engine.session_titles import resolve_session_title
 from db.models import (
     Base,
     EngineChatSession,
@@ -125,7 +126,12 @@ class NativeSessionManager:
 
                 return {
                     "session_id": str(obj.id),
-                    "title": obj.title,
+                    "title": resolve_session_title(
+                        obj.title,
+                        obj.session_type,
+                        dict(obj.metadata_json) if obj.metadata_json else None,
+                        obj.created_at,
+                    ),
                     "agent_id": obj.agent_id,
                     "session_type": obj.session_type,
                     "created_at": obj.created_at.isoformat(),
@@ -178,7 +184,12 @@ class NativeSessionManager:
                 s = row[0]
                 return {
                     "session_id": str(s.id),
-                    "title": s.title or "Untitled",
+                    "title": resolve_session_title(
+                        s.title,
+                        s.session_type,
+                        dict(s.metadata_json) if s.metadata_json else None,
+                        s.created_at,
+                    ),
                     "agent_id": s.agent_id or "unknown",
                     "session_type": s.session_type,
                     "model": s.model,
@@ -204,7 +215,12 @@ class NativeSessionManager:
         s = archive_row[0]
         return {
             "session_id": str(s.id),
-            "title": s.title or "Untitled",
+            "title": resolve_session_title(
+                s.title,
+                s.session_type,
+                dict(s.metadata_json) if s.metadata_json else None,
+                s.created_at,
+            ),
             "agent_id": s.agent_id or "unknown",
             "session_type": s.session_type,
             "model": s.model,
@@ -324,7 +340,12 @@ class NativeSessionManager:
             s = row[0]
             sessions_list.append({
                 "session_id": str(s.id),
-                "title": s.title or "Untitled",
+                "title": resolve_session_title(
+                    s.title,
+                    s.session_type,
+                    dict(s.metadata_json) if s.metadata_json else None,
+                    s.created_at,
+                ),
                 "agent_id": s.agent_id or "unknown",
                 "session_type": s.session_type,
                 "model": s.model,
@@ -1149,7 +1170,12 @@ class NativeSessionManager:
                 "session_id": str(r.id),
                 "agent_id": r.agent_id,
                 "session_type": r.session_type,
-                "title": r.title or "Untitled",
+                "title": resolve_session_title(
+                    r.title,
+                    r.session_type,
+                    dict(r.metadata_json) if r.metadata_json else None,
+                    r.created_at,
+                ),
                 "model": r.model,
                 "status": r.status,
                 "message_count": r.message_count,

@@ -1,0 +1,719 @@
+{% extends "base.html" %}
+{% block title %}Aria - Queue Manager{% endblock %}
+
+{% block content %}
+<div class="hero hero-compact">
+    <h1 class="hero-title">📋 Queue Manager</h1>
+    <p class="hero-subtitle">Manage pending complex tasks with purge, status controls, and direct queue cleanup.</p>
+</div>
+
+<div class="section-card queue-toolbar">
+    <div class="queue-toolbar-row">
+        <button class="btn btn-primary btn-sm" onclick="openAddModal()">➕ Add Task</button>
+        <button class="btn btn-secondary btn-sm" onclick="purgeTerminal()">🧹 Purge Terminal</button>
+        <button class="btn btn-secondary btn-sm" onclick="purgeAllTasks()">☢️ Purge All</button>
+        <button class="btn btn-secondary btn-sm" onclick="loadTasks()">♻️ Refresh</button>
+    </div>
+    <div class="queue-toolbar-row">
+        <input id="searchText" class="form-input queue-search" type="search" placeholder="Search task id, description, agent, result" oninput="renderTasks()">
+        <select id="filterStatus" class="form-input queue-filter" onchange="renderTasks()">
+            <option value="">All Statuses</option>
+            <option value="open">Open Only</option>
+            <option value="pending">Pending</option>
+            <option value="in_progress">In Progress</option>
+            <option value="terminal">Terminal</option>
+            <option value="done">Done</option>
+            <option value="completed">Completed</option>
+            <option value="failed">Failed</option>
+            <option value="cancelled">Cancelled</option>
+        </select>
+        <select id="filterAgent" class="form-input queue-filter" onchange="renderTasks()">
+            <option value="">All Agents</option>
+        </select>
+        <select id="filterPriority" class="form-input queue-filter" onchange="renderTasks()">
+            <option value="">All Priorities</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+        </select>
+        <span id="taskCount" class="queue-toolbar-meta">0 tasks</span>
+        <span id="selectedCount" class="queue-toolbar-meta">0 selected</span>
+    </div>
+    <div class="queue-toolbar-row queue-toolbar-row-secondary">
+        <div class="queue-bulk-actions">
+            <button class="btn btn-secondary btn-sm" onclick="selectVisibleTasks()">☑️ Select Visible</button>
+            <button class="btn btn-secondary btn-sm" onclick="clearSelection()">✖️ Clear Selection</button>
+            <button id="purgeSelectedButton" class="btn btn-secondary btn-sm" onclick="purgeSelected()">🗑️ Purge Selected</button>
+        </div>
+        <div class="queue-age-purge">
+            <select id="agePurgeScope" class="form-input queue-filter">
+                <option value="terminal">Terminal older than</option>
+                <option value="open">Open older than</option>
+                <option value="all">All statuses older than</option>
+            </select>
+            <input id="olderThanDays" class="form-input queue-days-input" type="number" min="1" step="1" value="7" aria-label="Older than days">
+            <span class="queue-toolbar-meta">days</span>
+            <button class="btn btn-secondary btn-sm" onclick="purgeOlderTasks()">🗓️ Purge Older</button>
+        </div>
+    </div>
+</div>
+
+<div class="queue-stats-grid" style="margin-top:16px;">
+    <div class="queue-stat-card">
+        <h4>Open Tasks</h4>
+        <div class="value" id="openCount">0</div>
+    </div>
+    <div class="queue-stat-card">
+        <h4>Pending</h4>
+        <div class="value pending" id="pendingCount">0</div>
+    </div>
+    <div class="queue-stat-card">
+        <h4>In Progress</h4>
+        <div class="value active" id="inProgressCount">0</div>
+    </div>
+    <div class="queue-stat-card">
+        <h4>Terminal</h4>
+        <div class="value terminal" id="terminalCount">0</div>
+    </div>
+</div>
+
+<div id="tasksGrid" class="queue-grid" style="margin-top:16px;">
+    <div class="loading-placeholder">Loading queue…</div>
+</div>
+
+<div id="taskModal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)closeModal()">
+    <div class="modal-card" style="max-width:640px;max-height:90vh;overflow-y:auto;">
+        <div class="modal-header">
+            <h3 id="modalTitle">Add Task</h3>
+            <button class="btn-icon" onclick="closeModal()">&times;</button>
+        </div>
+        <form id="taskForm" onsubmit="return saveTask(event)">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="fTaskId">Task ID</label>
+                    <input id="fTaskId" name="task_id" maxlength="50" placeholder="task-abc123" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label for="fTaskType">Task Type *</label>
+                    <input id="fTaskType" name="task_type" required maxlength="50" placeholder="deployment" class="form-input">
+                </div>
+                <div class="form-group" style="grid-column:1/-1;">
+                    <label for="fDescription">Description *</label>
+                    <textarea id="fDescription" name="description" required maxlength="2000" placeholder="Describe the queued work" class="form-input queue-textarea"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="fAgentType">Agent Type *</label>
+                    <input id="fAgentType" name="agent_type" required maxlength="50" placeholder="coder" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label for="fPriority">Priority</label>
+                    <select id="fPriority" name="priority" class="form-input">
+                        <option value="high">High</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="low">Low</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="fStatus">Initial Status</label>
+                    <select id="fStatus" name="status" class="form-input">
+                        <option value="pending" selected>Pending</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="done">Done</option>
+                        <option value="failed">Failed</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer" style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end;">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="closeModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary btn-sm">💾 Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+.queue-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.queue-toolbar-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.queue-toolbar-row-secondary {
+    justify-content: space-between;
+}
+.queue-toolbar-meta {
+    font-size: 13px;
+    color: var(--text-tertiary, #777);
+}
+.queue-search {
+    flex: 1 1 280px;
+    min-width: 220px;
+}
+.queue-bulk-actions,
+.queue-age-purge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.queue-days-input {
+    width: 96px;
+}
+.queue-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+}
+.queue-stat-card {
+    background: var(--card-bg, #1e1e2e);
+    border: 1px solid var(--border, #333);
+    border-radius: 10px;
+    padding: 16px;
+}
+.queue-stat-card h4 {
+    margin: 0 0 6px;
+    font-size: 12px;
+    color: var(--text-secondary, #aaa);
+    text-transform: uppercase;
+    letter-spacing: .03em;
+}
+.queue-stat-card .value {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--text-primary, #fff);
+}
+.queue-stat-card .value.pending { color: #f59e0b; }
+.queue-stat-card .value.active { color: #3b82f6; }
+.queue-stat-card .value.terminal { color: #22c55e; }
+.queue-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 12px;
+}
+.queue-card {
+    background: var(--card-bg, #1e1e2e);
+    border: 1px solid var(--border, #333);
+    border-radius: 10px;
+    padding: 16px;
+}
+.queue-card.selected {
+    border-color: rgba(59,130,246,0.65);
+    box-shadow: 0 0 0 1px rgba(59,130,246,0.2);
+}
+.queue-card .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.queue-card .card-header-main {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    min-width: 0;
+}
+.queue-select-checkbox {
+    width: 16px;
+    height: 16px;
+    margin-top: 2px;
+    accent-color: #3b82f6;
+    cursor: pointer;
+}
+.queue-card h4 {
+    margin: 0;
+    font-size: 15px;
+    color: var(--text-primary, #fff);
+}
+.queue-card .task-id {
+    font-size: 11px;
+    color: var(--text-tertiary, #777);
+    margin-top: 4px;
+}
+.queue-card .description {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-secondary, #ccc);
+    margin-bottom: 10px;
+}
+.queue-card .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.queue-badge {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-weight: 600;
+}
+.queue-badge.pending { background: rgba(245,158,11,0.2); color: #f59e0b; }
+.queue-badge.in_progress { background: rgba(59,130,246,0.2); color: #3b82f6; }
+.queue-badge.completed, .queue-badge.done { background: rgba(34,197,94,0.2); color: #22c55e; }
+.queue-badge.failed, .queue-badge.cancelled { background: rgba(239,68,68,0.2); color: #ef4444; }
+.queue-badge.priority-high { background: rgba(239,68,68,0.14); color: #fca5a5; }
+.queue-badge.priority-medium { background: rgba(168,85,247,0.14); color: #d8b4fe; }
+.queue-badge.priority-low { background: rgba(34,197,94,0.14); color: #86efac; }
+.queue-detail {
+    font-size: 12px;
+    color: var(--text-tertiary, #777);
+    margin-bottom: 4px;
+}
+.queue-result {
+    margin-top: 10px;
+    padding: 10px 12px;
+    background: rgba(255,255,255,0.03);
+    border-radius: 8px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--text-secondary, #ccc);
+    white-space: pre-wrap;
+}
+.queue-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border, #333);
+}
+.queue-filter {
+    width: auto;
+    min-width: 140px;
+    padding: 6px 10px;
+    font-size: 13px;
+}
+.queue-textarea {
+    min-height: 90px;
+    resize: vertical;
+}
+.loading-placeholder {
+    text-align: center;
+    padding: 48px;
+    color: var(--text-tertiary, #777);
+    grid-column: 1 / -1;
+}
+.empty-state {
+    text-align: center;
+    padding: 48px;
+    color: var(--text-tertiary, #777);
+    grid-column: 1 / -1;
+    border: 1px dashed var(--border, #333);
+    border-radius: 10px;
+}
+.toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 9999;
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-size: 13px;
+    color: #fff;
+    animation: slideIn .3s ease;
+    max-width: 400px;
+}
+.toast.success { background: #16a34a; }
+.toast.error { background: #dc2626; }
+@keyframes slideIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+@media (max-width: 768px) {
+    .queue-toolbar-row-secondary {
+        justify-content: flex-start;
+    }
+    .queue-bulk-actions,
+    .queue-age-purge {
+        width: 100%;
+    }
+    .queue-days-input {
+        width: 84px;
+    }
+}
+</style>
+
+<script>
+const API = window.ARIA_API_BASE_URL || '/api';
+const OPEN_STATUSES = ['pending', 'in_progress'];
+const TERMINAL_STATUSES = ['done', 'completed', 'failed', 'cancelled'];
+let allTasks = [];
+let selectedTaskIds = new Set();
+
+document.addEventListener('DOMContentLoaded', () => loadTasks());
+
+function esc(value) {
+    if (typeof escapeHtml === 'function') return escapeHtml(value);
+    return String(value || '').replace(/[&<>"']/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[ch]));
+}
+
+function normalizeStatus(status) {
+    return String(status || '').trim().toLowerCase();
+}
+
+function isTerminalStatus(status) {
+    return TERMINAL_STATUSES.includes(normalizeStatus(status));
+}
+
+function formatRelativeTime(value) {
+    if (!value) return '—';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    const diffMs = Date.now() - date.getTime();
+    const minutes = Math.floor(diffMs / 60000);
+    if (minutes < 1) return 'just now';
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+}
+
+async function loadTasks() {
+    try {
+        const resp = await fetch(`${API}/tasks`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        allTasks = data.tasks || [];
+        pruneSelection();
+        updateAgentFilter();
+        updateStats();
+        renderTasks();
+    } catch (err) {
+        allTasks = [];
+        pruneSelection();
+        document.getElementById('tasksGrid').innerHTML = `<div class="empty-state">Failed to load queue: ${esc(err.message)}</div>`;
+        updateToolbarState([]);
+        showToast('Failed to load queue: ' + err.message, 'error');
+    }
+}
+
+function pruneSelection() {
+    const existingIds = new Set(allTasks.map(task => task.task_id).filter(Boolean));
+    selectedTaskIds = new Set([...selectedTaskIds].filter(taskId => existingIds.has(taskId)));
+}
+
+function updateAgentFilter() {
+    const select = document.getElementById('filterAgent');
+    const current = select.value;
+    const agents = [...new Set(allTasks.map(task => task.agent_type).filter(Boolean))].sort();
+    select.innerHTML = '<option value="">All Agents</option>';
+    for (const agent of agents) {
+        const option = document.createElement('option');
+        option.value = agent;
+        option.textContent = agent;
+        select.appendChild(option);
+    }
+    select.value = agents.includes(current) ? current : '';
+}
+
+function updateStats() {
+    const pending = allTasks.filter(task => normalizeStatus(task.status) === 'pending').length;
+    const inProgress = allTasks.filter(task => normalizeStatus(task.status) === 'in_progress').length;
+    const terminal = allTasks.filter(task => isTerminalStatus(task.status)).length;
+    document.getElementById('pendingCount').textContent = pending;
+    document.getElementById('inProgressCount').textContent = inProgress;
+    document.getElementById('terminalCount').textContent = terminal;
+    document.getElementById('openCount').textContent = pending + inProgress;
+}
+
+function updateToolbarState(visibleTasks) {
+    document.getElementById('taskCount').textContent = `${visibleTasks.length} tasks`;
+    document.getElementById('selectedCount').textContent = `${selectedTaskIds.size} selected`;
+    document.getElementById('purgeSelectedButton').disabled = selectedTaskIds.size === 0;
+}
+
+function getFilteredTasks() {
+    const status = document.getElementById('filterStatus').value;
+    const agent = document.getElementById('filterAgent').value;
+    const priority = document.getElementById('filterPriority').value;
+    const query = document.getElementById('searchText').value.trim().toLowerCase();
+    return allTasks.filter(task => {
+        const taskStatus = normalizeStatus(task.status);
+        const statusMatch = !status
+            || (status === 'open' && OPEN_STATUSES.includes(taskStatus))
+            || (status === 'terminal' && isTerminalStatus(taskStatus))
+            || taskStatus === status;
+        const agentMatch = !agent || task.agent_type === agent;
+        const priorityMatch = !priority || normalizeStatus(task.priority) === priority;
+        const haystack = [
+            task.task_id,
+            task.task_type,
+            task.description,
+            task.agent_type,
+            task.priority,
+            task.status,
+            task.result,
+        ].map(value => String(value || '').toLowerCase()).join(' ');
+        const searchMatch = !query || haystack.includes(query);
+        return statusMatch && agentMatch && priorityMatch && searchMatch;
+    });
+}
+
+function toggleTaskSelection(taskId, checked, element) {
+    if (checked) selectedTaskIds.add(taskId);
+    else selectedTaskIds.delete(taskId);
+
+    const card = element?.closest('.queue-card');
+    if (card) card.classList.toggle('selected', checked);
+    updateToolbarState(getFilteredTasks());
+}
+
+function selectVisibleTasks() {
+    const tasks = getFilteredTasks();
+    tasks.forEach(task => {
+        if (task.task_id) selectedTaskIds.add(task.task_id);
+    });
+    renderTasks();
+}
+
+function clearSelection() {
+    if (!selectedTaskIds.size) return;
+    selectedTaskIds.clear();
+    renderTasks();
+}
+
+function taskActionButtons(task) {
+    const status = normalizeStatus(task.status);
+    if (status === 'pending') {
+        return `
+            <button class="btn btn-secondary btn-sm" onclick="updateTaskStatus('${esc(task.task_id)}', 'in_progress')">▶️ Start</button>
+            <button class="btn btn-secondary btn-sm" onclick="completeTask('${esc(task.task_id)}')">✅ Done</button>
+            <button class="btn btn-secondary btn-sm" onclick="deleteTask('${esc(task.task_id)}')">🗑️ Delete</button>
+        `;
+    }
+    if (status === 'in_progress') {
+        return `
+            <button class="btn btn-secondary btn-sm" onclick="completeTask('${esc(task.task_id)}')">✅ Done</button>
+            <button class="btn btn-secondary btn-sm" onclick="updateTaskStatus('${esc(task.task_id)}', 'failed')">❌ Fail</button>
+            <button class="btn btn-secondary btn-sm" onclick="deleteTask('${esc(task.task_id)}')">🗑️ Delete</button>
+        `;
+    }
+    return `
+        <button class="btn btn-secondary btn-sm" onclick="updateTaskStatus('${esc(task.task_id)}', 'pending', '')">🔁 Requeue</button>
+        <button class="btn btn-secondary btn-sm" onclick="deleteTask('${esc(task.task_id)}')">🗑️ Delete</button>
+    `;
+}
+
+function renderTasks() {
+    const tasks = getFilteredTasks();
+    updateToolbarState(tasks);
+    const grid = document.getElementById('tasksGrid');
+    if (!tasks.length) {
+        grid.innerHTML = '<div class="empty-state"><h3>No queue items</h3><p>The queue is clean for the selected filters.</p></div>';
+        return;
+    }
+
+    grid.innerHTML = tasks.map(task => {
+        const status = normalizeStatus(task.status);
+        const priority = normalizeStatus(task.priority || 'medium');
+        const taskId = task.task_id || '';
+        const isSelected = selectedTaskIds.has(taskId);
+        return `
+            <div class="queue-card ${isSelected ? 'selected' : ''}">
+                <div class="card-header">
+                    <div class="card-header-main">
+                        <input class="queue-select-checkbox" type="checkbox" ${isSelected ? 'checked' : ''} aria-label="Select ${esc(taskId || 'task')}" onchange="toggleTaskSelection('${esc(taskId)}', this.checked, this)">
+                        <div>
+                            <h4>${esc(task.task_type || 'task')}</h4>
+                            <div class="task-id">${esc(taskId || 'unknown')}</div>
+                        </div>
+                    </div>
+                    <span class="queue-badge ${status}">${esc(task.status || 'unknown')}</span>
+                </div>
+                <div class="description">${esc(task.description || 'No description')}</div>
+                <div class="meta-row">
+                    <span class="queue-badge priority-${priority}">${esc(task.priority || 'medium')}</span>
+                    <span class="queue-badge">🤖 ${esc(task.agent_type || 'unknown')}</span>
+                </div>
+                <div class="queue-detail">Created: ${formatRelativeTime(task.created_at)}${task.completed_at ? ` · Completed: ${formatRelativeTime(task.completed_at)}` : ''}</div>
+                ${task.result ? `<div class="queue-result">${esc(task.result)}</div>` : ''}
+                <div class="queue-actions">${taskActionButtons(task)}</div>
+            </div>
+        `;
+    }).join('');
+}
+
+function openAddModal() {
+    document.getElementById('taskForm').reset();
+    document.getElementById('modalTitle').textContent = 'Add Task';
+    document.getElementById('fPriority').value = 'medium';
+    document.getElementById('fStatus').value = 'pending';
+    document.getElementById('taskModal').style.display = 'flex';
+}
+
+function closeModal() {
+    document.getElementById('taskModal').style.display = 'none';
+}
+
+async function saveTask(event) {
+    event.preventDefault();
+    const body = {
+        task_id: document.getElementById('fTaskId').value || null,
+        task_type: document.getElementById('fTaskType').value,
+        description: document.getElementById('fDescription').value,
+        agent_type: document.getElementById('fAgentType').value,
+        priority: document.getElementById('fPriority').value,
+        status: document.getElementById('fStatus').value,
+    };
+    try {
+        const resp = await fetch(`${API}/tasks`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body),
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.detail || `HTTP ${resp.status}`);
+        }
+        showToast('Task created ✅', 'success');
+        closeModal();
+        loadTasks();
+    } catch (err) {
+        showToast('Create failed: ' + err.message, 'error');
+    }
+    return false;
+}
+
+async function updateTaskStatus(taskId, status, result) {
+    try {
+        const resp = await fetch(`${API}/tasks/${taskId}`, {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({status, result}),
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.detail || `HTTP ${resp.status}`);
+        }
+        showToast(`${taskId} → ${status} ✅`, 'success');
+        loadTasks();
+    } catch (err) {
+        showToast('Status update failed: ' + err.message, 'error');
+    }
+}
+
+async function completeTask(taskId) {
+    const result = prompt('Optional completion note / result:', '') ?? '';
+    await updateTaskStatus(taskId, 'done', result);
+}
+
+async function deleteTask(taskId) {
+    if (!confirm(`Delete ${taskId}? This removes the task from the queue.`)) return;
+    try {
+        const resp = await fetch(`${API}/tasks/${taskId}`, {method: 'DELETE'});
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.detail || `HTTP ${resp.status}`);
+        }
+        showToast(`${taskId} deleted 🗑️`, 'success');
+        loadTasks();
+    } catch (err) {
+        showToast('Delete failed: ' + err.message, 'error');
+    }
+}
+
+async function purgeTerminal() {
+    if (!confirm('Purge all terminal queue rows (done/completed/failed/cancelled)?')) return;
+    try {
+        const resp = await fetch(`${API}/tasks/purge`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({statuses: TERMINAL_STATUSES}),
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        showToast(`Purged ${data.purged} terminal rows ✅`, 'success');
+        loadTasks();
+    } catch (err) {
+        showToast('Purge failed: ' + err.message, 'error');
+    }
+}
+
+async function purgeAllTasks() {
+    if (!confirm('Purge the entire queue? This removes open and terminal rows.')) return;
+    try {
+        const resp = await fetch(`${API}/tasks/purge`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({include_all: true}),
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        showToast(`Purged ${data.purged} queue rows ✅`, 'success');
+        loadTasks();
+    } catch (err) {
+        showToast('Full purge failed: ' + err.message, 'error');
+    }
+}
+
+async function purgeSelected() {
+    const taskIds = [...selectedTaskIds];
+    if (!taskIds.length) {
+        showToast('No tasks selected for purge.', 'error');
+        return;
+    }
+    if (!confirm(`Purge ${taskIds.length} selected task(s)?`)) return;
+    try {
+        const resp = await fetch(`${API}/tasks/purge`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({task_ids: taskIds}),
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        selectedTaskIds.clear();
+        showToast(`Purged ${data.purged} selected rows ✅`, 'success');
+        loadTasks();
+    } catch (err) {
+        showToast('Selected purge failed: ' + err.message, 'error');
+    }
+}
+
+async function purgeOlderTasks() {
+    const days = Number(document.getElementById('olderThanDays').value);
+    const scope = document.getElementById('agePurgeScope').value;
+    if (!Number.isInteger(days) || days < 1) {
+        showToast('Older-than purge requires a whole number of days >= 1.', 'error');
+        return;
+    }
+
+    const scopeLabel = scope === 'all' ? 'all statuses' : scope;
+    if (!confirm(`Purge ${scopeLabel} tasks older than ${days} day(s)?`)) return;
+
+    const payload = {older_than_days: days};
+    if (scope === 'all') payload.include_all = true;
+    else payload.statuses = [scope];
+
+    try {
+        const resp = await fetch(`${API}/tasks/purge`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload),
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.detail || `HTTP ${resp.status}`);
+        }
+        const data = await resp.json();
+        selectedTaskIds.clear();
+        showToast(`Purged ${data.purged} row(s) older than ${days} day(s) ✅`, 'success');
+        loadTasks();
+    } catch (err) {
+        showToast('Age-based purge failed: ' + err.message, 'error');
+    }
+}
+
+function showToast(message, type = 'success') {
+    const el = document.createElement('div');
+    el.className = `toast ${type}`;
+    el.textContent = message;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 4000);
+}
+</script>
+{% endblock %}

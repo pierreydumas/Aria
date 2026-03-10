@@ -206,7 +206,7 @@ Plan total = Docker overhead + model size + 2 GB system headroom.
 2. **Edit** the plist to point to the new model path/ID.
 
 3. **Update** `aria_models/models.yaml`:
-   - Change `models.qwen3-mlx.litellm.model` to the new HuggingFace ID.
+  - Change `models.qwen3.5_mlx.litellm.model` to the new HuggingFace ID.
    - Change the `_note` field to document the switch.
 
 4. **Reload** the service:
@@ -219,7 +219,7 @@ Plan total = Docker overhead + model size + 2 GB system headroom.
 
    ```bash
    curl http://localhost:8080/v1/models
-  python tests/load/benchmark_models.py --models qwen3-mlx
+  python tests/load/benchmark_models.py --models qwen3.5_mlx
    ```
 
 ---
@@ -229,7 +229,7 @@ Plan total = Docker overhead + model size + 2 GB system headroom.
 In `litellm-config.yaml` (auto-generated from `models.yaml`):
 
 ```yaml
-- model_name: qwen3-mlx
+- model_name: qwen3.5_mlx
   litellm_params:
     model: openai/mlx-community/Qwen3-4B-Instruct-2507-4bit
     api_base: http://host.docker.internal:8080/v1
@@ -308,7 +308,7 @@ If port 8080 is occupied:
 lsof -i :8080
 ```
 
-Change the port in both the plist and `models.yaml` → `qwen3-mlx.litellm.api_base`.
+Change the port in both the plist and `models.yaml` → `qwen3.5_mlx.litellm.api_base`.
 
 ### Logs
 
