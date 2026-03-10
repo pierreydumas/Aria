@@ -495,6 +495,44 @@ class EngineScheduler:
             _api_key = os.getenv("ARIA_API_KEY", "")
             if _api_key:
                 _headers["X-API-Key"] = _api_key
+
+            # 0. Fetch working memory context and prepend to payload
+            #    This gives cron sessions awareness of recent tasks,
+            #    goals, and observations — closing the blind-spot where
+            #    cognition.py auto-injects WM but ChatEngine doesn't.
+            wm_context_block = ""
+            try:
+                async with http.get(
+                    f"{_API_BASE}/api/working-memory/context",
+                    params={"limit": "8", "touch_access": "false"},
+                    headers=_headers,
+                ) as wm_resp:
+                    if wm_resp.status == 200:
+                        wm_data = await wm_resp.json()
+                        items = wm_data.get("context", [])
+                        if items:
+                            lines = []
+                            for it in items[:8]:
+                                cat = it.get("category", "")
+                                key = it.get("key", "")
+                                val = it.get("value", "")
+                                # Compact representation
+                                val_str = (
+                                    str(val)[:200]
+                                    if not isinstance(val, str)
+                                    else val[:200]
+                                )
+                                lines.append(f"- [{cat}/{key}] {val_str}")
+                            wm_context_block = (
+                                "\n\n## Working Memory (recent context)\n"
+                                + "\n".join(lines)
+                                + "\n"
+                            )
+            except Exception as wm_err:
+                logger.debug("Job %s: WM context fetch skipped: %s", job_id, wm_err)
+
+            enriched_payload = payload + wm_context_block if wm_context_block else payload
+
             # 1. Create a session via aria-api
             # Build a human-readable title: "⏱ work_cycle · 14:30"
             from datetime import datetime as _dt
@@ -532,7 +570,7 @@ class EngineScheduler:
                 async with http.post(
                     f"{_API_BASE}/api/engine/chat/sessions/{session_id}/messages",
                     json={
-                        "content": payload,
+                        "content": enriched_payload,
                         "enable_thinking": False,
                         "enable_tools": True,
                     },
@@ -583,6 +621,60 @@ class EngineScheduler:
                 result.get("total_tokens", "?"),
                 result.get("cost_usd", "?"),
             )
+
+            # 2b. Create a thought from productive cron jobs
+            #     This ensures work_cycle output reaches the cognitive pipeline
+            #     (thoughts → seed_memories → semantic_memories) since cognition.py
+            #     doesn't run during cron sessions.
+            _productive_jobs = {"work_cycle", "social_post", "browser_research",
+                                "six_hour_review", "morning_checkin", "daily_reflection",
+                                "weekly_summary"}
+            if job_name in _productive_jobs:
+                assistant_content = result.get("content", "") or ""
+                # 2b-i. Create thought for cognitive pipeline
+                try:
+                    if len(assistant_content) > 30:
+                        thought_content = (
+                            f"[{job_name}] {assistant_content[:500]}"
+                        )
+                        async with http.post(
+                            f"{_API_BASE}/api/thoughts",
+                            json={
+                                "content": thought_content,
+                                "category": "work_cycle" if job_name == "work_cycle" else "reflection",
+                            },
+                            headers=_headers,
+                        ) as thought_resp:
+                            if thought_resp.status in (200, 201):
+                                logger.debug("Job %s: thought created for cognitive pipeline", job_id)
+                except Exception as thought_err:
+                    logger.debug("Job %s: thought creation skipped: %s", job_id, thought_err)
+
+                # 2b-ii. Write summary back to working memory so the NEXT
+                #        cron session sees it via the WM context injection above.
+                try:
+                    if len(assistant_content) > 30:
+                        async with http.post(
+                            f"{_API_BASE}/api/working-memory",
+                            json={
+                                "key": f"last_{job_name}",
+                                "value": {
+                                    "summary": assistant_content[:400],
+                                    "model": result.get("model", ""),
+                                    "tokens": result.get("total_tokens", 0),
+                                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                                },
+                                "category": "cron_output",
+                                "importance": 0.7,
+                                "ttl_hours": 48,
+                                "source": f"scheduler.{job_name}",
+                            },
+                            headers=_headers,
+                        ) as wm_resp:
+                            if wm_resp.status in (200, 201):
+                                logger.debug("Job %s: result written to working memory", job_id)
+                except Exception as wm_err:
+                    logger.debug("Job %s: WM write-back skipped: %s", job_id, wm_err)
 
             # 3. Close the session
             async with http.delete(

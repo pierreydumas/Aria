@@ -33,10 +33,13 @@ try:
     import pathlib as _pl
     sys.path.insert(0, str(_pl.Path(__file__).resolve().parents[2]))
     from aria_models.loader import load_catalog as _lc
+    from aria_models.loader import normalize_temperature as _normalize_temperature
     _cat = _lc()
     DEFAULT_MODELS = [m.removeprefix("litellm/") for m in _cat.get("routing", {}).get("fallbacks", [])[:3]]
 except Exception:
     DEFAULT_MODELS = []
+    def _normalize_temperature(model_id: str, temperature: float | None) -> float | None:
+        return temperature
 
 # ── task categories (5 categories × 3 prompts each) ────────────────────────
 TASK_PROMPTS: Dict[str, List[str]] = {
@@ -113,7 +116,7 @@ async def call_model(
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 512,
-        "temperature": 0.3,
+        "temperature": _normalize_temperature(model, 0.3),
     }
     t0 = time.perf_counter()
     try:

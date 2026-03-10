@@ -1171,11 +1171,15 @@ class AriaAPIClient(BaseSkill):
         path: str,
         data: dict | None = None,
         params: dict | None = None,
+        timeout: float | None = None,
     ) -> SkillResult:
         """Generic POST request."""
         try:
+            kwargs: dict[str, Any] = {"json": data, "params": params}
+            if timeout is not None:
+                kwargs["timeout"] = timeout
             resp = await self._request_with_retry(
-                "POST", path, json=data, params=params
+                "POST", path, **kwargs
             )
             return SkillResult.ok(resp.json())
         except Exception as e:

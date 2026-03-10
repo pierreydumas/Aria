@@ -383,3 +383,62 @@ async def test_execute_raises_with_too_many_agents():
     too_many = [f"agent-{i}" for i in range(MAX_AGENTS + 1)]
     with pytest.raises(EngineError, match=str(MAX_AGENTS)):
         await orch.execute(topic="test", agent_ids=too_many)
+
+
+@pytest.mark.asyncio
+async def test_run_iteration_callbacks_follow_agent_order_not_completion_order():
+    orch = _make_orchestrator()
+    callback_order: list[str] = []
+
+    async def fake_get_agent_vote(**kwargs):
+        agent_id = kwargs["agent_id"]
+        if agent_id == "slow-first":
+            await asyncio.sleep(0.02)
+        return _vote(agent_id=agent_id)
+
+    async def on_vote(vote: SwarmVote):
+        callback_order.append(vote.agent_id)
+
+    orch._get_agent_vote = AsyncMock(side_effect=fake_get_agent_vote)
+
+    votes = await orch._run_iteration(
+        session_id="sess-1",
+        topic="topic",
+        agent_ids=["slow-first", "fast-second"],
+        iteration=1,
+        prior_votes=[],
+        pheromone_weights={},
+        agent_timeout=1,
+        round_timeout=0.5,
+        on_vote=on_vote,
+    )
+
+    assert [vote.agent_id for vote in votes] == ["slow-first", "fast-second"]
+    assert callback_order == ["slow-first", "fast-second"]
+
+
+@pytest.mark.asyncio
+async def test_run_iteration_keeps_fast_votes_when_one_agent_times_out():
+    orch = _make_orchestrator()
+
+    async def fake_get_agent_vote(**kwargs):
+        agent_id = kwargs["agent_id"]
+        if agent_id == "slow":
+            await asyncio.sleep(0.2)
+        return _vote(agent_id=agent_id)
+
+    orch._get_agent_vote = AsyncMock(side_effect=fake_get_agent_vote)
+
+    votes = await orch._run_iteration(
+        session_id="sess-1",
+        topic="topic",
+        agent_ids=["slow", "fast"],
+        iteration=1,
+        prior_votes=[],
+        pheromone_weights={},
+        agent_timeout=1,
+        round_timeout=0.05,
+    )
+
+    assert [vote.agent_id for vote in votes] == ["fast"]
+

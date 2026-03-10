@@ -17,10 +17,18 @@ from aria_skills.litellm import LiteLLMSkill
 from aria_skills.registry import SkillRegistry
 
 try:
-    from aria_models.loader import get_primary_model as _get_primary_model
+    from aria_models.loader import (
+        get_primary_model as _get_primary_model,
+        get_task_model as _get_task_model,
+        normalize_temperature as _normalize_temperature,
+    )
 except ImportError:
     def _get_primary_model() -> str:
         return ""
+    def _get_task_model(task: str) -> str:
+        return ""
+    def _normalize_temperature(model_id: str, temperature: float | None) -> float | None:
+        return temperature
 
 SUMMARIZATION_PROMPT = """\
 Summarize this work session based on the activity log below. Respond ONLY with valid JSON.
@@ -53,6 +61,35 @@ Required JSON format:
   "open_questions": ["question 1"]
 }}
 """
+
+
+def _extract_message_text(message: dict[str, Any] | None) -> str:
+    if not isinstance(message, dict):
+        return ""
+
+    content = message.get("content")
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text")
+                if isinstance(text, str) and text:
+                    parts.append(text)
+        return "".join(parts).strip()
+    return ""
+
+
+def _fallback_topic_summary(topic: str, memory_texts: list[str]) -> dict[str, Any]:
+    facts = [text.removeprefix("- ").strip() for text in memory_texts[:3]]
+    return {
+        "summary": f"Synthesized {len(memory_texts)} memories about {topic}.",
+        "key_facts": [fact for fact in facts if fact],
+        "open_questions": [],
+    }
 
 
 @SkillRegistry.register
@@ -168,18 +205,41 @@ class ConversationSummarySkill(BaseSkill):
             )
 
             # S-115: Route LLM calls through litellm skill (no direct httpx)
-            llm_result = await self._litellm.chat_completion(
-                model=_get_primary_model(),
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=800,
-            )
-            if not llm_result.success:
-                raise Exception(llm_result.error or "LLM call failed")
-            llm_data = llm_result.data
+            summary_model = _get_task_model("conversation_summary") or _get_primary_model()
+            fallback_model = _get_task_model("local_fast") or _get_primary_model()
+            candidate_models = [summary_model]
+            if fallback_model not in candidate_models:
+                candidate_models.append(fallback_model)
 
-            raw_text = llm_data["choices"][0]["message"]["content"]
-            parsed = json.loads(raw_text)
+            raw_text = ""
+            last_error: Exception | None = None
+            for candidate_model in candidate_models:
+                llm_result = await self._litellm.chat_completion(
+                    model=candidate_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=_normalize_temperature(candidate_model, 0.3) or 1.0,
+                    max_tokens=1500,
+                )
+                if not llm_result.success:
+                    last_error = Exception(llm_result.error or "LLM call failed")
+                    continue
+
+                llm_data = llm_result.data
+                message = llm_data["choices"][0].get("message", {})
+                raw_text = _extract_message_text(message)
+                if raw_text:
+                    break
+                last_error = ValueError(
+                    f"{candidate_model} returned empty content"
+                )
+
+            if not raw_text:
+                parsed = _fallback_topic_summary(topic, memory_texts)
+            else:
+                try:
+                    parsed = json.loads(raw_text)
+                except json.JSONDecodeError:
+                    parsed = _fallback_topic_summary(topic, memory_texts)
 
             # Store synthesis as a new episodic memory
             await self._api.store_memory_semantic(

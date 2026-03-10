@@ -9,8 +9,9 @@ import math
 import os
 import re
 import uuid
+from collections import Counter
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import cast, func, or_, select, delete, String
@@ -22,12 +23,21 @@ from pagination import paginate_query, build_paginated_response
 from schemas.requests import CreateMemory, CreateSemanticMemory, SearchByVector, SummarizeSession, UpdateMemory
 
 try:
-    from aria_models.loader import get_embedding_model as _get_embedding_model, get_primary_model as _get_primary_model
+    from aria_models.loader import (
+        get_embedding_model as _get_embedding_model,
+        get_primary_model as _get_primary_model,
+        get_task_model as _get_task_model,
+        normalize_temperature as _normalize_temperature,
+    )
 except ImportError:
     def _get_embedding_model() -> str:
         return ""
     def _get_primary_model() -> str:
         return ""
+    def _get_task_model(task: str) -> str:
+        return ""
+    def _normalize_temperature(model_id: str, temperature: float | None) -> float | None:
+        return temperature
 
 # LiteLLM connection for embeddings
 LITELLM_URL = os.environ.get("LITELLM_URL", "http://litellm:4000")
@@ -120,6 +130,61 @@ def _is_noise_memory_payload(
         return True
 
     return False
+
+
+def _extract_message_text(message: dict | None) -> str:
+    if not isinstance(message, dict):
+        return ""
+
+    content = message.get("content")
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text")
+                if isinstance(text, str) and text:
+                    parts.append(text)
+        return "".join(parts).strip()
+    return ""
+
+
+def _fallback_session_summary(activities: list) -> dict[str, Any]:
+    skill_counts = Counter(
+        (getattr(activity, "skill", None) or "system")
+        for activity in activities
+    )
+    action_counts = Counter(
+        (getattr(activity, "action", None) or "unknown")
+        for activity in activities
+    )
+
+    top_skills = [
+        skill for skill, _ in skill_counts.most_common(3)
+        if skill and skill != "system"
+    ]
+    top_actions = [action for action, _ in action_counts.most_common(3) if action]
+
+    summary_parts = []
+    if top_skills:
+        summary_parts.append(
+            f"Recent work focused on {', '.join(top_skills)}"
+        )
+    if top_actions:
+        summary_parts.append(
+            f"with the most common actions being {', '.join(top_actions)}"
+        )
+    summary_parts.append(f"across {len(activities)} recorded activities.")
+
+    return {
+        "summary": " ".join(summary_parts),
+        "decisions": [],
+        "tone": "neutral",
+        "unresolved": [],
+    }
 
 
 def _dt_iso_utc(value: datetime | None) -> str | None:
@@ -488,6 +553,11 @@ async def summarize_session(
 
     # Build summary via LLM
     import httpx
+    summary_model = _get_task_model("conversation_summary") or _get_primary_model()
+    fallback_model = _get_task_model("local_fast") or _get_primary_model()
+    candidate_models = [summary_model]
+    if fallback_model not in candidate_models:
+        candidate_models.append(fallback_model)
     prompt = (
         "Summarize this work session in 2-3 sentences. Extract:\n"
         "1. What was the main task?\n2. What was decided?\n"
@@ -498,19 +568,35 @@ async def summarize_session(
     )
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                f"{LITELLM_URL}/v1/chat/completions",
-                json={
-                    "model": _get_primary_model(),
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 500,
-                    "temperature": 0.3,
-                },
-                headers={"Authorization": f"Bearer {LITELLM_KEY}"},
-                timeout=60,
-            )
-            resp.raise_for_status()
-            raw = resp.json()["choices"][0]["message"]["content"]
+            raw = ""
+            last_error: Exception | None = None
+            for candidate_model in candidate_models:
+                try:
+                    resp = await client.post(
+                        f"{LITELLM_URL}/v1/chat/completions",
+                        json={
+                            "model": candidate_model,
+                            "messages": [{"role": "user", "content": prompt}],
+                            "max_tokens": 1500,
+                            "temperature": _normalize_temperature(candidate_model, 0.3),
+                        },
+                        headers={"Authorization": f"Bearer {LITELLM_KEY}"},
+                        timeout=60,
+                    )
+                    resp.raise_for_status()
+                    message = resp.json().get("choices", [{}])[0].get("message", {})
+                    raw = _extract_message_text(message)
+                    if raw:
+                        break
+                    last_error = ValueError(
+                        f"{candidate_model} returned empty content"
+                    )
+                except Exception as exc:
+                    last_error = exc
+
+            if not raw:
+                raise last_error or ValueError("empty summary response")
+
             # Try to parse JSON from response
             import re
             json_match = re.search(r'\{[^{}]*\}', raw, re.DOTALL)
@@ -519,10 +605,10 @@ async def summarize_session(
             else:
                 parsed = {"summary": raw.strip(), "decisions": [], "tone": "neutral", "unresolved": []}
     except Exception as e:
-        parsed = {"summary": f"Session with {len(activities)} activities (auto-summary failed: {e})",
-                  "decisions": [], "tone": "neutral", "unresolved": []}
+        logger.warning("Conversation summary LLM failed, using heuristic fallback: %s", e)
+        parsed = _fallback_session_summary(activities)
 
-    summary_text = parsed.get("summary", "No summary available")
+    summary_text = (parsed.get("summary") or "").strip() or f"Session with {len(activities)} activities."
     decisions = parsed.get("decisions", [])
 
     # Store episodic summary as semantic memory

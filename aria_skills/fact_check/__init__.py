@@ -9,6 +9,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from aria_skills.api_client import get_api_client
 from aria_skills.base import BaseSkill, SkillConfig, SkillResult, SkillStatus, logged_method
 from aria_skills.registry import SkillRegistry
 
@@ -21,12 +22,18 @@ class FactCheckSkill(BaseSkill):
         super().__init__(config or SkillConfig(name="fact_check"))
         self._claims: dict[str, dict] = {}
         self._verdicts: dict[str, dict] = {}
+        self._api = None
 
     @property
     def name(self) -> str:
         return "fact_check"
 
     async def initialize(self) -> bool:
+        try:
+            self._api = await get_api_client()
+        except Exception as e:
+            self.logger.info(f"API unavailable, fact-check activity logging disabled: {e}")
+            self._api = None
         self._status = SkillStatus.AVAILABLE
         self.logger.info("Fact-check skill initialized")
         return True
@@ -71,6 +78,12 @@ class FactCheckSkill(BaseSkill):
                 self._claims[claim_id] = claim
                 claims.append(claim)
 
+        await self._persist_activity("fact_check_claims_extracted", {
+            "source": source or kwargs.get("source", "unknown"),
+            "claim_count": len(claims),
+            "claim": claims[0] if claims else None,
+        })
+
         return SkillResult.ok({
             "claims": claims,
             "total_extracted": len(claims),
@@ -96,6 +109,12 @@ class FactCheckSkill(BaseSkill):
         claim["assessed_at"] = datetime.now(timezone.utc).isoformat()
 
         self._verdicts[claim_id] = claim
+        await self._persist_activity("fact_check_claim_assessed", {
+            "claim": claim,
+            "verdict": claim.get("verdict"),
+            "confidence": claim.get("confidence"),
+            "status": claim.get("status"),
+        })
         return SkillResult.ok({
             "claim": claim,
             "message": f"Claim assessed: {verdict} (confidence: {confidence})",
@@ -131,6 +150,11 @@ class FactCheckSkill(BaseSkill):
 
         # Flag if it contains absolutes (often exaggerated)
         risk = "high" if claim["analysis"]["has_absolutes"] else "medium" if claim["analysis"]["has_numbers"] else "low"
+        await self._persist_activity("fact_check_quick_checked", {
+            "claim": claim,
+            "risk_level": risk,
+            "status": claim.get("status"),
+        })
         return SkillResult.ok({
             "claim": claim,
             "risk_level": risk,
@@ -156,6 +180,13 @@ class FactCheckSkill(BaseSkill):
         claim = self._claims.get(claim_id)
         agreements = sum(1 for s in sources if s.get("supports", False))
         contradictions = sum(1 for s in sources if not s.get("supports", True))
+        await self._persist_activity("fact_check_sources_compared", {
+            "claim": claim,
+            "claim_id": claim_id,
+            "sources_count": len(sources),
+            "agreements": agreements,
+            "contradictions": contradictions,
+        })
         return SkillResult.ok({
             "claim_id": claim_id,
             "claim_text": claim["text"] if claim else "unknown",
@@ -192,3 +223,22 @@ class FactCheckSkill(BaseSkill):
                 for c in list(self._claims.values())[-5:]
             ],
         })
+
+    async def _persist_activity(self, action: str, details: dict, success: bool = True) -> None:
+        """Best-effort API persistence. Never blocks fact-check execution."""
+        if not self._api:
+            return
+        try:
+            import asyncio
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.ensure_future(
+                    self._api.create_activity(
+                        action=action,
+                        skill=self.name,
+                        details=details,
+                        success=success,
+                    )
+                )
+        except Exception:
+            self.logger.debug("Fact-check activity persistence skipped")

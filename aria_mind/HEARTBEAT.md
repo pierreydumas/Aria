@@ -86,27 +86,40 @@ Flow:
 1. Read focus level (`active_focus_level`), default `L2`.
 2. Read working-memory goal anchor:
    - `aria-api-client.get_memory({"key":"active_goal_reference"})`
-3. Resolve execution goal:
+3. **PROGRESS CONTINUITY (mandatory):** Before doing ANY work:
+   - Read `last_cycle_summary` from working memory.
+   - If it contains `progress_after` for the current goal → use that as `progress_before`.
+   - If `last_cycle_summary` is missing or stale, read the most recent `work_cycle_*.json`
+     from `aria_memories/logs/` (sort by filename descending, take first) and use its
+     `progress_after` value for the same `goal_id`.
+   - If no prior cycle exists for this goal → start at the goal's API `progress` field.
+   - **NEVER estimate progress_before from scratch.** Always derive from the last recorded value.
+4. Resolve execution goal:
    - If `active_goal_reference` exists and is actionable, use it.
    - Else fetch in-progress goals with limit by focus level (`L1:1`, `L2:3`, `L3:5`) and pick top priority.
-4. **GOAL REQUIRED GATE:** If NO goal found after step 3:
+5. **GOAL REQUIRED GATE:** If NO goal found after step 4:
    - Check backlog goals and move one to `doing`.
    - If backlog is also empty, CREATE a new goal from sprint tickets or exploration.
    - If goal creation also fails: write `{"status":"idle","reason":"no_goals"}` and STOP.
    - **NEVER log status "success" without a goal_id.**
-5. If goal retrieval path fails with `circuit_breaker_open` (or repeated API 5xx):
+6. If goal retrieval path fails with `circuit_breaker_open` (or repeated API 5xx):
    - Write degraded artifact to `aria_memories/logs/work_cycle_<YYYY-MM-DD_HHMM>.json`:
    - `{"status":"degraded","reason":"api_cb_open","cycle":"work_cycle","action":"halted"}`
    - Stop cycle immediately.
-6. Do exactly one **productive** action toward that goal. Productive means:
+7. **DEDUPLICATION CHECK:** Before starting work, read `last_cycle_summary`.
+   - If it describes the same deliverable you are about to create → **skip and advance**.
+   - Search `aria_memories/logs/` for recent cycles with matching `goal_id`.
+   - If the deliverable already exists at the claimed path → do NOT recreate it.
+   - Instead: extend, test, or integrate the existing deliverable.
+8. Do exactly one **productive** action toward that goal. Productive means:
    - Write/modify a file in `aria_memories/`
    - Execute a skill that produces output (research, create, analyze)
    - Draft content (document, post, code)
    - Make real progress toward a sprint ticket
-7. Update goal progress using the **Progress Honesty Scale** (see below).
-8. Refresh `active_goal_reference` to reflect latest goal state.
-9. Create activity log for what was done.
-10. If goal reaches 100%, mark complete and create next goal reference.
+9. Update goal progress using the **Progress Honesty Scale** (see below).
+10. Refresh `active_goal_reference` to reflect latest goal state.
+11. Create activity log for what was done.
+12. If goal reaches 100%, mark complete and create next goal reference.
 
 ### Progress Honesty Scale
 
@@ -144,6 +157,30 @@ Artifact rule:
   }
   ```
 - If `deliverable.type` is `none`, progress increment MUST be 0.
+
+### Deliverable Verification Gate
+
+After writing any deliverable, the cycle MUST verify before logging:
+1. If `deliverable.path` is set → check the file actually exists (read first 5 lines or stat).
+2. If the file does NOT exist → fix the path to match the actual write location.
+3. If no file was written but `deliverable.type` is not `none` → change type to `none` and set progress increment to 0.
+4. **NEVER log a path that doesn't correspond to a real file on disk.**
+
+### last_cycle_summary Format
+
+After each cycle, persist this to working memory (`set_memory("last_cycle_summary", ...)`):
+```json
+{
+  "goal_id": "goal-xxx",
+  "goal_title": "...",
+  "progress_after": 55,
+  "last_action": "what was done",
+  "last_deliverable_path": "aria_memories/...",
+  "last_deliverable_type": "file_created",
+  "timestamp": "ISO8601"
+}
+```
+This is the PRIMARY state bridge between isolated sessions. Without it, progress resets.
 
 Memory continuity rule:
 - Required input keys each cycle: `active_goal_reference`, `last_review_summary`.

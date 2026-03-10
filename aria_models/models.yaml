@@ -1,374 +1,276 @@
-{
-  "schema_version": 4,
-  "notes": "SINGLE SOURCE OF TRUTH for all model definitions. To add a new model: (1) add entry here, (2) run scripts/generate_configs.py to regenerate litellm-config.yaml. That's it.",
-  "model_priority_order": "local → free → paid. Use criteria.priority for the exact fallback chain. NEVER duplicate model names in .md or .py files — reference this file.",
-  "validation": {
-    "schema_version": 4,
-    "required_fields": [
-      "id",
-      "name",
-      "provider",
-      "tier",
-      "context_window"
-    ]
-  },
-  "providers": {
-    "litellm": {
-      "baseUrl": "http://litellm:4000/v1",
-      "apiKey": "${LITELLM_MASTER_KEY}",
-      "api": "openai-completions"
-    }
-  },
-  "routing": {
-    "primary": "litellm/kimi",
-    "bypass": false,
-    "tier_order": [
-      "local",
-      "free",
-      "paid"
-    ],
-    "timeout": 300,
-    "retries": 2,
-    "fallbacks": [
-      "litellm/kimi",
-      "litellm/qwen3-coder-free",
-      "litellm/qwen3-next-free",
-      "litellm/gpt-oss-free",
-      "litellm/trinity-free"
-    ]
-  },
-  "tasks": {
-    "primary": "kimi",
-    "primary_full": "litellm/kimi",
-    "embedding": "nomic-embed-text",
-    "summarization": "kimi",
-    "memory_compression": "kimi",
-    "conversation_summary": "kimi",
-    "sentiment": "qwen3-mlx",
-    "token_counting": "kimi",
-    "moonshot_default": "kimi",
-    "ollama_default": "qwen3-mlx",
-    "local_fast": "qwen3-mlx"
-  },
-  "agent_aliases": {
-    "litellm/qwen3-mlx": "Qwen3.5 4B Instruct (MLX Local)",
-    "litellm/trinity-free": "Trinity 400B (OpenRouter FREE)",
-    "litellm/qwen3-coder-free": "Qwen3 Coder 480B (OpenRouter FREE)",
-    "litellm/qwen3-next-free": "Qwen3 Next 235B (OpenRouter FREE)",
-    "litellm/gpt-oss-free": "GPT-OSS 120B (OpenRouter FREE)",
-    "litellm/kimi": "Kimi K2.5 (Moonshot Paid)"
-  },
-  "models": {
-    "qwen3-mlx": {
-      "provider": "litellm",
-      "name": "Qwen3.5 4B Instruct (MLX Local)",
-      "_note": "ACTIVE: Qwen3.5-4B-MLX-4bit (2.9GB). Vision+text. Context: 128K. Old: Qwen3.5-9B",
-      "reasoning": true,
-      "vision": true,
-      "input": [
-        "text",
-        "image"
-      ],
-      "cost": {
-        "input": 0,
-        "output": 0,
-        "cacheRead": 0,
-        "cacheWrite": 0
-      },
-      "contextWindow": 131072,
-      "maxTokens": 8192,
-      "tier": "local",
-      "routeSkill": "litellm",
-      "litellm": {
-        "model": "openai/mlx-community/Qwen3.5-4B-MLX-4bit",
-        "api_base": "http://host.docker.internal:8080/v1",
-        "api_key": "not-needed"
-      },
-      "provider_label": "local/mlx",
-      "thinking_params": {
-        "extra_body": {
-          "enable_thinking": true
-        }
-      }
-    },
-    "trinity-free": {
-      "provider": "litellm",
-      "name": "Trinity 400B MoE (OpenRouter FREE)",
-      "reasoning": true,
-      "tool_calling": true,
-      "input": [
-        "text"
-      ],
-      "cost": {
-        "input": 0,
-        "output": 0,
-        "cacheRead": 0,
-        "cacheWrite": 0
-      },
-      "contextWindow": 131072,
-      "maxTokens": 8192,
-      "tier": "free",
-      "routeSkill": "litellm",
-      "litellm": {
-        "model": "openrouter/arcee-ai/trinity-large-preview:free",
-        "api_key": "os.environ/OPEN_ROUTER_KEY"
-      },
-      "provider_label": "openrouter",
-      "thinking_params": {}
-    },
-    "qwen3-coder-free": {
-      "provider": "litellm",
-      "name": "Qwen3 Coder 480B (OpenRouter FREE)",
-      "reasoning": true,
-      "input": [
-        "text"
-      ],
-      "cost": {
-        "input": 0,
-        "output": 0,
-        "cacheRead": 0,
-        "cacheWrite": 0
-      },
-      "contextWindow": 262000,
-      "maxTokens": 8192,
-      "tier": "free",
-      "routeSkill": "litellm",
-      "litellm": {
-        "model": "openrouter/qwen/qwen3-coder:free",
-        "api_key": "os.environ/OPEN_ROUTER_KEY"
-      },
-      "provider_label": "openrouter",
-      "thinking_params": {
-        "extra_body": {
-          "enable_thinking": true
-        }
-      }
-    },
-    "qwen3-next-free": {
-      "provider": "litellm",
-      "name": "Qwen3 Next 235B (OpenRouter FREE)",
-      "reasoning": true,
-      "input": [
-        "text"
-      ],
-      "cost": {
-        "input": 0,
-        "output": 0,
-        "cacheRead": 0,
-        "cacheWrite": 0
-      },
-      "contextWindow": 262000,
-      "maxTokens": 8192,
-      "tier": "free",
-      "routeSkill": "litellm",
-      "litellm": {
-        "model": "openrouter/qwen/qwen3-next-80b-a3b-instruct:free",
-        "api_key": "os.environ/OPEN_ROUTER_KEY"
-      },
-      "provider_label": "openrouter",
-      "thinking_params": {
-        "extra_body": {
-          "enable_thinking": true
-        }
-      }
-    },
-    "gpt-oss-free": {
-      "provider": "litellm",
-      "name": "GPT-OSS 120B (OpenRouter FREE)",
-      "reasoning": true,
-      "input": [
-        "text"
-      ],
-      "cost": {
-        "input": 0,
-        "output": 0,
-        "cacheRead": 0,
-        "cacheWrite": 0
-      },
-      "contextWindow": 131000,
-      "maxTokens": 8192,
-      "tier": "free",
-      "routeSkill": "litellm",
-      "litellm": {
-        "model": "openrouter/openai/gpt-oss-120b:free",
-        "api_key": "os.environ/OPEN_ROUTER_KEY"
-      },
-      "provider_label": "openrouter",
-      "thinking_params": {}
-    },
-    "kimi": {
-      "provider": "litellm",
-      "name": "Kimi K2.5 (Moonshot Paid)",
-      "reasoning": true,
-      "input": [
-        "text"
-      ],
-      "cost": {
-        "input": 0.56,
-        "output": 2.94,
-        "cacheRead": 0.098,
-        "cacheWrite": 0
-      },
-      "contextWindow": 256000,
-      "safe_prompt_tokens": 240000,
-      "maxTokens": 16384,
-      "tier": "paid",
-      "routeSkill": "litellm",
-      "litellm": {
-        "model": "moonshot/kimi-k2.5",
-        "api_key": "os.environ/MOONSHOT_KIMI_KEY",
-        "api_base": "https://api.moonshot.ai/v1",
-        "temperature": 1
-      },
-      "aliases": [
-        "kimi-k2.5",
-        "kimi-local"
-      ],
-      "provider_label": "moonshot",
-      "thinking_params": {}
-    },
-    "nomic-embed-text": {
-      "provider": "litellm",
-      "name": "Nomic Embed Text (Ollama Local)",
-      "type": "embedding",
-      "reasoning": false,
-      "input": [
-        "text"
-      ],
-      "cost": {
-        "input": 0,
-        "output": 0,
-        "cacheRead": 0,
-        "cacheWrite": 0
-      },
-      "dimensions": 768,
-      "contextWindow": 8192,
-      "maxTokens": 0,
-      "tier": "local",
-      "routeSkill": "litellm",
-      "purpose": "semantic memory search",
-      "use_for": [
-        "embedding"
-      ],
-      "litellm": {
-        "model": "ollama/nomic-embed-text",
-        "api_base": "http://host.docker.internal:11434"
-      },
-      "provider_label": "local/ollama",
-      "thinking_params": {}
-    }
-  },
-  "criteria": {
-    "priority": [
-      "kimi",
-      "step-35-flash-free",
-      "qwen3-next-free",
-      "deepseek-free",
-      "gpt-oss-free",
-      "trinity-free",
-      "chimera-free"
-    ],
-    "tiers": {
-      "local": [
-        "qwen3-mlx",
-        "qwen-cpu-fallback",
-        "phi4-mini-local",
-        "qwen3-local",
-        "nomic-embed-text"
-      ],
-      "free": [
-        "step-35-flash-free",
-        "trinity-free",
-        "solar-pro-3-free",
-        "lfm-25-thinking-free",
-        "lfm-25-instruct-free",
-        "nemotron-free",
-        "trinity-mini-free",
-        "tng-r1t-chimera-free",
-        "nemotron-nano-12b-v2-vl-free",
-        "qwen3-next-free",
-        "nemotron-nano-9b-v2-free",
-        "gpt-oss-free",
-        "gpt-oss-small-free",
-        "glm-free",
-        "qwen3-coder-free",
-        "venice-dolphin-free",
-        "gemma-3n-e2b-free",
-        "chimera-free",
-        "deepseek-free",
-        "gemma-3n-e4b-free"
-      ],
-      "paid": [
-        "kimi",
-        "kimi-k2-thinking"
-      ]
-    },
-    "use_cases": {
-      "code_generation": [
-        "qwen3-coder-free",
-        "gpt-oss-free"
-      ],
-      "complex_reasoning": [
-        "chimera-free",
-        "deepseek-free",
-        "kimi-k2-thinking"
-      ],
-      "creative_writing": [
-        "trinity-free"
-      ],
-      "long_context": [
-        "qwen3-next-free",
-        "nemotron-free",
-        "kimi"
-      ],
-      "fast_simple": [
-        "gpt-oss-small-free",
-        "kimi"
-      ],
-      "default": [
-        "step-35-flash-free"
-      ]
-    },
-    "focus_defaults": {
-      "orchestrator": "step-35-flash-free",
-      "devsecops": "qwen3-coder-free",
-      "data": "chimera-free",
-      "trader": "deepseek-free",
-      "creative": "trinity-free",
-      "social": "trinity-free",
-      "journalist": "qwen3-next-free"
-    }
-  },
-  "profiles": {
-    "routing": {
-      "model": "step-35-flash-free",
-      "temperature": 0.3,
-      "max_tokens": 512
-    },
-    "analysis": {
-      "model": "step-35-flash-free",
-      "temperature": 0.7,
-      "max_tokens": 4096
-    },
-    "creative": {
-      "model": "trinity-free",
-      "temperature": 0.9,
-      "max_tokens": 2048
-    },
-    "code": {
-      "model": "qwen3-coder-free",
-      "temperature": 0.2,
-      "max_tokens": 8192
-    },
-    "social": {
-      "model": "trinity-free",
-      "temperature": 0.8,
-      "max_tokens": 1024
-    },
-    "sentiment": {
-      "model": "qwen3-mlx",
-      "temperature": 0.2,
-      "max_tokens": 256
-    }
-  }
-}
+schema_version: 4
+notes: 'SINGLE SOURCE OF TRUTH for all model definitions. To add a new model: (1) add entry here, (2) run scripts/generate_configs.py
+  to regenerate litellm-config.yaml. That''s it.'
+model_priority_order: local → free → paid. Use criteria.priority for the exact fallback chain. NEVER duplicate model names
+  in .md or .py files — reference this file.
+validation:
+  schema_version: 4
+  required_fields: [id, name, provider, tier, context_window]
+providers:
+  litellm:
+    baseUrl: http://litellm:4000/v1
+    apiKey: ${LITELLM_MASTER_KEY}
+    api: openai-completions
+
+# Routing (primary, fallbacks, timeouts)
+routing:
+  primary: litellm/kimi
+  bypass: false
+  tier_order: [local, free, paid]
+  timeout: 300
+  retries: 2
+  fallbacks: [litellm/kimi, litellm/qwen3-coder-free, litellm/qwen3-next-free, litellm/gpt-oss-free, litellm/trinity-free]
+
+# Task-to-Model Mapping (purpose-based resolution)
+tasks:
+  primary: kimi
+  primary_full: litellm/kimi
+  embedding: nomic-embed-text
+  summarization: kimi
+  memory_compression: kimi
+  conversation_summary: kimi
+  sentiment: qwen3-mlx
+  token_counting: kimi
+  moonshot_default: kimi
+  ollama_default: qwen3-mlx
+  local_fast: qwen3-mlx
+
+# Agent Aliases (human-friendly display names)
+agent_aliases:
+  litellm/qwen3-mlx: Qwen3.5 4B Instruct (MLX Local)
+  litellm/trinity-free: Trinity 400B (OpenRouter FREE)
+  litellm/qwen3-coder-free: Qwen3 Coder 480B (OpenRouter FREE)
+  litellm/qwen3-next-free: Qwen3 Next 235B (OpenRouter FREE)
+  litellm/gpt-oss-free: GPT-OSS 120B (OpenRouter FREE)
+  litellm/kimi: Kimi K2.5 (Moonshot Paid)
+
+# Model Definitions (full config per model)
+models:
+  qwen3-mlx:
+    provider: litellm
+    name: Qwen3.5 4B Instruct (MLX Local)
+    _note: 'ACTIVE: Qwen3.5-4B-MLX-4bit (2.9GB). Vision+text. Context: 128K. Old: Qwen3.5-9B'
+    reasoning: true
+    vision: true
+    input: [text, image]
+    cost:
+      input: 0
+      output: 0
+      cacheRead: 0
+      cacheWrite: 0
+    contextWindow: 131072
+    maxTokens: 8192
+    tier: local
+    routeSkill: litellm
+    litellm:
+      model: openai/mlx-community/Qwen3.5-4B-MLX-4bit
+      api_base: http://host.docker.internal:8080/v1
+      api_key: not-needed
+    provider_label: local/mlx
+    thinking_params:
+      extra_body:
+        enable_thinking: true
+  trinity-free:
+    provider: litellm
+    name: Trinity 400B MoE (OpenRouter FREE)
+    reasoning: true
+    tool_calling: true
+    input: [text]
+    cost:
+      input: 0
+      output: 0
+      cacheRead: 0
+      cacheWrite: 0
+    contextWindow: 131072
+    maxTokens: 8192
+    tier: free
+    routeSkill: litellm
+    litellm:
+      model: openrouter/arcee-ai/trinity-large-preview:free
+      api_key: os.environ/OPEN_ROUTER_KEY
+    provider_label: openrouter
+    thinking_params: {}
+  qwen3-coder-free:
+    provider: litellm
+    name: Qwen3 Coder 480B (OpenRouter FREE)
+    reasoning: true
+    input: [text]
+    cost:
+      input: 0
+      output: 0
+      cacheRead: 0
+      cacheWrite: 0
+    contextWindow: 262000
+    maxTokens: 8192
+    tier: free
+    routeSkill: litellm
+    litellm:
+      model: openrouter/qwen/qwen3-coder:free
+      api_key: os.environ/OPEN_ROUTER_KEY
+    provider_label: openrouter
+    thinking_params:
+      extra_body:
+        enable_thinking: true
+  qwen3-next-free:
+    provider: litellm
+    name: Qwen3 Next 235B (OpenRouter FREE)
+    reasoning: true
+    input: [text]
+    cost:
+      input: 0
+      output: 0
+      cacheRead: 0
+      cacheWrite: 0
+    contextWindow: 262000
+    maxTokens: 8192
+    tier: free
+    routeSkill: litellm
+    litellm:
+      model: openrouter/qwen/qwen3-next-80b-a3b-instruct:free
+      api_key: os.environ/OPEN_ROUTER_KEY
+    provider_label: openrouter
+    thinking_params:
+      extra_body:
+        enable_thinking: true
+  gpt-oss-free:
+    provider: litellm
+    name: GPT-OSS 120B (OpenRouter FREE)
+    reasoning: true
+    input: [text]
+    cost:
+      input: 0
+      output: 0
+      cacheRead: 0
+      cacheWrite: 0
+    contextWindow: 131000
+    maxTokens: 8192
+    tier: free
+    routeSkill: litellm
+    litellm:
+      model: openrouter/openai/gpt-oss-120b:free
+      api_key: os.environ/OPEN_ROUTER_KEY
+    provider_label: openrouter
+    thinking_params: {}
+  kimi:
+    provider: litellm
+    name: Kimi K2.5 (Moonshot Paid)
+    reasoning: true
+    input: [text]
+    cost:
+      input: 0.56
+      output: 2.94
+      cacheRead: 0.098
+      cacheWrite: 0
+    contextWindow: 256000
+    safe_prompt_tokens: 240000
+    maxTokens: 16384
+    tier: paid
+    routeSkill: litellm
+    litellm:
+      model: moonshot/kimi-k2.5
+      api_key: os.environ/MOONSHOT_KIMI_KEY
+      api_base: https://api.moonshot.ai/v1
+      temperature: 1
+    aliases: [kimi-k2.5, kimi-local]
+    provider_label: moonshot
+    thinking_params: {}
+  nomic-embed-text:
+    provider: litellm
+    name: Nomic Embed Text (Ollama Local)
+    type: embedding
+    reasoning: false
+    input: [text]
+    cost:
+      input: 0
+      output: 0
+      cacheRead: 0
+      cacheWrite: 0
+    dimensions: 768
+    contextWindow: 8192
+    maxTokens: 0
+    tier: local
+    routeSkill: litellm
+    purpose: semantic memory search
+    use_for: [embedding]
+    litellm:
+      model: ollama/nomic-embed-text
+      api_base: http://host.docker.internal:11434
+    provider_label: local/ollama
+    thinking_params: {}
+
+# Selection Criteria (priority, tiers, use-cases)
+criteria:
+  priority:
+  - kimi
+  - step-35-flash-free
+  - qwen3-next-free
+  - deepseek-free
+  - gpt-oss-free
+  - trinity-free
+  - chimera-free
+  tiers:
+    local: [qwen3-mlx, qwen-cpu-fallback, phi4-mini-local, qwen3-local, nomic-embed-text]
+    free:
+    - step-35-flash-free
+    - trinity-free
+    - solar-pro-3-free
+    - lfm-25-thinking-free
+    - lfm-25-instruct-free
+    - nemotron-free
+    - trinity-mini-free
+    - tng-r1t-chimera-free
+    - nemotron-nano-12b-v2-vl-free
+    - qwen3-next-free
+    - nemotron-nano-9b-v2-free
+    - gpt-oss-free
+    - gpt-oss-small-free
+    - glm-free
+    - qwen3-coder-free
+    - venice-dolphin-free
+    - gemma-3n-e2b-free
+    - chimera-free
+    - deepseek-free
+    - gemma-3n-e4b-free
+    paid: [kimi, kimi-k2-thinking]
+  use_cases:
+    code_generation: [qwen3-coder-free, gpt-oss-free]
+    complex_reasoning: [chimera-free, deepseek-free, kimi-k2-thinking]
+    creative_writing: [trinity-free]
+    long_context: [qwen3-next-free, nemotron-free, kimi]
+    fast_simple: [gpt-oss-small-free, kimi]
+    default: [step-35-flash-free]
+  focus_defaults:
+    orchestrator: step-35-flash-free
+    devsecops: qwen3-coder-free
+    data: chimera-free
+    trader: deepseek-free
+    creative: trinity-free
+    social: trinity-free
+    journalist: qwen3-next-free
+
+# Profiles (preset configs per task type)
+profiles:
+  routing:
+    model: step-35-flash-free
+    temperature: 0.3
+    max_tokens: 512
+  analysis:
+    model: step-35-flash-free
+    temperature: 0.7
+    max_tokens: 4096
+  creative:
+    model: trinity-free
+    temperature: 0.9
+    max_tokens: 2048
+  code:
+    model: qwen3-coder-free
+    temperature: 0.2
+    max_tokens: 8192
+  social:
+    model: trinity-free
+    temperature: 0.8
+    max_tokens: 1024
+  sentiment:
+    model: qwen3-mlx
+    temperature: 0.2
+    max_tokens: 256

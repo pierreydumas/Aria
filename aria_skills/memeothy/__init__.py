@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from aria_skills.api_client import get_api_client
 from aria_skills.base import BaseSkill, SkillConfig, SkillResult, SkillStatus
 from aria_skills.registry import SkillRegistry
 
@@ -107,6 +108,12 @@ class MemeothySkill(BaseSkill):
                     },
                 )
 
+        try:
+            self._activity_api = await get_api_client()
+        except Exception as e:
+            self.logger.info(f"API unavailable, memeothy activity logging disabled: {e}")
+            self._activity_api = None
+
         self._status = SkillStatus.AVAILABLE
         tag = "🔑 authenticated" if self._api_key else "⚠️ no api_key (run join first)"
         self.logger.info(f"🦞 Memeothy skill initialized ({tag})")
@@ -185,6 +192,11 @@ class MemeothySkill(BaseSkill):
             SkillResult with api_key and church welcome data.
         """
         if not self._client:
+            await self._persist_activity(
+                "memeothy_join",
+                {"agent_name": self._agent_name, "status": "unavailable", "reason": "httpx not available"},
+                success=False,
+            )
             return SkillResult.fail("httpx not available — cannot reach molt.church")
 
         proof = self._compute_proof(self._agent_name)
@@ -214,6 +226,12 @@ class MemeothySkill(BaseSkill):
                         },
                     )
                 self._log_usage("join", True)
+                await self._persist_activity("memeothy_join", {
+                    "agent_name": self._agent_name,
+                    "status": "initiated",
+                    "proof": proof,
+                    "response": data,
+                })
                 return SkillResult.ok({
                     "status": "initiated",
                     "api_key": api_key,
@@ -223,11 +241,23 @@ class MemeothySkill(BaseSkill):
                 })
             else:
                 self._log_usage("join", False)
+                await self._persist_activity("memeothy_join", {
+                    "agent_name": self._agent_name,
+                    "status": "failed",
+                    "proof": proof,
+                    "response": data,
+                }, success=False)
                 return SkillResult.fail(
                     f"Initiation failed ({resp.status_code}): {data}"
                 )
         except Exception as e:
             self._log_usage("join", False)
+            await self._persist_activity("memeothy_join", {
+                "agent_name": self._agent_name,
+                "status": "error",
+                "proof": proof,
+                "description": str(e),
+            }, success=False)
             return SkillResult.fail(f"join error: {e}")
 
     # ------------------------------------------------------------------
@@ -253,8 +283,18 @@ class MemeothySkill(BaseSkill):
         """
         client = self._auth_client or self._client
         if not client:
+            await self._persist_activity("memeothy_prophecy_submitted", {
+                "scripture_type": scripture_type,
+                "status": "unavailable",
+                "reason": "httpx not available",
+            }, success=False)
             return SkillResult.fail("httpx not available")
         if not self._api_key:
+            await self._persist_activity("memeothy_prophecy_submitted", {
+                "scripture_type": scripture_type,
+                "status": "unauthenticated",
+                "content": content[:200],
+            }, success=False)
             return SkillResult.fail("Not authenticated — run join() first")
 
         payload = {
@@ -268,6 +308,12 @@ class MemeothySkill(BaseSkill):
 
             if resp.status_code in (200, 201):
                 self._log_usage("submit_prophecy", True)
+                await self._persist_activity("memeothy_prophecy_submitted", {
+                    "content": content[:200],
+                    "scripture_type": scripture_type,
+                    "status": "accepted",
+                    "response": data,
+                })
                 return SkillResult.ok({
                     "status": "accepted",
                     "scripture_type": scripture_type,
@@ -275,11 +321,23 @@ class MemeothySkill(BaseSkill):
                 })
             else:
                 self._log_usage("submit_prophecy", False)
+                await self._persist_activity("memeothy_prophecy_submitted", {
+                    "content": content[:200],
+                    "scripture_type": scripture_type,
+                    "status": "rejected",
+                    "response": data,
+                }, success=False)
                 return SkillResult.fail(
                     f"Prophecy rejected ({resp.status_code}): {data}"
                 )
         except Exception as e:
             self._log_usage("submit_prophecy", False)
+            await self._persist_activity("memeothy_prophecy_submitted", {
+                "content": content[:200],
+                "scripture_type": scripture_type,
+                "status": "error",
+                "description": str(e),
+            }, success=False)
             return SkillResult.fail(f"prophecy error: {e}")
 
     # ------------------------------------------------------------------
@@ -307,6 +365,11 @@ class MemeothySkill(BaseSkill):
         """
         client = self._auth_client or self._client
         if not client:
+            await self._persist_activity("memeothy_art_submitted", {
+                "title": title,
+                "status": "unavailable",
+                "reason": "httpx not available",
+            }, success=False)
             return SkillResult.fail("httpx not available")
 
         payload = {
@@ -322,14 +385,32 @@ class MemeothySkill(BaseSkill):
 
             if resp.status_code in (200, 201):
                 self._log_usage("submit_art", True)
+                await self._persist_activity("memeothy_art_submitted", {
+                    "title": title,
+                    "description": description,
+                    "status": "gallery_added",
+                    "response": data,
+                })
                 return SkillResult.ok({"status": "gallery_added", "response": data})
             else:
                 self._log_usage("submit_art", False)
+                await self._persist_activity("memeothy_art_submitted", {
+                    "title": title,
+                    "description": description,
+                    "status": "failed",
+                    "response": data,
+                }, success=False)
                 return SkillResult.fail(
                     f"Art submission failed ({resp.status_code}): {data}"
                 )
         except Exception as e:
             self._log_usage("submit_art", False)
+            await self._persist_activity("memeothy_art_submitted", {
+                "title": title,
+                "description": description,
+                "status": "error",
+                "content": image_url,
+            }, success=False)
             return SkillResult.fail(f"art error: {e}")
 
     # ------------------------------------------------------------------
@@ -347,6 +428,10 @@ class MemeothySkill(BaseSkill):
             SkillResult with list of canon entries.
         """
         if not self._client:
+            await self._persist_activity("memeothy_canon_fetched", {
+                "status": "unavailable",
+                "reason": "httpx not available",
+            }, success=False)
             return SkillResult.fail("httpx not available")
 
         try:
@@ -356,15 +441,29 @@ class MemeothySkill(BaseSkill):
             if resp.status_code == 200:
                 entries = data if isinstance(data, list) else data.get("verses", data.get("canon", [data]))
                 self._log_usage("get_canon", True)
+                await self._persist_activity("memeothy_canon_fetched", {
+                    "status": "ok",
+                    "title": "Canon fetch",
+                    "description": f"Fetched {len(entries)} canon entries",
+                    "response": {"count": len(entries)},
+                })
                 return SkillResult.ok({
                     "count": len(entries),
                     "canon": entries[:limit],
                 })
             else:
                 self._log_usage("get_canon", False)
+                await self._persist_activity("memeothy_canon_fetched", {
+                    "status": "failed",
+                    "response": data,
+                }, success=False)
                 return SkillResult.fail(f"Canon fetch failed ({resp.status_code}): {data}")
         except Exception as e:
             self._log_usage("get_canon", False)
+            await self._persist_activity("memeothy_canon_fetched", {
+                "status": "error",
+                "description": str(e),
+            }, success=False)
             return SkillResult.fail(f"canon error: {e}")
 
     # ------------------------------------------------------------------
@@ -379,6 +478,10 @@ class MemeothySkill(BaseSkill):
             SkillResult with prophet list and stats.
         """
         if not self._client:
+            await self._persist_activity("memeothy_prophets_fetched", {
+                "status": "unavailable",
+                "reason": "httpx not available",
+            }, success=False)
             return SkillResult.fail("httpx not available")
 
         try:
@@ -388,17 +491,30 @@ class MemeothySkill(BaseSkill):
             if resp.status_code == 200:
                 prophets = data if isinstance(data, list) else data.get("prophets", [data])
                 self._log_usage("get_prophets", True)
+                await self._persist_activity("memeothy_prophets_fetched", {
+                    "status": "ok",
+                    "description": f"Fetched {len(prophets)} prophets",
+                    "response": {"count": len(prophets)},
+                })
                 return SkillResult.ok({
                     "count": len(prophets),
                     "prophets": prophets,
                 })
             else:
                 self._log_usage("get_prophets", False)
+                await self._persist_activity("memeothy_prophets_fetched", {
+                    "status": "failed",
+                    "response": data,
+                }, success=False)
                 return SkillResult.fail(
                     f"Prophets fetch failed ({resp.status_code}): {data}"
                 )
         except Exception as e:
             self._log_usage("get_prophets", False)
+            await self._persist_activity("memeothy_prophets_fetched", {
+                "status": "error",
+                "description": str(e),
+            }, success=False)
             return SkillResult.fail(f"prophets error: {e}")
 
     # ------------------------------------------------------------------
@@ -416,6 +532,10 @@ class MemeothySkill(BaseSkill):
             SkillResult with gallery entries.
         """
         if not self._client:
+            await self._persist_activity("memeothy_gallery_fetched", {
+                "status": "unavailable",
+                "reason": "httpx not available",
+            }, success=False)
             return SkillResult.fail("httpx not available")
 
         try:
@@ -425,17 +545,30 @@ class MemeothySkill(BaseSkill):
             if resp.status_code == 200:
                 gallery = data if isinstance(data, list) else data.get("art", data.get("gallery", [data]))
                 self._log_usage("get_gallery", True)
+                await self._persist_activity("memeothy_gallery_fetched", {
+                    "status": "ok",
+                    "description": f"Fetched {len(gallery)} gallery entries",
+                    "response": {"count": len(gallery)},
+                })
                 return SkillResult.ok({
                     "count": len(gallery),
                     "gallery": gallery[:limit],
                 })
             else:
                 self._log_usage("get_gallery", False)
+                await self._persist_activity("memeothy_gallery_fetched", {
+                    "status": "failed",
+                    "response": data,
+                }, success=False)
                 return SkillResult.fail(
                     f"Gallery fetch failed ({resp.status_code}): {data}"
                 )
         except Exception as e:
             self._log_usage("get_gallery", False)
+            await self._persist_activity("memeothy_gallery_fetched", {
+                "status": "error",
+                "description": str(e),
+            }, success=False)
             return SkillResult.fail(f"gallery error: {e}")
 
     # ------------------------------------------------------------------
@@ -475,4 +608,35 @@ class MemeothySkill(BaseSkill):
                 summary["canon_verses"] = "error"
 
         self._log_usage("status", True)
+        await self._persist_activity("memeothy_status_checked", {
+            "status": "ok",
+            "description": f"authenticated={summary['authenticated']}",
+            "response": summary,
+        })
         return SkillResult.ok(summary)
+
+    async def _persist_activity(
+        self,
+        action: str,
+        details: dict,
+        success: bool = True,
+        error_message: str | None = None,
+    ) -> None:
+        """Best-effort API persistence. Never blocks memeothy operations."""
+        if not getattr(self, "_activity_api", None):
+            return
+        try:
+            import asyncio
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.ensure_future(
+                    self._activity_api.create_activity(
+                        action=action,
+                        skill=self.name,
+                        details=details,
+                        success=success,
+                        error_message=error_message,
+                    )
+                )
+        except Exception:
+            self.logger.debug("Memeothy activity persistence skipped")

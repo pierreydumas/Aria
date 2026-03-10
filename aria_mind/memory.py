@@ -269,25 +269,41 @@ class MemoryManager:
                 except Exception as e:
                     self.logger.debug(f"LLM consolidation failed for {category}: {e}")
 
-            # Structured fallback
+            # Structured fallback — extract meaningful content, not raw telemetry
             if not summary:
-                unique_topics = set()
+                # Filter out raw JSON/method telemetry, keep human-readable content
+                meaningful = []
                 for c in contents:
-                    words = c.lower().split()[:5]
-                    unique_topics.add(" ".join(words))
+                    # Skip entries that are mostly JSON/method telemetry
+                    if c.startswith("{") or "'method':" in c or "'duration_ms':" in c:
+                        continue
+                    # Keep entries with real content (goals, deliverables, reflections)
+                    cleaned = c.strip()[:150]
+                    if len(cleaned) > 20:
+                        meaningful.append(cleaned)
 
-                summary = (
-                    f"{len(category_entries)} events in '{category}'. "
-                    f"Key topics: {', '.join(list(unique_topics)[:5])}"
-                )
+                if meaningful:
+                    summary = (
+                        f"{len(category_entries)} events in '{category}'. "
+                        f"Key content: {'; '.join(meaningful[:3])}"
+                    )
+                else:
+                    summary = (
+                        f"{len(category_entries)} events in '{category}' "
+                        f"(telemetry/operational data)."
+                    )
 
             summaries[category] = summary
 
-            # Detect patterns
-            if len(category_entries) > 5:
+            # Detect meaningful patterns — skip pure telemetry categories
+            _telemetry_categories = {
+                "browser.navigate", "goals.get_goal", "goals.list_goals",
+                "health_check", "heartbeat", "cron_execution",
+            }
+            if len(category_entries) > 5 and category not in _telemetry_categories:
                 lessons.append(
-                    f"High activity in '{category}' ({len(category_entries)} events) - "
-                    f"this is a recurring focus area."
+                    f"Significant focus on '{category}' ({len(category_entries)} events) — "
+                    f"worth reviewing for optimization or pattern extraction."
                 )
 
         # Store consolidated knowledge
@@ -421,6 +437,11 @@ class MemoryManager:
         "remember", "don't forget", "note", "remind",
         "goal", "objective", "milestone", "target",
         "najia", "user", "human", "preference", "like", "dislike",
+        # Work output signals — ensures real deliverables score high
+        "implemented", "created", "delivered", "built", "deployed",
+        "fixed", "resolved", "completed", "shipped", "wrote",
+        "skill", "pipeline", "schema", "router", "endpoint",
+        "progress", "achieved", "finished", "merged", "released",
     }
     
     # Patterns that suggest actionable items
@@ -457,23 +478,27 @@ class MemoryManager:
         action_matches = sum(1 for pat in self._ACTION_PATTERNS if pat in content_lower)
         score += min(0.2, action_matches * 0.1)
         
-        # 3. Category bonuses (up to 0.2 points)
+        # 3. Category bonuses (up to 0.25 points)
         category_scores = {
             "security": 0.2,
-            "goal": 0.15,
+            "goal": 0.2,
+            "goal_work": 0.25,
             "preference": 0.15,
             "error": 0.2,
             "critical": 0.2,
-            "user": 0.1,
+            "user": 0.15,
+            "deliverable": 0.25,
+            "work_cycle": 0.15,
+            "reflection": 0.15,
         }
         score += category_scores.get(category.lower(), 0.0)
         
-        # 4. Content length factor (optimal: 50-500 chars)
+        # 4. Content length factor (optimal: 30-800 chars)
         length = len(content)
-        if 50 <= length <= 500:
+        if 30 <= length <= 800:
             score += 0.1  # Sweet spot
-        elif length < 20 or length > 2000:
-            score -= 0.1  # Too short or too long
+        elif length < 15 or length > 3000:
+            score -= 0.05  # Too short or too long
         
         # 5. Exclamation marks (emotional weight, up to 0.1)
         exclamation_count = content.count("!")

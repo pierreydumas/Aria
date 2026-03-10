@@ -31,20 +31,30 @@ jobs:
       WORK_CYCLE CONTRACT (single pass, goal-required):
 
       1. Read HEARTBEAT.md work_cycle section via artifact (category=memory, filename=HEARTBEAT.md).
-      2. Get active_focus_level (default L2), active_goal_reference, last_review_summary.
+      2. Get active_focus_level (default L2), active_goal_reference, last_review_summary, last_cycle_summary.
       3. Resolve goal: use active_goal_reference if actionable, else fetch in_progress goals by focus level.
-      4. GOAL REQUIRED: If no goal found, check backlog and move one to doing. If backlog empty, CREATE a goal
+      4. PROGRESS CONTINUITY (MANDATORY): Read last_cycle_summary from working memory. If it has progress_after
+         for the current goal_id, use that as progress_before. If missing, read the most recent work_cycle_*.json
+         from aria_memories/logs/ for the same goal_id and use its progress_after. NEVER estimate progress from scratch.
+      5. GOAL REQUIRED: If no goal found, check backlog and move one to doing. If backlog empty, CREATE a goal
          from sprint tickets or exploration. If still no goal: write {"status":"idle","reason":"no_goals"} artifact and STOP.
          NEVER log status "success" without a goal_id.
-      5. Do ONE productive action toward the goal. PRODUCTIVE means: write/modify a file, execute a skill with output,
+      6. DEDUPLICATION CHECK: Read last_cycle_summary. If it describes the same deliverable you plan to create,
+         DO NOT recreate it. Instead: extend, test, integrate, or document what already exists.
+         Search aria_memories/logs/ for recent cycles with same goal_id to see what's been done.
+      7. Do ONE productive action toward the goal. PRODUCTIVE means: write/modify a file, execute a skill with output,
          draft content, research with written notes, or progress a sprint ticket.
          BANNED as "work": health_check, prune_stale_sessions, system status checks, or any action that only reads
          without producing output. If those are the only options, log status "idle" and stop.
-      6. Update goal progress using Progress Honesty Scale: read-only +5% max, write artifact +10-15%,
+      8. DELIVERABLE VERIFICATION: After writing any file, verify it exists at the path you claim.
+         If path is wrong, fix it. Never log a phantom path.
+      9. Update goal progress using Progress Honesty Scale: read-only +5% max, write artifact +10-15%,
          code change +15-25%, sprint ticket +25-50%. Health checks = 0%. Pruning 0 sessions = 0%.
-      7. Write artifact to aria_memories/logs/work_cycle_<YYYY-MM-DD_HHMM>.json with REQUIRED fields:
-         status, goal_id, goal_title, action, deliverable (type + path + description), progress_before, progress_after.
-      8. Refresh active_goal_reference. If goal >= 100%, mark complete and create next goal.
+      10. Write artifact to aria_memories/logs/work_cycle_<YYYY-MM-DD_HHMM>.json with REQUIRED fields:
+          status, goal_id, goal_title, action, deliverable (type + path + description), progress_before, progress_after.
+      11. Persist last_cycle_summary to working memory: {"goal_id", "goal_title", "progress_after",
+          "last_action", "last_deliverable_path", "last_deliverable_type", "timestamp"}.
+      12. Refresh active_goal_reference. If goal >= 100%, mark complete and create next goal.
       Constraints: max 10 tool calls, no loops, no sub-agents for control-plane, no repeated discovery calls.
       If API CB open: write degraded artifact and stop.
     agent: aria

@@ -270,6 +270,14 @@ class Heartbeat:
         # 2. Write surface memory (transient heartbeat state)
         await self._write_surface_memory()
 
+        # 2b. Feed beat summary into short-term memory for consolidation pipeline
+        if self._mind.memory:
+            health_str = "healthy" if self._health_status.get("all_healthy") else "unhealthy"
+            self._mind.memory.remember_short(
+                f"[heartbeat] Beat #{self._beat_count} — {health_str}",
+                category="heartbeat",
+            )
+
         # 3. Self-heal any failed subsystems
         for subsystem, healthy in self._subsystem_health.items():
             if not healthy:
@@ -628,6 +636,14 @@ class Heartbeat:
                 success=True,
             )
 
+            # ── Feed goal work into short-term memory for consolidation ──
+            if self._mind.memory:
+                self._mind.memory.remember_short(
+                    f"[goal_work] {goal.get('title', 'unknown')}: "
+                    f"{current_progress}% → {next_progress}% (focus={focus_level})",
+                    category="goal_work",
+                )
+
             seed_result = await api.seed_memories(limit=memory_seed_limit, skip_existing=True)
             if not seed_result.success:
                 self.logger.debug(f"Goal cycle memory seed skipped: {seed_result.error}")
@@ -724,6 +740,12 @@ class Heartbeat:
         try:
             reflection = await self._mind.cognition.reflect()
             self.logger.info(f"\U0001fa9e Reflection complete [focus={focus_level}] ({len(reflection)} chars)")
+            # Feed reflection into short-term memory for consolidation
+            if self._mind.memory and reflection:
+                self._mind.memory.remember_short(
+                    f"[reflection] {reflection[:300]}",
+                    category="reflection",
+                )
         except Exception as e:
             self.logger.debug(f"Reflection skipped: {e}")
 
@@ -801,8 +823,16 @@ class Heartbeat:
                                 continue
                             action = act.get("action", "unknown")
                             details = act.get("details", {})
-                            # Skip pure heartbeat/cron noise — only real work
-                            if action in ("heartbeat", "cron_execution"):
+                            # Skip noise: heartbeat, cron, browser telemetry, health checks
+                            _noise_actions = {
+                                "heartbeat", "cron_execution", "session_cleanup",
+                                "memory_consolidation", "db_maintenance", "memory_bridge",
+                                "skill.health_check", "health_check",
+                            }
+                            if action in _noise_actions:
+                                continue
+                            # Skip raw skill telemetry (browser.navigate, goals.get_goal, etc.)
+                            if "." in action and details.get("method"):
                                 continue
                             content = f"[{action}] "
                             if isinstance(details, dict):
@@ -917,7 +947,10 @@ class Heartbeat:
             self.logger.debug(f"Surface→Medium promotion skipped: {e}")
 
     async def _promote_medium_to_deep(self, consolidation_result: dict) -> None:
-        """Promote patterns from medium to deep memory when insights emerge."""
+        """Promote patterns from medium to deep memory when insights emerge.
+        
+        Deduplicates: only promotes lessons not already stored in deep/patterns/.
+        """
         if not self._mind.memory:
             return
 
@@ -926,16 +959,45 @@ class Heartbeat:
             return
 
         try:
+            # Dedup: read existing deep patterns to avoid storing the same lesson
+            existing_lessons: set[str] = set()
+            try:
+                pattern_files = self._mind.memory.list_artifacts(
+                    "deep", "patterns", pattern="patterns_*.json"
+                )
+                for pf in (pattern_files or [])[:5]:  # Check most recent 5 pattern files
+                    data = self._mind.memory.load_json_artifact(pf["name"], "deep", "patterns")
+                    if data.get("success") and data.get("data"):
+                        for existing in (data["data"].get("lessons") or []):
+                            # Normalize for comparison: lowercase, strip counts
+                            import re
+                            normalized = re.sub(r'\(\d+ events?\)', '', existing.lower()).strip()
+                            existing_lessons.add(normalized)
+            except Exception:
+                pass  # If dedup check fails, proceed anyway
+
+            # Filter to only new lessons
+            new_lessons = []
+            for lesson in lessons:
+                import re
+                normalized = re.sub(r'\(\d+ events?\)', '', lesson.lower()).strip()
+                if normalized not in existing_lessons:
+                    new_lessons.append(lesson)
+
+            if not new_lessons:
+                self.logger.debug("Medium→Deep: all lessons already stored, skipping")
+                return
+
             self._mind.memory.promote_to_deep(
                 {
-                    "lessons": lessons,
+                    "lessons": new_lessons,
                     "source": "heartbeat_consolidation",
                     "beat_number": self._beat_count,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 },
                 category="patterns",
             )
-            self.logger.info(f"🧬 Medium→Deep: {len(lessons)} patterns promoted")
+            self.logger.info(f"🧬 Medium→Deep: {len(new_lessons)} new patterns promoted (filtered {len(lessons) - len(new_lessons)} dupes)")
         except Exception as e:
             self.logger.debug(f"Medium→Deep promotion skipped: {e}")
     

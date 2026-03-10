@@ -399,45 +399,46 @@ class Roundtable:
             topic, round_number, context, len(agent_ids)
         )
 
-        # Run all agents in parallel using TaskGroup (structured concurrency)
-        turns: list[RoundtableTurn] = []
-        futures: dict[str, asyncio.Task[RoundtableTurn]] = {}
+        # Run all agents in parallel using TaskGroup (structured concurrency).
+        # Keep partial results from completed agents, but bound the entire
+        # collection task by round_timeout so persistence/callback work cannot
+        # stall the round indefinitely.
+        turns: list[RoundtableTurn | None] = [None] * len(agent_ids)
 
-        try:
-            async with asyncio.TaskGroup() as tg:
-                for agent_id in agent_ids:
-                    future = tg.create_task(
-                        asyncio.wait_for(
+        async with asyncio.TaskGroup() as tg:
+            for i, agent_id in enumerate(agent_ids):
+                async def _collect(
+                    idx: int = i, aid: str = agent_id,
+                ) -> None:
+                    try:
+                        turn = await asyncio.wait_for(
                             self._get_agent_response(
                                 session_id=session_id,
-                                agent_id=agent_id,
+                                agent_id=aid,
                                 prompt=prompt,
                                 round_number=round_number,
-                                timeout=agent_timeout,
+                                timeout=min(agent_timeout, round_timeout),
                             ),
                             timeout=round_timeout,
-                        ),
-                        name=f"round-{round_number}-{agent_id}",
-                    )
-                    futures[agent_id] = future
+                        )
+                        turns[idx] = turn
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "Agent %s timed out in round %d after %.2fs",
+                            aid, round_number, round_timeout,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "Agent %s response error in round %d: %s",
+                            aid, round_number, e,
+                        )
 
-            # Collect results from completed tasks
-            for agent_id, future in futures.items():
-                try:
-                    turns.append(future.result())
-                except Exception as e:
-                    logger.warning("Agent %s response error: %s", agent_id, e)
+                tg.create_task(
+                    _collect(),
+                    name=f"round-{round_number}-{agent_id}",
+                )
 
-        except* asyncio.TimeoutError:
-            logger.warning(
-                "Round %d timed out after %.0fs",
-                round_number,
-                round_timeout,
-            )
-
-        except* Exception as eg:
-            for exc in eg.exceptions:
-                logger.warning("Round %d agent error: %s", round_number, exc)
+        turns = [t for t in turns if t is not None]  # type: ignore[assignment]
 
         logger.debug(
             "Round %d: %d/%d responses",

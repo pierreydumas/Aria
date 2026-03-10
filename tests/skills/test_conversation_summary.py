@@ -148,7 +148,30 @@ async def test_summarize_topic_llm_failure():
     skill, mock_api, mock_llm = await _make_skill()
     mock_llm.chat_completion.return_value = SkillResult(success=False, error="LLM timeout")
     result = await skill.summarize_topic(topic="broken")
-    assert result.success is False
+    assert result.success is True
+    assert "Synthesized" in result.data.get("summary", "")
+
+
+@pytest.mark.asyncio
+async def test_summarize_topic_empty_content_uses_fallback_summary():
+    skill, mock_api, mock_llm = await _make_skill()
+    mock_llm.chat_completion.return_value = SkillResult(
+        success=True,
+        data={
+            "choices": [{
+                "message": {
+                    "content": "",
+                    "reasoning_content": "thinking only",
+                }
+            }]
+        },
+    )
+
+    result = await skill.summarize_topic(topic="memory architecture")
+
+    assert result.success is True
+    assert "Synthesized" in result.data.get("summary", "")
+    assert result.data.get("key_facts")
 
 
 # ---------------------------------------------------------------------------

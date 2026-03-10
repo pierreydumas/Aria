@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from aria_skills.api_client import get_api_client
 from aria_skills.base import BaseSkill, SkillConfig, SkillResult, SkillStatus, logged_method
 from aria_skills.registry import SkillRegistry
 
@@ -26,6 +27,7 @@ class ExperimentSkill(BaseSkill):
         super().__init__(config or SkillConfig(name="experiment"))
         self._experiments: dict[str, dict] = {}
         self._models: dict[str, dict] = {}
+        self._api = None
 
     @property
     def name(self) -> str:
@@ -44,6 +46,12 @@ class ExperimentSkill(BaseSkill):
                 self.logger.info(f"Loaded {len(self._experiments)} persisted experiments")
         except Exception as e:
             self.logger.warning(f"Could not load persisted experiments: {e}")
+
+        try:
+            self._api = await get_api_client()
+        except Exception as e:
+            self.logger.info(f"API unavailable, experiment activity logging disabled: {e}")
+            self._api = None
 
         self._status = SkillStatus.AVAILABLE
         self.logger.info("Experiment tracking skill initialized")
@@ -82,6 +90,14 @@ class ExperimentSkill(BaseSkill):
         }
         self._experiments[exp_id] = experiment
         self._persist(experiment)
+        await self._persist_activity("experiment_created", {
+            "experiment": experiment,
+            "experiment_id": exp_id,
+            "experiment_name": experiment["name"],
+            "hypothesis": experiment["hypothesis"],
+            "status": experiment["status"],
+            "description": experiment["description"],
+        })
         return SkillResult.ok({
             "experiment": experiment,
             "message": f"Experiment '{name}' created with ID {exp_id}",
@@ -110,6 +126,13 @@ class ExperimentSkill(BaseSkill):
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             })
         self._persist(exp)
+        await self._persist_activity("experiment_metrics_logged", {
+            "experiment_id": experiment_id,
+            "experiment_name": exp["name"],
+            "status": exp["status"],
+            "metrics": metrics,
+            "step": step,
+        })
         return SkillResult.ok({
             "experiment_id": experiment_id,
             "metrics_logged": list(metrics.keys()),
@@ -130,6 +153,13 @@ class ExperimentSkill(BaseSkill):
         exp["completed_at"] = datetime.now(timezone.utc).isoformat()
         exp["conclusion"] = conclusion or kwargs.get("conclusion", "")
         self._persist(exp)
+        await self._persist_activity("experiment_completed", {
+            "experiment": exp,
+            "experiment_id": experiment_id,
+            "experiment_name": exp["name"],
+            "status": exp["status"],
+            "conclusion": exp.get("conclusion", ""),
+        })
         return SkillResult.ok({
             "experiment": exp,
             "message": f"Experiment '{exp['name']}' completed",
@@ -191,6 +221,12 @@ class ExperimentSkill(BaseSkill):
             "metadata": metadata or kwargs.get("metadata", {}),
             "registered_at": datetime.now(timezone.utc).isoformat(),
         }
+        await self._persist_activity("experiment_model_registered", {
+            "model": self._models[model_id],
+            "experiment_id": self._models[model_id]["experiment_id"],
+            "experiment_name": self._experiments.get(self._models[model_id]["experiment_id"], {}).get("name"),
+            "status": self._models[model_id]["stage"],
+        })
         return SkillResult.ok({
             "model": self._models[model_id],
             "message": f"Model '{name}' registered (staging)",
@@ -206,7 +242,32 @@ class ExperimentSkill(BaseSkill):
             return SkillResult.fail(f"Model '{model_id}' not found")
         self._models[model_id]["stage"] = stage
         self._models[model_id]["promoted_at"] = datetime.now(timezone.utc).isoformat()
+        await self._persist_activity("experiment_model_promoted", {
+            "model": self._models[model_id],
+            "experiment_id": self._models[model_id].get("experiment_id"),
+            "experiment_name": self._experiments.get(self._models[model_id].get("experiment_id", ""), {}).get("name"),
+            "status": self._models[model_id]["stage"],
+        })
         return SkillResult.ok({
             "model": self._models[model_id],
             "message": f"Model promoted to {stage}",
         })
+
+    async def _persist_activity(self, action: str, details: dict, success: bool = True) -> None:
+        """Best-effort API persistence. Never blocks experiment execution."""
+        if not self._api:
+            return
+        try:
+            import asyncio
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.ensure_future(
+                    self._api.create_activity(
+                        action=action,
+                        skill=self.name,
+                        details=details,
+                        success=success,
+                    )
+                )
+        except Exception:
+            self.logger.debug("Experiment activity persistence skipped")

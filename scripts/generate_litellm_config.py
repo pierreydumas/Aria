@@ -30,9 +30,13 @@ LITELLM_CONFIG_PATH = REPO_ROOT / "stacks" / "brain" / "litellm-config.yaml"
 
 
 def _load_models_yaml(path: Path) -> dict:
-    """Load models.yaml (JSON despite the .yaml extension)."""
+    """Load models.yaml (JSON or YAML)."""
     content = path.read_text(encoding="utf-8")
-    return json.loads(content)
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        import yaml
+        return yaml.safe_load(content) or {}
 
 
 def _sha256(path: Path) -> str:

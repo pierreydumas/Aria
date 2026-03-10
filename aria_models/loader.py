@@ -27,6 +27,114 @@ def _load_yaml_or_json(path: Path) -> dict[str, Any]:
         return yaml.safe_load(content) or {}
 
 
+def _materialize_views(catalog: dict[str, Any]) -> dict[str, Any]:
+    """Derive v4-compatible aggregated views from v5 per-model tags.
+
+    Builds tasks, routing.fallbacks, agent_aliases, criteria (priority/tiers/
+    use_cases/focus_defaults), and profiles from inline model metadata so all
+    downstream consumers see the same shape as schema v4.
+    """
+    models = catalog.get("models", {})
+    if not models:
+        return catalog
+
+    # 1. tasks: model.tasks list → {task_name: model_id}
+    tasks: dict[str, str] = {}
+    for mid, m in models.items():
+        if not isinstance(m, dict):
+            continue
+        for t in m.get("tasks", []):
+            if t not in tasks:
+                tasks[t] = mid
+    primary = tasks.get("primary", "")
+    if primary:
+        tasks["primary_full"] = f"litellm/{primary}"
+    catalog["tasks"] = tasks
+
+    # 2. routing.fallbacks: sorted by fallback_order
+    fallbacks = [
+        (mid, m["fallback_order"])
+        for mid, m in models.items()
+        if isinstance(m, dict) and "fallback_order" in m
+    ]
+    fallbacks.sort(key=lambda x: x[1])
+    catalog.setdefault("routing", {})["fallbacks"] = [
+        f"litellm/{mid}" for mid, _ in fallbacks
+    ]
+
+    # 3. agent_aliases: model.alias → {litellm/<id>: alias}
+    catalog["agent_aliases"] = {
+        f"litellm/{mid}": m["alias"]
+        for mid, m in models.items()
+        if isinstance(m, dict) and m.get("alias")
+    }
+
+    # 4-7. criteria
+    criteria: dict[str, Any] = {}
+
+    # criteria.priority: models with explicit priority, sorted ascending
+    prioritized = [
+        (mid, m["priority"])
+        for mid, m in models.items()
+        if isinstance(m, dict) and "priority" in m
+    ]
+    prioritized.sort(key=lambda x: x[1])
+    criteria["priority"] = [mid for mid, _ in prioritized]
+
+    # criteria.tiers: group by tier, maintaining YAML insertion order
+    tiers: dict[str, list[str]] = {}
+    for mid, m in models.items():
+        if not isinstance(m, dict):
+            continue
+        tier = m.get("tier")
+        if tier:
+            tiers.setdefault(tier, []).append(mid)
+    criteria["tiers"] = tiers
+
+    # criteria.use_cases: invert model tags.
+    # tags can be a list (unordered) or dict {tag: rank} (rank-ordered).
+    use_cases_raw: dict[str, list[tuple[str, int]]] = {}
+    for mid, m in models.items():
+        if not isinstance(m, dict):
+            continue
+        tags = m.get("tags", {})
+        if isinstance(tags, list):
+            for tag in tags:
+                use_cases_raw.setdefault(tag, []).append((mid, 999))
+        elif isinstance(tags, dict):
+            for tag, rank in tags.items():
+                use_cases_raw.setdefault(tag, []).append((mid, rank))
+    use_cases: dict[str, list[str]] = {}
+    for tag, entries in use_cases_raw.items():
+        entries.sort(key=lambda x: x[1])
+        use_cases[tag] = [mid for mid, _ in entries]
+    criteria["use_cases"] = use_cases
+
+    # criteria.focus_defaults: invert model.focus_for (first model wins)
+    focus_defaults: dict[str, str] = {}
+    for mid, m in models.items():
+        if not isinstance(m, dict):
+            continue
+        for focus in m.get("focus_for", []):
+            if focus not in focus_defaults:
+                focus_defaults[focus] = mid
+    criteria["focus_defaults"] = focus_defaults
+
+    catalog["criteria"] = criteria
+
+    # 8. profiles: model.profiles → {profile_name: {model: id, ...params}}
+    profiles: dict[str, dict[str, Any]] = {}
+    for mid, m in models.items():
+        if not isinstance(m, dict):
+            continue
+        for pname, pconf in m.get("profiles", {}).items():
+            if pname not in profiles:
+                profiles[pname] = {"model": mid, **pconf}
+    catalog["profiles"] = profiles
+
+    return catalog
+
+
 def load_catalog(path: Path | None = None) -> dict[str, Any]:
     """Load the model catalog with 5-minute TTL cache.
 
@@ -46,6 +154,9 @@ def load_catalog(path: Path | None = None) -> dict[str, Any]:
     if not catalog_path.exists():
         return {}
     result = _load_yaml_or_json(catalog_path)
+    # v5+: materialize aggregated views from per-model tags
+    if result.get("schema_version", 0) >= 5:
+        result = _materialize_views(result)
     _cache[cache_key] = result
     _cache_timestamp = now
     return result
@@ -95,7 +206,8 @@ def validate_models(path: Path | None = None) -> list[str]:
         errors.append("'models' must be a dict")
         return errors
 
-    required_fields = {"provider", "contextWindow"}
+    is_v5 = catalog.get("schema_version", 0) >= 5
+    required_fields = {"tier"} if is_v5 else {"provider", "contextWindow"}
     for model_id, entry in models.items():
         if not isinstance(entry, dict):
             errors.append(f"Model '{model_id}': entry must be a dict")
@@ -207,6 +319,26 @@ def get_provider_label(model_id: str, catalog: dict[str, Any] | None = None) -> 
     if not entry:
         return "unknown"
     return entry.get("provider_label", entry.get("provider", "unknown"))
+
+
+def normalize_temperature(
+    model_id: str,
+    temperature: float | None,
+    catalog: dict[str, Any] | None = None,
+) -> float | None:
+    """Normalize temperature for provider-specific constraints.
+
+    Moonshot/Kimi currently rejects arbitrary temperatures on some routes and
+    only accepts ``1``. Normalize here so callers can share one rule instead
+    of each re-encoding provider quirks.
+    """
+    if temperature is None:
+        return None
+
+    if get_provider_label(model_id, catalog=catalog) == "moonshot":
+        return 1.0
+
+    return temperature
 
 
 def get_thinking_config(model_id: str, catalog: dict[str, Any] | None = None) -> dict[str, Any]:

@@ -449,7 +449,10 @@ class AgentManagerSkill(BaseSkill):
                 session_id, focus, persistent,
             )
 
-            # 2. Send the task as a message and get the LLM response
+            # 2. Send the task as a message and get the LLM response.
+            # Engine chat /messages triggers LLM inference + tool loops, which
+            # routinely takes 60-120s.  Use an extended timeout (180s) so the
+            # request isn't killed by the default 30s client timeout.
             msg_result = await self._api.post(
                 f"/engine/chat/sessions/{session_id}/messages",
                 data={
@@ -457,6 +460,7 @@ class AgentManagerSkill(BaseSkill):
                     "enable_thinking": False,
                     "enable_tools": bool(tools),
                 },
+                timeout=180,
             )
             if not msg_result or not msg_result.success:
                 err = msg_result.error if msg_result else "No response"
@@ -561,6 +565,7 @@ class AgentManagerSkill(BaseSkill):
                     "enable_thinking": False,
                     "enable_tools": enable_tools,
                 },
+                timeout=180,
             )
             if not msg_result or not msg_result.success:
                 err = msg_result.error if msg_result else "No response"

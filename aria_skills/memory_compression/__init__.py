@@ -24,10 +24,18 @@ from aria_skills.registry import SkillRegistry
 
 # Load default compression model from models.yaml (single source of truth)
 try:
-    from aria_models.loader import get_primary_model as _get_primary
+    from aria_models.loader import (
+        get_primary_model as _get_primary,
+        get_task_model as _get_task_model,
+        normalize_temperature as _normalize_temperature,
+    )
     _DEFAULT_COMPRESSION_MODEL = _get_primary()
 except Exception:
     _DEFAULT_COMPRESSION_MODEL = ""
+    def _get_task_model(task: str) -> str:
+        return ""
+    def _normalize_temperature(model_id: str, temperature: float | None) -> float | None:
+        return temperature
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -57,6 +65,26 @@ class MemoryEntry:
             importance_score=float(d.get("importance_score", d.get("importance", 0.5))),
             metadata=d.get("metadata", {}),
         )
+
+
+def _extract_message_text(message: dict[str, Any] | None) -> str:
+    if not isinstance(message, dict):
+        return ""
+
+    content = message.get("content")
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text")
+                if isinstance(text, str) and text:
+                    parts.append(text)
+        return "".join(parts).strip()
+    return ""
 
 
 @dataclass
@@ -220,16 +248,40 @@ class MemoryCompressor:
         )
 
         prompt = instruction + "\n\nMemories:\n" + "\n".join(f"- {c}" for c in contents[:20])
+        fallback_model = _get_task_model("local_fast") or _get_primary()
+        candidate_models = [_DEFAULT_COMPRESSION_MODEL or fallback_model]
+        if fallback_model not in candidate_models:
+            candidate_models.append(fallback_model)
 
         async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(
-                f"{litellm_url}/v1/chat/completions",
-                json={"model": _DEFAULT_COMPRESSION_MODEL, "messages": [{"role": "user", "content": prompt}],
-                      "max_tokens": 500, "temperature": 0.3},
-                headers={"Authorization": f"Bearer {litellm_key}"},
-            )
-            resp.raise_for_status()
-            raw = resp.json()["choices"][0]["message"]["content"]
+            raw = ""
+            last_error: Exception | None = None
+            for candidate_model in candidate_models:
+                try:
+                    resp = await client.post(
+                        f"{litellm_url}/v1/chat/completions",
+                        json={
+                            "model": candidate_model,
+                            "messages": [{"role": "user", "content": prompt}],
+                            "max_tokens": 1500,
+                            "temperature": _normalize_temperature(candidate_model, 0.3),
+                        },
+                        headers={"Authorization": f"Bearer {litellm_key}"},
+                    )
+                    resp.raise_for_status()
+                    message = resp.json().get("choices", [{}])[0].get("message", {})
+                    raw = _extract_message_text(message)
+                    if raw:
+                        break
+                    last_error = ValueError(
+                        f"{candidate_model} returned empty content"
+                    )
+                except Exception as exc:
+                    last_error = exc
+
+            if not raw:
+                raise last_error or ValueError("empty compression summary response")
+
             json_match = re.search(r"\{[^{}]*\}", raw, re.DOTALL)
             if json_match:
                 parsed = json.loads(json_match.group())

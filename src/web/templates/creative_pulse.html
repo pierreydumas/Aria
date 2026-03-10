@@ -32,7 +32,7 @@
     .detail-row { display: none; }
     .detail-row.open { display: table-row; }
     .detail-cell { background: rgba(0, 0, 0, 0.15); padding: 12px !important; }
-    .detail-grid { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px; }
+    .detail-grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap:12px; }
     .detail-block { border:1px solid var(--border-color); border-radius:8px; padding:10px; background: var(--bg-tertiary); }
     .detail-block h5 { margin:0 0 8px; font-size:11px; text-transform: uppercase; color: var(--text-muted); }
     .detail-pre { margin:0; font-size:11px; color:var(--text-secondary); white-space:pre-wrap; word-break: break-word; max-height: 160px; overflow: auto; }
@@ -40,11 +40,12 @@
     .status-pill.ok { background: rgba(34,197,94,0.2); color: var(--success); }
     .status-pill.err { background: rgba(239,68,68,0.2); color: var(--danger); }
     .sync-meta { margin-left:auto; font-size:12px; color:var(--text-muted); }
-    .insight-grid { display:grid; grid-template-columns: 1fr 1fr; gap:18px; margin-bottom:20px; }
+    .insight-grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(240px,1fr)); gap:18px; margin-bottom:20px; }
     .insight-card { background: var(--bg-secondary); border:1px solid var(--border-color); border-radius:12px; padding:16px; min-height:140px; }
     .insight-card h4 { margin:0 0 10px; font-size:13px; color:var(--text-secondary); }
     .insight-main { font-weight:600; color:var(--text-primary); margin-bottom:8px; }
     .insight-meta { font-size:12px; color:var(--text-muted); margin-top:6px; }
+    .merge-note { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
     .context-chip { display:inline-block; font-size:11px; margin:2px 4px 0 0; padding:2px 8px; border-radius:10px; border:1px solid var(--border-color); color:var(--text-secondary); }
     @media (max-width: 900px) {
         .chart-grid, .insight-grid { grid-template-columns: 1fr; }
@@ -74,7 +75,7 @@
 </div>
 
 <div class="stats-grid">
-    <div class="stat-card"><h4>Creative Skill Events</h4><div id="stat-creative" class="value">-</div></div>
+    <div class="stat-card"><h4>Creative Actions</h4><div id="stat-creative" class="value">-</div></div>
     <div class="stat-card"><h4>Creative Success</h4><div id="stat-creative-success" class="value">-</div></div>
     <div class="stat-card"><h4>Creative Fail</h4><div id="stat-creative-fail" class="value">-</div></div>
     <div class="stat-card"><h4>Creative Success Rate</h4><div id="stat-creative-rate" class="value">-</div></div>
@@ -90,6 +91,21 @@
         <h4>🧪 Current Experiment Focus</h4>
         <div id="insight-experiment-main" class="insight-main">No experiment context yet.</div>
         <div id="insight-experiment-meta" class="insight-meta">Run `experiment.create_experiment` to populate this card.</div>
+    </div>
+    <div class="insight-card">
+        <h4>🌐 Current Community Focus</h4>
+        <div id="insight-community-main" class="insight-main">No community context yet.</div>
+        <div id="insight-community-meta" class="insight-meta">Run `community.track_member`, `community.record_engagement`, or `community.create_campaign` to populate this card.</div>
+    </div>
+    <div class="insight-card">
+        <h4>🔎 Current Fact-Check Focus</h4>
+        <div id="insight-fact-check-main" class="insight-main">No fact-check context yet.</div>
+        <div id="insight-fact-check-meta" class="insight-meta">Run `fact_check.extract_claims`, `fact_check.quick_check`, or `fact_check.assess_claim` to populate this card.</div>
+    </div>
+    <div class="insight-card">
+        <h4>🦞 Current Memeothy Focus</h4>
+        <div id="insight-memeothy-main" class="insight-main">No memeothy context yet.</div>
+        <div id="insight-memeothy-meta" class="insight-meta">Run `memeothy.submit_prophecy`, `memeothy.submit_art`, or `memeothy.join` to populate this card.</div>
     </div>
 </div>
 
@@ -160,9 +176,16 @@ function formatContextChips(details) {
     const chips = [];
 
     if (context.topic) chips.push(`<span class="context-chip">topic: ${esc(context.topic).slice(0, 50)}</span>`);
+    if (context.idea) chips.push(`<span class="context-chip">idea: ${esc(context.idea).slice(0, 50)}</span>`);
     if (context.experiment_name) chips.push(`<span class="context-chip">experiment: ${esc(context.experiment_name).slice(0, 40)}</span>`);
     if (context.hypothesis) chips.push(`<span class="context-chip">hypothesis: ${esc(context.hypothesis).slice(0, 46)}</span>`);
     if (context.claim) chips.push(`<span class="context-chip">claim: ${esc(context.claim).slice(0, 46)}</span>`);
+    if (context.campaign_name) chips.push(`<span class="context-chip">campaign: ${esc(context.campaign_name).slice(0, 40)}</span>`);
+    if (context.member_name) chips.push(`<span class="context-chip">member: ${esc(context.member_name).slice(0, 32)}</span>`);
+    if (context.engagement_action) chips.push(`<span class="context-chip">engagement: ${esc(context.engagement_action).slice(0, 24)}</span>`);
+    if (context.scripture_type) chips.push(`<span class="context-chip">scripture: ${esc(context.scripture_type).slice(0, 24)}</span>`);
+    if (context.verdict) chips.push(`<span class="context-chip">verdict: ${esc(context.verdict).slice(0, 24)}</span>`);
+    if (context.status) chips.push(`<span class="context-chip">status: ${esc(context.status).slice(0, 24)}</span>`);
     if (details.duration_ms != null) chips.push(`<span class="context-chip">${esc(details.duration_ms)}ms</span>`);
 
     return chips.length ? chips.join('') : '-';
@@ -172,11 +195,31 @@ function renderInsights(creative) {
     const insights = creative?.insights || {};
     const brainstorm = insights.latest_brainstorm || null;
     const experiment = insights.latest_experiment || null;
+    const community = insights.latest_community || null;
+    const factCheck = insights.latest_fact_check || null;
+    const memeothy = insights.latest_memeothy || null;
 
     const brainstormMain = document.getElementById('insight-brainstorm-main');
     const brainstormMeta = document.getElementById('insight-brainstorm-meta');
     const experimentMain = document.getElementById('insight-experiment-main');
     const experimentMeta = document.getElementById('insight-experiment-meta');
+
+    function renderGenericInsight(prefix, insight, emptyMain, emptyMeta) {
+        const mainEl = document.getElementById(`insight-${prefix}-main`);
+        const metaEl = document.getElementById(`insight-${prefix}-meta`);
+        if (!mainEl || !metaEl) return;
+
+        if (insight && insight.main) {
+            mainEl.textContent = insight.main;
+            const metaParts = [];
+            if (insight.meta) metaParts.push(insight.meta);
+            if (insight.created_at) metaParts.push(new Date(insight.created_at).toLocaleString());
+            metaEl.textContent = metaParts.filter(Boolean).join(' · ');
+        } else {
+            mainEl.textContent = emptyMain;
+            metaEl.textContent = emptyMeta;
+        }
+    }
 
     if (brainstorm && brainstorm.topic) {
         brainstormMain.textContent = brainstorm.topic;
@@ -195,6 +238,25 @@ function renderInsights(creative) {
         experimentMain.textContent = 'No experiment context yet.';
         experimentMeta.textContent = 'Run experiment.create_experiment to populate this card.';
     }
+
+    renderGenericInsight(
+        'community',
+        community,
+        'No community context yet.',
+        'Run community.track_member, community.record_engagement, or community.create_campaign to populate this card.'
+    );
+    renderGenericInsight(
+        'fact-check',
+        factCheck,
+        'No fact-check context yet.',
+        'Run fact_check.extract_claims, fact_check.quick_check, or fact_check.assess_claim to populate this card.'
+    );
+    renderGenericInsight(
+        'memeothy',
+        memeothy,
+        'No memeothy context yet.',
+        'Run memeothy.submit_prophecy, memeothy.submit_art, or memeothy.join to populate this card.'
+    );
 }
 
 function renderRecent(rows) {
@@ -213,6 +275,8 @@ function renderRecent(rows) {
         const argsPreview = esc(details.args_preview || '-');
         const resultPreview = esc(details.result_preview || '-');
         const creativeContext = esc(JSON.stringify(details.creative_context || {}, null, 2));
+        const rawActions = esc((row.raw_actions || []).join('\n') || '-');
+        const mergeNote = row.duplicate_count > 1 ? `<span class="merge-note">Merged ${esc(row.duplicate_count)} events</span>` : '';
         return `<tr>
             <td>${esc(time)}</td>
             <td>${esc(row.action || '-')}</td>
@@ -222,7 +286,10 @@ function renderRecent(rows) {
             <td>
                 <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
                     <span>${esc((row.description || '').slice(0, 180))}</span>
-                    <button class="expand-btn" data-detail-id="${detailsId}" onclick="toggleDetailRow(this)">Details</button>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        ${mergeNote}
+                        <button class="expand-btn" data-detail-id="${detailsId}" onclick="toggleDetailRow(this)">Details</button>
+                    </div>
                 </div>
             </td>
         </tr>
@@ -240,6 +307,10 @@ function renderRecent(rows) {
                     <div class="detail-block">
                         <h5>Creative Context</h5>
                         <pre class="detail-pre">${creativeContext}</pre>
+                    </div>
+                    <div class="detail-block">
+                        <h5>Merged Actions</h5>
+                        <pre class="detail-pre">${rawActions}</pre>
                     </div>
                 </div>
             </td>
@@ -309,9 +380,9 @@ async function loadCreativePulse() {
     const creative = data.creative || {};
     const creativeRecent = creative.recent || [];
     const creativeTotal = creative.total || 0;
-    const creativeSuccess = creativeRecent.filter(x => x && x.success).length;
-    const creativeFail = Math.max(0, creativeTotal - creativeSuccess);
-    const creativeRate = creativeTotal ? (creativeSuccess * 100 / creativeTotal) : 0;
+    const creativeSuccess = creative.success ?? creativeRecent.filter(x => x && x.success).length;
+    const creativeFail = creative.fail ?? Math.max(0, creativeTotal - creativeSuccess);
+    const creativeRate = creative.success_rate ?? (creativeTotal ? (creativeSuccess * 100 / creativeTotal) : 0);
 
     document.getElementById('stat-creative').textContent = formatNumber(creativeTotal);
     document.getElementById('stat-creative-success').textContent = formatNumber(creativeSuccess);

@@ -300,46 +300,53 @@ class SwarmOrchestrator:
             topic, iteration, trail, len(agent_ids)
         )
 
-        votes: list[SwarmVote] = []
-        futures: dict[str, asyncio.Task] = {}
+        # Collect results INSIDE each task so a single agent failure never
+        # discards votes from agents that already completed, while keeping a
+        # hard cap around the full task (model call + persistence).
+        votes: list[SwarmVote | None] = [None] * len(agent_ids)
 
-        try:
-            async with asyncio.TaskGroup() as tg:
-                for agent_id in agent_ids:
-                    future = tg.create_task(
-                        asyncio.wait_for(
+        async with asyncio.TaskGroup() as tg:
+            for i, agent_id in enumerate(agent_ids):
+                async def _collect(
+                    idx: int = i, aid: str = agent_id,
+                ) -> None:
+                    try:
+                        vote = await asyncio.wait_for(
                             self._get_agent_vote(
                                 session_id=session_id,
-                                agent_id=agent_id,
+                                agent_id=aid,
                                 prompt=prompt,
                                 iteration=iteration,
-                                timeout=agent_timeout,
+                                timeout=min(agent_timeout, round_timeout),
                             ),
                             timeout=round_timeout,
-                        ),
-                        name=f"swarm-{iteration}-{agent_id}",
-                    )
-                    futures[agent_id] = future
+                        )
+                        votes[idx] = vote
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "Agent %s timed out in swarm iteration %d after %.2fs",
+                            aid, iteration, round_timeout,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "Agent %s vote error in iteration %d: %s",
+                            aid, iteration, e,
+                        )
 
-            for agent_id, future in futures.items():
+                tg.create_task(
+                    _collect(),
+                    name=f"swarm-{iteration}-{agent_id}",
+                )
+
+        ordered_votes = [v for v in votes if v is not None]
+        if on_vote is not None:
+            for vote in ordered_votes:
                 try:
-                    vote = future.result()
-                    votes.append(vote)
-                    if on_vote is not None:
-                        try:
-                            await on_vote(vote)
-                        except Exception as e:
-                            logger.exception("on_vote callback failed for agent")
-                except Exception as e:
-                    logger.warning("Agent %s vote error: %s", agent_id, e)
+                    await on_vote(vote)
+                except Exception:
+                    logger.exception("on_vote callback failed for agent")
 
-        except* asyncio.TimeoutError:
-            logger.warning("Swarm iteration %d timed out", iteration)
-        except* Exception as eg:
-            for exc in eg.exceptions:
-                logger.warning("Swarm iteration %d error: %s", iteration, exc)
-
-        return votes
+        return ordered_votes
 
     async def _get_agent_vote(
         self,
