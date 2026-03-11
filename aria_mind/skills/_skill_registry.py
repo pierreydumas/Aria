@@ -108,8 +108,9 @@ SKILL_REGISTRY = {
         "aria_skills.litellm",
         "LiteLLMSkill",
         lambda: {
-            "litellm_url": os.environ.get("LITELLM_URL", "http://litellm:4000"),
-            "api_key": os.environ.get("LITELLM_API_KEY", "sk-aria"),
+            "proxy_url": os.environ.get("LITELLM_URL", "http://litellm:4000"),
+            # Prefer explicit API key, fallback to master key; avoid hardcoded dummy key.
+            "api_key": os.environ.get("LITELLM_API_KEY") or os.environ.get("LITELLM_MASTER_KEY", ""),
         },
     ),
     "model_switcher": (

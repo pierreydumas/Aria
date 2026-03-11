@@ -12,7 +12,7 @@ Replaces aria_skills/session_manager with direct DB access:
 - Agent-scoped queries via agent_id parameter
 """
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -1210,9 +1210,7 @@ class NativeSessionManager:
         async with self._async_session() as session:
             async with session.begin():
                 if older_than_minutes > 0:
-                    cutoff = func.now() - func.make_interval(
-                        0, 0, 0, 0, older_than_minutes
-                    )
+                    cutoff = datetime.now(timezone.utc) - timedelta(minutes=older_than_minutes)
                     where_clause = and_(
                         EngineChatSession.message_count == 0,
                         EngineChatSession.created_at < cutoff,

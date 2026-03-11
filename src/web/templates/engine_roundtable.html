@@ -356,6 +356,39 @@
         white-space: pre-wrap;
     }
 
+    .chunk-notice {
+        background: rgba(245, 158, 11, 0.08);
+        border: 1px solid #f59e0b55;
+        border-radius: 12px;
+        padding: 1rem 1.25rem;
+        margin-bottom: 1rem;
+    }
+    .chunk-notice[data-kind="swarm_consensus"] {
+        background: rgba(14, 165, 233, 0.08);
+        border-color: #0ea5e955;
+    }
+    .chunk-notice h4 {
+        color: #f59e0b;
+        margin-bottom: 0.35rem;
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+    }
+    .chunk-notice[data-kind="swarm_consensus"] h4 {
+        color: #38bdf8;
+    }
+    .chunk-notice .content {
+        font-size: 0.86rem;
+        color: var(--text-secondary);
+        line-height: 1.5;
+        white-space: pre-wrap;
+    }
+    .chunk-notice .meta {
+        margin-top: 0.4rem;
+        font-size: 0.75rem;
+        color: var(--text-muted);
+    }
+
     .legend {
         display: flex;
         gap: 0.75rem;
@@ -524,6 +557,12 @@
             </div>
         </div>
 
+        <div id="chunk-notice-box" class="chunk-notice" style="display:none;">
+            <h4 id="chunk-notice-title">🧩 Chunked Synthesis Mode</h4>
+            <div class="content" id="chunk-notice-text"></div>
+            <div class="meta" id="chunk-notice-meta"></div>
+        </div>
+
         <!-- Graph Visualization -->
         <div class="legend" id="agent-legend"></div>
         <div class="graph-container">
@@ -640,6 +679,39 @@ function fmtDate(iso) {
 function safeNumber(value, fallback = 0) {
     const n = Number(value);
     return Number.isFinite(n) ? n : fallback;
+}
+
+function renderChunkNotice(rt) {
+    const box = document.getElementById('chunk-notice-box');
+    const titleEl = document.getElementById('chunk-notice-title');
+    const textEl = document.getElementById('chunk-notice-text');
+    const metaEl = document.getElementById('chunk-notice-meta');
+
+    const kind = String(rt?.chunk_kind || '');
+    const chunked = Boolean(rt?.chunked_mode);
+    const chunkCount = Math.max(0, Math.round(safeNumber(rt?.chunk_count, 0)));
+
+    if (!chunked) {
+        box.style.display = 'none';
+        box.dataset.kind = '';
+        textEl.textContent = '';
+        metaEl.textContent = '';
+        return;
+    }
+
+    const isSwarmChunk = kind === 'swarm_consensus' || rt?._mode === 'swarm' || rt?.consensus_score != null;
+    const defaultText = isSwarmChunk
+        ? 'Large swarm vote trail was summarized into compact chunks before consensus generation.'
+        : 'Large roundtable context was summarized into compact chunks before synthesis generation.';
+    const noticeText = String(rt?.chunk_notice || '').trim() || defaultText;
+
+    titleEl.textContent = isSwarmChunk ? '🐝 Chunked Consensus Mode' : '🧩 Chunked Synthesis Mode';
+    textEl.textContent = noticeText;
+    metaEl.textContent = chunkCount > 0
+        ? `Chunks used: ${chunkCount}`
+        : 'Chunks used: adaptive';
+    box.dataset.kind = isSwarmChunk ? 'swarm_consensus' : 'roundtable_synthesis';
+    box.style.display = 'block';
 }
 
 function setHistoryFilter(filter) {
@@ -828,6 +900,8 @@ function renderRoundtableDetail(rt) {
     } else {
         consensusBox.style.display = 'none';
     }
+
+    renderChunkNotice(rt);
 
     // Legend
     const legendDiv = document.getElementById('agent-legend');

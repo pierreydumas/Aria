@@ -15,6 +15,8 @@ from sqlalchemy import delete, select, update, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aria_engine.scheduler import parse_schedule
+
 from config import ARIA_JOBS_PATH
 from db.models import (
     ApiKeyRotation,
@@ -49,6 +51,126 @@ NON_PERSISTENT_HEARTBEAT_JOB_PREFIXES = (
     "route-audit-heartbeat",
     "api-client-audit-heartbeat",
 )
+
+
+def _is_success_status(status: str | None) -> bool:
+    normalized = (status or "").strip().lower()
+    return normalized in {"ok", "success", "completed", "healthy", "active"}
+
+
+def _is_error_status(status: str | None) -> bool:
+    normalized = (status or "").strip().lower()
+    return normalized in {"error", "failed", "fail", "unhealthy"}
+
+
+def _normalize_job_status(
+    status: str | None,
+    last_run_at: datetime | None,
+    max_duration_seconds: int | None,
+) -> str | None:
+    """Normalize scheduler status and downgrade stale `running` markers.
+
+    If a job is still marked as running well past its max duration,
+    expose it as an error status in the operations UI.
+    """
+    if status is None:
+        return None
+    normalized = str(status).strip().lower()
+    if normalized != "running":
+        return normalized
+
+    if last_run_at is None:
+        return "error"
+
+    now = datetime.now(timezone.utc)
+    run_at = (
+        last_run_at if last_run_at.tzinfo is not None
+        else last_run_at.replace(tzinfo=timezone.utc)
+    )
+    elapsed = (now - run_at).total_seconds()
+    timeout = max(int(max_duration_seconds or 300), 30)
+    # Small grace to avoid flipping status during normal completion lag.
+    if elapsed > (timeout + 15):
+        return "error"
+    return "running"
+
+
+def _compute_next_run_at(
+    schedule_expr: str | None,
+    last_run_at: datetime | None = None,
+    now: datetime | None = None,
+) -> datetime | None:
+    """Compute next fire time from cron/interval expression.
+
+    `EngineCronJob.next_run_at` is not currently persisted by the scheduler,
+    so operations views derive next run at read-time.
+    """
+    if not schedule_expr:
+        return None
+    expr = str(schedule_expr).strip().lower()
+    now_utc = now or datetime.now(timezone.utc)
+    if now_utc.tzinfo is None:
+        now_utc = now_utc.replace(tzinfo=timezone.utc)
+
+    interval_delta: timedelta | None = None
+    if expr.endswith("m") and expr[:-1].isdigit():
+        minutes = int(expr[:-1])
+        if minutes <= 0:
+            return now_utc
+        interval_delta = timedelta(minutes=minutes)
+    elif expr.endswith("h") and expr[:-1].isdigit():
+        hours = int(expr[:-1])
+        if hours <= 0:
+            return now_utc
+        interval_delta = timedelta(hours=hours)
+    elif expr.endswith("s") and expr[:-1].isdigit():
+        seconds = int(expr[:-1])
+        if seconds <= 0:
+            return now_utc
+        interval_delta = timedelta(seconds=seconds)
+
+    if interval_delta is not None:
+        if last_run_at is None:
+            return now_utc + interval_delta
+
+        anchor = (
+            last_run_at
+            if last_run_at.tzinfo is not None
+            else last_run_at.replace(tzinfo=timezone.utc)
+        )
+        if anchor > now_utc:
+            return anchor + interval_delta
+
+        elapsed = now_utc - anchor
+        elapsed_intervals = int(elapsed // interval_delta)
+        return anchor + interval_delta * (elapsed_intervals + 1)
+
+    try:
+        trigger = parse_schedule(str(schedule_expr))
+    except Exception:
+        return None
+
+    # APScheduler v4 trigger API
+    try:
+        next_dt = trigger.next()  # type: ignore[attr-defined]
+        if next_dt is not None:
+            if next_dt.tzinfo is None:
+                return next_dt.replace(tzinfo=timezone.utc)
+            return next_dt
+    except Exception:
+        pass
+
+    # APScheduler v3-compatible fallback
+    try:
+        next_dt = trigger.get_next_fire_time(None, now_utc)  # type: ignore[attr-defined]
+        if next_dt is not None:
+            if next_dt.tzinfo is None:
+                return next_dt.replace(tzinfo=timezone.utc)
+            return next_dt
+    except Exception:
+        return None
+
+    return None
 
 
 def _normalize_task_status(status: str | None) -> str | None:
@@ -433,29 +555,63 @@ async def manual_tick(db: AsyncSession = Depends(get_db)):
     latest_run = None
 
     for job in jobs:
-        if job.last_status == "ok":
+        normalized_status = _normalize_job_status(
+            job.last_status,
+            job.last_run_at,
+            job.max_duration_seconds,
+        )
+        if _is_success_status(normalized_status):
             jobs_successful += 1
-        elif job.last_status == "error":
+        elif _is_error_status(normalized_status):
             jobs_failed += 1
         if job.last_run_at:
             if latest_run is None or job.last_run_at > latest_run:
                 latest_run = job.last_run_at
                 last_job_name = job.name
-                last_job_status = job.last_status
-        if job.next_run_at:
-            if next_job_at is None or job.next_run_at < next_job_at:
-                next_job_at = job.next_run_at
+                last_job_status = normalized_status
+
+        computed_next_run = (
+            _compute_next_run_at(job.schedule, job.last_run_at)
+            if job.enabled
+            else None
+        )
+        if computed_next_run:
+            if next_job_at is None or computed_next_run < next_job_at:
+                next_job_at = computed_next_run
 
     now = datetime.now(timezone.utc)
-    await db.execute(
-        update(ScheduleTick).where(ScheduleTick.id == 1).values(
-            last_tick=now, tick_count=ScheduleTick.tick_count + 1,
-            jobs_total=jobs_total, jobs_successful=jobs_successful,
-            jobs_failed=jobs_failed, last_job_name=last_job_name,
-            last_job_status=last_job_status, next_job_at=next_job_at,
+    upsert_stmt = (
+        pg_insert(ScheduleTick)
+        .values(
+            id=1,
+            last_tick=now,
+            tick_count=1,
+            heartbeat_interval=3600,
+            enabled=True,
+            jobs_total=jobs_total,
+            jobs_successful=jobs_successful,
+            jobs_failed=jobs_failed,
+            last_job_name=last_job_name,
+            last_job_status=last_job_status,
+            next_job_at=next_job_at,
             updated_at=now,
         )
+        .on_conflict_do_update(
+            index_elements=[ScheduleTick.id],
+            set_={
+                "last_tick": now,
+                "tick_count": ScheduleTick.tick_count + 1,
+                "jobs_total": jobs_total,
+                "jobs_successful": jobs_successful,
+                "jobs_failed": jobs_failed,
+                "last_job_name": last_job_name,
+                "last_job_status": last_job_status,
+                "next_job_at": next_job_at,
+                "updated_at": now,
+            },
+        )
     )
+    await db.execute(upsert_stmt)
     await db.commit()
     return {"ticked": True, "at": now.isoformat(), "jobs_total": jobs_total}
 
@@ -466,6 +622,12 @@ async def manual_tick(db: AsyncSession = Depends(get_db)):
 
 def _cron_job_to_dict(job: EngineCronJob) -> dict:
     """Serialize an EngineCronJob to the format the heartbeat frontend expects."""
+    normalized_status = _normalize_job_status(
+        job.last_status,
+        job.last_run_at,
+        job.max_duration_seconds,
+    )
+    next_run_dt = _compute_next_run_at(job.schedule, job.last_run_at) if job.enabled else None
     return {
         "id": job.id,
         "agent_id": job.agent_id,
@@ -477,9 +639,9 @@ def _cron_job_to_dict(job: EngineCronJob) -> dict:
         "wake_mode": None,
         "payload_kind": job.payload_type,
         "payload_text": job.payload[:200] + "..." if job.payload and len(job.payload) > 200 else job.payload,
-        "next_run_at": job.next_run_at.isoformat() if job.next_run_at else None,
+        "next_run_at": next_run_dt.isoformat() if next_run_dt else None,
         "last_run_at": job.last_run_at.isoformat() if job.last_run_at else None,
-        "last_status": job.last_status,
+        "last_status": normalized_status,
         "last_duration_ms": job.last_duration_ms,
         "run_count": job.run_count,
         "success_count": job.success_count,

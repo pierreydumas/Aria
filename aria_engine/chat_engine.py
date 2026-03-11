@@ -55,6 +55,10 @@ class ChatResponse:
     cost_usd: float = 0.0
     latency_ms: int = 0
     finish_reason: str = ""
+    context_compacted: bool = False
+    context_notice: str | None = None
+    context_tokens_before: int | None = None
+    context_tokens_after: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -71,6 +75,10 @@ class ChatResponse:
             "cost_usd": self.cost_usd,
             "latency_ms": self.latency_ms,
             "finish_reason": self.finish_reason,
+            "context_compacted": self.context_compacted,
+            "context_notice": self.context_notice,
+            "context_tokens_before": self.context_tokens_before,
+            "context_tokens_after": self.context_tokens_after,
         }
 
 
@@ -426,6 +434,7 @@ class ChatEngine:
             final_content = ""
             final_thinking = None
             final_finish_reason = ""
+            context_compaction_meta: dict[str, Any] | None = None
             # Execution trace for UI graph reconstruction
             _exec_trace: dict[str, Any] = {
                 "iterations": 0,
@@ -462,16 +471,44 @@ class ChatEngine:
                     session.model or self.config.default_model
                 )
                 if _iter_tokens > _hard_lim:
-                    logger.error(
-                        "Pre-flight hard limit: session=%s tokens=%d > hard_limit=%d — aborting turn",
-                        sid, _iter_tokens, _hard_lim,
+                    _tokens_before = _iter_tokens
+                    # Try one emergency shrink pass before aborting the turn.
+                    messages, _iter_tokens = await self._shrink_context_to_fit_hard_limit(
+                        db=db,
+                        session=session,
+                        messages=messages,
+                        hard_limit=_hard_lim,
+                        token_count=_iter_tokens,
                     )
-                    final_content = (
-                        "This conversation has grown too long for me to continue reliably "
-                        f"({_iter_tokens:,} tokens). Please start a new session "
-                        "or ask me to summarize and compress this conversation first."
+                    if _iter_tokens > _hard_lim:
+                        logger.error(
+                            "Pre-flight hard limit: session=%s tokens=%d > hard_limit=%d — aborting turn",
+                            sid, _iter_tokens, _hard_lim,
+                        )
+                        final_content = (
+                            "This conversation has grown too long for me to continue reliably "
+                            f"({_iter_tokens:,} tokens). Please start a new session "
+                            "or ask me to summarize and compress this conversation first."
+                        )
+                        break
+                    model_name = session.model or self.config.default_model
+                    context_compaction_meta = {
+                        "mode": "hard_limit_shrink",
+                        "tokens_before": _tokens_before,
+                        "tokens_after": _iter_tokens,
+                        "hard_limit": _hard_lim,
+                        "model": model_name,
+                        "notice": (
+                            "Auto-compacted context to fit model limit "
+                            f"({_tokens_before:,} -> {_iter_tokens:,} tokens)."
+                        ),
+                    }
+                    logger.warning(
+                        "Hard limit avoided via emergency context shrink: session=%s tokens=%d <= %d",
+                        sid,
+                        _iter_tokens,
+                        _hard_lim,
                     )
-                    break
                 if _iter_tokens > _soft_lim and iteration == 0:
                     _pct = int(_iter_tokens / _hard_lim * 100)
                     messages.append({
@@ -784,6 +821,8 @@ class ChatEngine:
 
             # Finalize exec trace
             _trace_meta: dict[str, Any] = {}
+            if context_compaction_meta:
+                _trace_meta["context_compaction"] = context_compaction_meta
             if _exec_trace["tools"]:
                 _resp_label = f"Response\n{(elapsed_ms / 1000):.1f}s" if elapsed_ms else "Response"
                 _exec_trace["nodes"].append({
@@ -863,6 +902,24 @@ class ChatEngine:
                 cost_usd=total_cost,
                 latency_ms=elapsed_ms,
                 finish_reason=final_finish_reason,
+                context_compacted=bool(context_compaction_meta),
+                context_notice=(
+                    context_compaction_meta.get("notice")
+                    if context_compaction_meta
+                    else None
+                ),
+                context_tokens_before=(
+                    int(context_compaction_meta.get("tokens_before"))
+                    if context_compaction_meta
+                    and context_compaction_meta.get("tokens_before") is not None
+                    else None
+                ),
+                context_tokens_after=(
+                    int(context_compaction_meta.get("tokens_after"))
+                    if context_compaction_meta
+                    and context_compaction_meta.get("tokens_after") is not None
+                    else None
+                ),
             )
 
     # ── Private helpers ───────────────────────────────────────────────────
@@ -1357,6 +1414,86 @@ class ChatEngine:
             logger.warning("Context compression failed (non-fatal): %s", exc)
 
         return messages
+
+    async def _shrink_context_to_fit_hard_limit(
+        self,
+        db,
+        session,
+        messages: list[dict[str, Any]],
+        hard_limit: int,
+        token_count: int,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Emergency context reduction for oversized iterative tool loops.
+
+        Order of operations:
+        1. Try semantic compression of middle history.
+        2. Re-apply ContextManager at hard limit.
+        3. As a last resort, drop oldest non-system messages until it fits.
+        """
+        model_name = session.model or self.config.default_model
+        current = list(messages)
+        current_tokens = token_count
+
+        if current_tokens <= hard_limit:
+            return current, current_tokens
+
+        try:
+            compressed = await self._maybe_compress_context(
+                db=db,
+                session=session,
+                messages=current,
+                token_count=current_tokens,
+                soft_threshold=int(hard_limit * 0.70),
+            )
+            current = compressed
+            current_tokens = self.gateway.estimate_tokens_for_messages(
+                model=model_name,
+                messages=current,
+            )
+            if current_tokens <= hard_limit:
+                return current, current_tokens
+        except Exception as exc:
+            logger.warning("Emergency compression pass failed (non-fatal): %s", exc)
+
+        reserve = min(
+            int(session.max_tokens or self.config.default_max_tokens),
+            max(512, hard_limit // 8),
+        )
+        try:
+            current = self._ctx_manager.build_context(
+                all_messages=current,
+                max_tokens=hard_limit,
+                model=model_name,
+                reserve_tokens=reserve,
+            )
+            current_tokens = self.gateway.estimate_tokens_for_messages(
+                model=model_name,
+                messages=current,
+            )
+            if current_tokens <= hard_limit:
+                return current, current_tokens
+        except Exception as exc:
+            logger.warning("Emergency context manager pass failed (non-fatal): %s", exc)
+
+        # Final safety net: drop oldest non-system messages progressively.
+        while current_tokens > hard_limit and len(current) > 3:
+            drop_idx = next(
+                (
+                    i
+                    for i, msg in enumerate(current)
+                    if msg.get("role") != "system"
+                ),
+                None,
+            )
+            if drop_idx is None or drop_idx >= len(current) - 1:
+                break
+            current.pop(drop_idx)
+            current_tokens = self.gateway.estimate_tokens_for_messages(
+                model=model_name,
+                messages=current,
+            )
+
+        return current, current_tokens
 
     @classmethod
     def _filter_tools_for_turn(

@@ -14,7 +14,7 @@ import asyncio
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -284,6 +284,10 @@ class EngineScheduler:
         self._running = True
         _active_scheduler = self
 
+        # If engine restarted while jobs were mid-flight, `last_status=running`
+        # can be left behind even though no execution is active anymore.
+        await self._recover_stale_running_jobs()
+
         # Load and register all enabled jobs from the DB
         await self._load_jobs_from_db()
 
@@ -298,6 +302,135 @@ class EngineScheduler:
         await self._wait_for_api()
 
         logger.info("EngineScheduler started — jobs loaded and processing")
+
+    async def _recover_stale_running_jobs(self) -> None:
+        """Convert stale `running` cron statuses into failed state on startup."""
+        async with self._db_engine.begin() as conn:
+            stale_ids = (
+                await conn.execute(
+                    select(EngineCronJob.id).where(EngineCronJob.last_status == "running")
+                )
+            ).scalars().all()
+
+            for job_id in stale_ids:
+                # Any `running` status at process startup is stale, since in-memory
+                # executions do not survive restart.
+                recovered_error = (
+                    "Recovered stale running state after scheduler restart"
+                )
+                await conn.execute(
+                    update(EngineCronJob)
+                    .where(EngineCronJob.id == job_id)
+                    .values(
+                        last_status="failed",
+                        last_error=recovered_error,
+                        updated_at=func.now(),
+                        fail_count=EngineCronJob.fail_count + 1,
+                    )
+                )
+
+            if stale_ids:
+                logger.warning(
+                    "Recovered %d stale running cron job statuses",
+                    len(stale_ids),
+                )
+
+    @staticmethod
+    def _normalize_last_status(
+        status: str | None,
+        last_run_at: datetime | None,
+        max_duration_seconds: int | None,
+    ) -> str | None:
+        if status is None:
+            return None
+        normalized = str(status).strip().lower()
+        if normalized != "running":
+            return normalized
+
+        if last_run_at is None:
+            return "failed"
+
+        run_at = (
+            last_run_at if last_run_at.tzinfo is not None
+            else last_run_at.replace(tzinfo=timezone.utc)
+        )
+        timeout = max(int(max_duration_seconds or 300), 30)
+        if datetime.now(timezone.utc) - run_at > timedelta(seconds=timeout + 15):
+            return "failed"
+        return "running"
+
+    @staticmethod
+    def _compute_next_run_at(
+        schedule_expr: str | None,
+        last_run_at: datetime | None = None,
+        now: datetime | None = None,
+    ) -> datetime | None:
+        if not schedule_expr:
+            return None
+        expr = str(schedule_expr).strip().lower()
+        now_utc = now or datetime.now(timezone.utc)
+        if now_utc.tzinfo is None:
+            now_utc = now_utc.replace(tzinfo=timezone.utc)
+
+        interval_delta: timedelta | None = None
+        if expr.endswith("m") and expr[:-1].isdigit():
+            minutes = int(expr[:-1])
+            if minutes <= 0:
+                return now_utc
+            interval_delta = timedelta(minutes=minutes)
+        elif expr.endswith("h") and expr[:-1].isdigit():
+            hours = int(expr[:-1])
+            if hours <= 0:
+                return now_utc
+            interval_delta = timedelta(hours=hours)
+        elif expr.endswith("s") and expr[:-1].isdigit():
+            seconds = int(expr[:-1])
+            if seconds <= 0:
+                return now_utc
+            interval_delta = timedelta(seconds=seconds)
+
+        if interval_delta is not None:
+            # Anchor interval schedules to the last observed run so countdowns
+            # reflect real cadence instead of resetting to "now + interval".
+            if last_run_at is None:
+                return now_utc + interval_delta
+
+            anchor = (
+                last_run_at
+                if last_run_at.tzinfo is not None
+                else last_run_at.replace(tzinfo=timezone.utc)
+            )
+            if anchor > now_utc:
+                return anchor + interval_delta
+
+            elapsed = now_utc - anchor
+            elapsed_intervals = int(elapsed // interval_delta)
+            return anchor + interval_delta * (elapsed_intervals + 1)
+
+        try:
+            trigger = parse_schedule(str(schedule_expr))
+        except Exception:
+            return None
+
+        try:
+            nxt = trigger.next()  # type: ignore[attr-defined]
+            if nxt is not None:
+                if nxt.tzinfo is None:
+                    return nxt.replace(tzinfo=timezone.utc)
+                return nxt
+        except Exception:
+            pass
+
+        try:
+            nxt = trigger.get_next_fire_time(None, now_utc)  # type: ignore[attr-defined]
+            if nxt is not None:
+                if nxt.tzinfo is None:
+                    return nxt.replace(tzinfo=timezone.utc)
+                return nxt
+        except Exception:
+            return None
+
+        return None
 
     async def _wait_for_api(self, timeout: int = 60) -> None:
         """Block until aria-api is reachable, up to *timeout* seconds."""
@@ -1047,6 +1180,16 @@ class EngineScheduler:
             row = result.scalars().first()
             if not row:
                 return None
+            normalized_status = self._normalize_last_status(
+                row.last_status,
+                row.last_run_at,
+                row.max_duration_seconds,
+            )
+            next_run_at = (
+                self._compute_next_run_at(row.schedule, row.last_run_at)
+                if row.enabled
+                else None
+            )
             return {
                 "id": row.id, "name": row.name, "schedule": row.schedule,
                 "agent_id": row.agent_id, "enabled": row.enabled,
@@ -1054,9 +1197,9 @@ class EngineScheduler:
                 "session_mode": row.session_mode,
                 "max_duration_seconds": row.max_duration_seconds,
                 "retry_count": row.retry_count,
-                "last_run_at": row.last_run_at, "last_status": row.last_status,
+                "last_run_at": row.last_run_at, "last_status": normalized_status,
                 "last_duration_ms": row.last_duration_ms,
-                "last_error": row.last_error, "next_run_at": row.next_run_at,
+                "last_error": row.last_error, "next_run_at": next_run_at,
                 "run_count": row.run_count, "success_count": row.success_count,
                 "fail_count": row.fail_count,
                 "metadata": row.metadata_json,
@@ -1071,21 +1214,41 @@ class EngineScheduler:
             )
             rows = result.scalars().all()
 
-        return [
-            {
-                "id": r.id, "name": r.name, "schedule": r.schedule,
-                "agent_id": r.agent_id, "enabled": r.enabled,
-                "payload_type": r.payload_type,
-                "session_mode": r.session_mode,
-                "last_run_at": r.last_run_at, "last_status": r.last_status,
-                "last_duration_ms": r.last_duration_ms,
-                "last_error": r.last_error, "next_run_at": r.next_run_at,
-                "run_count": r.run_count, "success_count": r.success_count,
-                "fail_count": r.fail_count,
-                "created_at": r.created_at, "updated_at": r.updated_at,
-            }
-            for r in rows
-        ]
+        jobs: list[dict[str, Any]] = []
+        for r in rows:
+            normalized_status = self._normalize_last_status(
+                r.last_status,
+                r.last_run_at,
+                r.max_duration_seconds,
+            )
+            next_run_at = (
+                self._compute_next_run_at(r.schedule, r.last_run_at)
+                if r.enabled
+                else None
+            )
+            jobs.append(
+                {
+                    "id": r.id,
+                    "name": r.name,
+                    "schedule": r.schedule,
+                    "agent_id": r.agent_id,
+                    "enabled": r.enabled,
+                    "payload_type": r.payload_type,
+                    "session_mode": r.session_mode,
+                    "last_run_at": r.last_run_at,
+                    "last_status": normalized_status,
+                    "last_duration_ms": r.last_duration_ms,
+                    "last_error": r.last_error,
+                    "next_run_at": next_run_at,
+                    "run_count": r.run_count,
+                    "success_count": r.success_count,
+                    "fail_count": r.fail_count,
+                    "created_at": r.created_at,
+                    "updated_at": r.updated_at,
+                }
+            )
+
+        return jobs
 
     async def get_job_history(
         self, job_id: str, limit: int = 50

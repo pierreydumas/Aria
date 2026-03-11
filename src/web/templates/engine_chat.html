@@ -153,6 +153,17 @@
     color: var(--text-muted, #888);
 }
 
+.msg-context-badge {
+    margin: 8px 0 10px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 193, 7, 0.35);
+    background: rgba(255, 193, 7, 0.12);
+    color: #ffd27d;
+    font-size: 0.75rem;
+    line-height: 1.4;
+}
+
 /* RT-06: responder model badge */
 .msg-model-badge {
     font-size: 0.7rem;
@@ -2656,6 +2667,7 @@
                     tool_calls: msg.tool_calls,
                     model: msg.model,
                     tokens: msg.tokens,
+                    context_notice: extractContextNotice(msg),
                 });
                 break;
         }
@@ -2741,6 +2753,11 @@
             const indicator = document.getElementById('streamIndicator');
             if (indicator) indicator.remove();
             renderStreamContent();
+
+            const contextNotice = extractContextNotice(msg);
+            if (contextNotice) {
+                upsertContextNotice(streamingMessageEl, contextNotice);
+            }
 
             // RT-06: inject model badge into message header once model is known
             if (msg && msg.model) {
@@ -2888,6 +2905,10 @@
 
         const renderedContent = content ? marked.parse(content) : '';
         const time = new Date().toLocaleTimeString();
+        const contextNotice = role === 'assistant' ? extractContextNotice(opts) : '';
+        const contextNoticeHTML = contextNotice
+            ? `<div class="msg-context-badge">${escapeHtml(contextNotice)}</div>`
+            : '';
 
         // RT-06: model/agent badge for assistant messages
         let modelBadgeHTML = '';
@@ -2906,6 +2927,7 @@
                 </div>
                 ${thinkingHTML}
                 ${toolCallsHTML}
+                ${contextNoticeHTML}
                 <div class="message-content">${renderedContent}</div>
             </div>
         `;
@@ -3084,6 +3106,10 @@
                             }
                             // Keep model from whichever has it
                             if (m.model) prev.model = m.model;
+                            const contextNotice = extractContextNotice(m);
+                            if (contextNotice) {
+                                prev._contextNotice = contextNotice;
+                            }
                             // Keep exec_trace from metadata (usually on final assistant msg)
                             if (m.metadata && m.metadata.exec_trace) {
                                 prev._execTrace = m.metadata.exec_trace;
@@ -3097,6 +3123,7 @@
                                 thinking: m.thinking,
                                 _toolCalls: dedupedTcs,
                                 model: m.model,
+                                _contextNotice: extractContextNotice(m),
                                 _execTrace: m.metadata?.exec_trace || null,
                             });
                         }
@@ -3119,6 +3146,7 @@
                         thinking: m.thinking,
                         tool_calls: toolCallsWithResults,
                         model: m.model,
+                        context_notice: m._contextNotice,
                     });
 
                     // Rebuild execution graph from DB exec_trace if available
@@ -3352,6 +3380,50 @@
 
     function escapeAttr(str) {
         return (str || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function extractContextNotice(payload) {
+        if (!payload || typeof payload !== 'object') return '';
+
+        if (typeof payload.context_notice === 'string' && payload.context_notice.trim()) {
+            return payload.context_notice.trim();
+        }
+
+        const compactionMeta = payload.metadata?.context_compaction;
+        if (compactionMeta && typeof compactionMeta.notice === 'string' && compactionMeta.notice.trim()) {
+            return compactionMeta.notice.trim();
+        }
+
+        if (payload.context_compacted) {
+            const before = Number(payload.context_tokens_before);
+            const after = Number(payload.context_tokens_after);
+            if (Number.isFinite(before) && Number.isFinite(after)) {
+                return `Auto-compacted context to fit model limit (${before.toLocaleString()} -> ${after.toLocaleString()} tokens).`;
+            }
+            return 'Auto-compacted context to fit model limit.';
+        }
+
+        return '';
+    }
+
+    function upsertContextNotice(messageEl, noticeText) {
+        if (!messageEl || !noticeText) return;
+        const body = messageEl.querySelector('.message-body');
+        if (!body) return;
+
+        let badge = body.querySelector('.msg-context-badge');
+        if (!badge) {
+            badge = document.createElement('div');
+            badge.className = 'msg-context-badge';
+            const contentEl = body.querySelector('.message-content');
+            if (contentEl) {
+                body.insertBefore(badge, contentEl);
+            } else {
+                body.appendChild(badge);
+            }
+        }
+
+        badge.textContent = noticeText;
     }
 
     // ── Exports for onclick handlers ────────────────────────────

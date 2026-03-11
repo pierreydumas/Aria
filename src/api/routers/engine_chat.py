@@ -84,6 +84,10 @@ class SendMessageResponse(BaseModel):
     cost_usd: float = 0.0
     latency_ms: int = 0
     finish_reason: str = ""
+    context_compacted: bool = False
+    context_notice: str | None = None
+    context_tokens_before: int | None = None
+    context_tokens_after: int | None = None
 
 
 class SessionSummary(BaseModel):
@@ -398,6 +402,10 @@ async def send_message(
             cost_usd=response.cost_usd,
             latency_ms=response.latency_ms,
             finish_reason=response.finish_reason,
+            context_compacted=response.context_compacted,
+            context_notice=response.context_notice,
+            context_tokens_before=response.context_tokens_before,
+            context_tokens_after=response.context_tokens_after,
         )
     except SessionError as e:
         raise HTTPException(status_code=404, detail=str(e))

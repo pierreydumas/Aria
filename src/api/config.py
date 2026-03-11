@@ -93,7 +93,9 @@ SERVICE_CONTROL_ENABLED = os.getenv(
 # ── LiteLLM / Providers ─────────────────────────────────────────────────────
 LITELLM_MASTER_KEY = os.getenv("LITELLM_MASTER_KEY", "")
 MOONSHOT_KIMI_KEY  = os.getenv("MOONSHOT_KIMI_KEY", "")
-OPEN_ROUTER_KEY    = os.getenv("OPEN_ROUTER_KEY", "")
+# Backward compatibility: support legacy OPENROUTER_API_KEY naming.
+# Use `or` so empty OPEN_ROUTER_KEY still falls back to legacy key.
+OPEN_ROUTER_KEY    = os.getenv("OPEN_ROUTER_KEY") or os.getenv("OPENROUTER_API_KEY", "")
 
 # ── Startup jobs ─────────────────────────────────────────────────────────────
 SKILL_BACKFILL_ON_STARTUP = os.getenv(

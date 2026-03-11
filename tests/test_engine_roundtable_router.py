@@ -62,6 +62,10 @@ class FakeRoundtableResult:
     synthesis: str = "We agree on X."
     synthesizer_id: str = "main"
     total_duration_ms: int = 3000
+    chunked_mode: bool = False
+    chunk_count: int = 0
+    chunk_notice: str | None = None
+    chunk_kind: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime(2026, 2, 24, tzinfo=timezone.utc))
     turns: list[FakeTurn] = field(default_factory=lambda: [FakeTurn(), FakeTurn(agent_id="agent_b")])
 
@@ -75,6 +79,10 @@ class FakeRoundtableResult:
             "synthesis": self.synthesis,
             "synthesizer_id": self.synthesizer_id,
             "total_duration_ms": self.total_duration_ms,
+            "chunked_mode": self.chunked_mode,
+            "chunk_count": self.chunk_count,
+            "chunk_notice": self.chunk_notice,
+            "chunk_kind": self.chunk_kind,
             "created_at": self.created_at.isoformat(),
             "turns": [
                 {"agent_id": t.agent_id, "round": t.round_number,
@@ -137,6 +145,30 @@ def test_start_roundtable_success(client, mock_roundtable):
     assert data["topic"] == "Test topic"
     assert data["turn_count"] == 4
     assert data["synthesis"] == "We agree on X."
+
+
+def test_start_roundtable_chunk_metadata_passthrough(client, mock_roundtable):
+    fake_result = FakeRoundtableResult(
+        chunked_mode=True,
+        chunk_count=3,
+        chunk_notice="Chunked synthesis mode activated.",
+        chunk_kind="roundtable_synthesis",
+    )
+    mock_roundtable.discuss = AsyncMock(return_value=fake_result)
+
+    with patch("routers.engine_roundtable._validate_requested_agents", new_callable=AsyncMock):
+        resp = client.post("/engine/roundtable", json={
+            "topic": "Chunky discussion",
+            "agent_ids": ["agent_a", "agent_b"],
+            "rounds": 2,
+        })
+
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["chunked_mode"] is True
+    assert data["chunk_count"] == 3
+    assert data["chunk_notice"] == "Chunked synthesis mode activated."
+    assert data["chunk_kind"] == "roundtable_synthesis"
 
 
 def test_start_roundtable_too_few_agents(client):

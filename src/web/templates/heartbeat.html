@@ -890,22 +890,41 @@ function formatLogDetails(log) {
 function formatRelativeTime(date) {
     if (!date || isNaN(date.getTime())) return '-';
     const now = new Date();
-    const diffMs = now - date;
-    const absDiff = Math.abs(diffMs);
-    const isFuture = diffMs < 0;
+    const diffMs = date.getTime() - now.getTime();
+    const absDiffMs = Math.abs(diffMs);
+    const isFuture = diffMs > 0;
 
-    const seconds = Math.floor(absDiff / 1000);
+    let text;
+    if (isFuture) {
+        if (absDiffMs < 60000) {
+            text = `${Math.ceil(absDiffMs / 1000)}s`;
+        } else if (absDiffMs < 3600000) {
+            text = `${Math.ceil(absDiffMs / 60000)}m`;
+        } else if (absDiffMs < 86400000) {
+            const totalMinutes = Math.ceil(absDiffMs / 60000);
+            const hours = Math.floor(totalMinutes / 60);
+            const minutes = totalMinutes % 60;
+            text = `${hours}h ${minutes}m`;
+        } else {
+            const totalHours = Math.ceil(absDiffMs / 3600000);
+            const days = Math.floor(totalHours / 24);
+            const hours = totalHours % 24;
+            text = `${days}d ${hours}h`;
+        }
+        return `in ${text}`;
+    }
+
+    const seconds = Math.floor(absDiffMs / 1000);
     const minutes = Math.floor(seconds / 60);
     const hours = Math.floor(minutes / 60);
     const days = Math.floor(hours / 24);
 
-    let text;
     if (seconds < 60) text = `${seconds}s`;
     else if (minutes < 60) text = `${minutes}m`;
     else if (hours < 24) text = `${hours}h ${minutes % 60}m`;
     else text = `${days}d ${hours % 24}h`;
 
-    return isFuture ? `in ${text}` : `${text} ago`;
+    return `${text} ago`;
 }
 
 function switchSubtab(tab) {

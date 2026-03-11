@@ -38,6 +38,9 @@ DEFAULT_AGENT_TIMEOUT = 60
 DEFAULT_TOTAL_TIMEOUT = 600
 MIN_AGENTS = 2
 MAX_AGENTS = 12
+CONSENSUS_MAX_TRAIL_CHARS = 12_000
+CONSENSUS_CHUNK_CHARS = 8_000
+MAX_TRAIL_VOTES = 40
 
 
 @dataclass
@@ -66,6 +69,10 @@ class SwarmResult:
     consensus_score: float  # 0.0 – 1.0 (how converged)
     converged: bool         # True if consensus_threshold was met
     total_duration_ms: int
+    chunked_mode: bool = False
+    chunk_count: int = 0
+    chunk_notice: str | None = None
+    chunk_kind: str | None = None
     created_at: datetime = field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
@@ -85,6 +92,10 @@ class SwarmResult:
             "consensus_score": round(self.consensus_score, 3),
             "converged": self.converged,
             "total_duration_ms": self.total_duration_ms,
+            "chunked_mode": self.chunked_mode,
+            "chunk_count": self.chunk_count,
+            "chunk_notice": self.chunk_notice,
+            "chunk_kind": self.chunk_kind,
             "created_at": self.created_at.isoformat(),
             "votes": [
                 {
@@ -230,7 +241,7 @@ class SwarmOrchestrator:
         # Build consensus from pheromone-weighted votes
         elapsed_before_consensus = time.monotonic() - start
         if elapsed_before_consensus < total_timeout:
-            consensus = await self._build_consensus(
+            consensus, consensus_chunk_meta = await self._build_consensus(
                 session_id=session_id,
                 topic=topic,
                 votes=all_votes,
@@ -239,6 +250,7 @@ class SwarmOrchestrator:
             )
         else:
             consensus = self._fallback_consensus(all_votes)
+            consensus_chunk_meta = None
 
         total_ms = int((time.monotonic() - start) * 1000)
         iterations_completed = max(
@@ -255,11 +267,41 @@ class SwarmOrchestrator:
             consensus_score=consensus_score,
             converged=converged,
             total_duration_ms=total_ms,
+            chunked_mode=bool(consensus_chunk_meta),
+            chunk_count=(
+                int(consensus_chunk_meta.get("chunk_count", 0))
+                if consensus_chunk_meta
+                else 0
+            ),
+            chunk_notice=(
+                consensus_chunk_meta.get("notice")
+                if consensus_chunk_meta
+                else None
+            ),
+            chunk_kind=(
+                consensus_chunk_meta.get("kind")
+                if consensus_chunk_meta
+                else None
+            ),
         )
 
         # Persist consensus
+        consensus_meta = {"agent_id": "swarm"}
+        if consensus_chunk_meta:
+            consensus_meta.update(
+                {
+                    "chunked_mode": True,
+                    "chunk_count": int(consensus_chunk_meta.get("chunk_count", 0)),
+                    "chunk_notice": consensus_chunk_meta.get("notice"),
+                    "chunk_kind": consensus_chunk_meta.get("kind"),
+                }
+            )
         await self._persist_message(
-            session_id, "swarm", consensus, "consensus"
+            session_id,
+            "swarm",
+            consensus,
+            "consensus",
+            metadata=consensus_meta,
         )
 
         # Update pheromone scores — boost agents who voted with consensus
@@ -507,6 +549,9 @@ class SwarmOrchestrator:
             reverse=True,
         )
 
+        if len(weighted_votes) > MAX_TRAIL_VOTES:
+            weighted_votes = weighted_votes[:MAX_TRAIL_VOTES]
+
         lines = []
         for v in weighted_votes:
             weight = pheromone_weights.get(v.agent_id, 0.5)
@@ -558,7 +603,7 @@ class SwarmOrchestrator:
         votes: list[SwarmVote],
         pheromone_weights: dict[str, float],
         timeout: float,
-    ) -> str:
+    ) -> tuple[str, dict[str, Any] | None]:
         """
         Build consensus from all votes, weighted by pheromone scores.
 
@@ -566,6 +611,29 @@ class SwarmOrchestrator:
         both pheromone score and vote confidence.
         """
         trail = self._build_trail(votes, pheromone_weights)
+        trail_for_prompt = trail
+        chunk_meta: dict[str, Any] | None = None
+
+        if len(trail) > CONSENSUS_MAX_TRAIL_CHARS:
+            logger.info(
+                "Swarm consensus trail too large (%d chars) — chunking first",
+                len(trail),
+            )
+            trail_for_prompt, chunk_count = await self._summarize_large_trail_for_consensus(
+                session_id=session_id,
+                topic=topic,
+                trail=trail,
+                timeout=timeout,
+            )
+            if chunk_count > 1:
+                chunk_meta = {
+                    "kind": "swarm_consensus",
+                    "chunk_count": int(chunk_count),
+                    "notice": (
+                        "Chunked consensus mode activated: "
+                        f"summarized {chunk_count} trail chunks before final merge."
+                    ),
+                }
 
         # Pick the agent with highest combined score to do synthesis
         agent_scores: dict[str, float] = {}
@@ -582,7 +650,7 @@ class SwarmOrchestrator:
             f"TOPIC: {topic}\n\n"
             f"FULL TRAIL ({len(votes)} votes from "
             f"{len(set(v.agent_id for v in votes))} agents):\n\n"
-            f"{trail}\n\n"
+            f"{trail_for_prompt}\n\n"
             f"TASK: Merge the swarm's collective intelligence into a coherent "
             f"decision. Weight contributions by their pheromone markers "
             f"(★ = high authority, ● = medium, ○ = low). "
@@ -599,14 +667,15 @@ class SwarmOrchestrator:
                 ),
                 timeout=timeout,
             )
-            return (
+            consensus = (
                 response.get("content", "")
                 if isinstance(response, dict)
                 else str(response)
             )
+            return consensus, chunk_meta
         except Exception as e:
             logger.error("Swarm consensus synthesis failed: %s", e)
-            return self._fallback_consensus(votes)
+            return self._fallback_consensus(votes), chunk_meta
 
     def _fallback_consensus(self, votes: list[SwarmVote]) -> str:
         """Generate a simple consensus when LLM synthesis fails."""
@@ -634,6 +703,89 @@ class SwarmOrchestrator:
             )
 
         return "\n".join(parts)
+
+    @staticmethod
+    def _chunk_text(text: str, max_chars: int) -> list[str]:
+        """Split text into stable chunks without excessive fragmentation."""
+        if not text:
+            return []
+        if len(text) <= max_chars:
+            return [text]
+
+        chunks: list[str] = []
+        current: list[str] = []
+        current_len = 0
+
+        for part in text.split("\n\n"):
+            block = part.strip()
+            if not block:
+                continue
+            block_len = len(block) + 2
+            if current and current_len + block_len > max_chars:
+                chunks.append("\n\n".join(current))
+                current = [block]
+                current_len = len(block)
+            else:
+                current.append(block)
+                current_len += block_len
+
+        if current:
+            chunks.append("\n\n".join(current))
+
+        return chunks
+
+    async def _summarize_large_trail_for_consensus(
+        self,
+        session_id: str,
+        topic: str,
+        trail: str,
+        timeout: float,
+    ) -> tuple[str, int]:
+        """Summarize oversized swarm trail chunk-by-chunk before final merge."""
+        chunks = self._chunk_text(trail, CONSENSUS_CHUNK_CHARS)
+        if len(chunks) <= 1:
+            return trail, len(chunks)
+
+        # Keep deterministic default; final consensus still uses dynamic synthesizer.
+        summarizer_id = "main"
+
+        per_chunk_timeout = max(20.0, float(timeout) / float(len(chunks) + 1))
+        summaries: list[str] = []
+
+        for idx, chunk in enumerate(chunks, start=1):
+            chunk_prompt = (
+                f"Swarm trail chunk {idx}/{len(chunks)} for topic: {topic}\n\n"
+                "Summarize in 6-10 concise bullets preserving: vote direction, "
+                "confidence signals, consensus trends, dissent, and key action ideas. "
+                "Keep agent IDs and iteration markers when present.\n\n"
+                f"CHUNK:\n{chunk}"
+            )
+            try:
+                response = await asyncio.wait_for(
+                    self._pool.process_with_agent(
+                        agent_id=summarizer_id,
+                        message=chunk_prompt,
+                        session_id=session_id,
+                    ),
+                    timeout=per_chunk_timeout,
+                )
+                summary = (
+                    response.get("content", "")
+                    if isinstance(response, dict)
+                    else str(response)
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Swarm chunk summary failed (%d/%d): %s",
+                    idx,
+                    len(chunks),
+                    exc,
+                )
+                summary = chunk[:1200]
+
+            summaries.append(f"[Chunk {idx}]\n{summary}")
+
+        return "\n\n".join(summaries), len(chunks)
 
     async def _get_pheromone_weights(
         self, agent_ids: list[str]
@@ -691,15 +843,19 @@ class SwarmOrchestrator:
         agent_id: str,
         content: str,
         role: str,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """Persist a swarm message to the database (ORM)."""
         async with self._async_session() as session:
             async with session.begin():
+                msg_meta = {"agent_id": agent_id}
+                if metadata:
+                    msg_meta.update(metadata)
                 msg = EngineChatMessage(
                     session_id=session_id,
                     role=role,
                     content=content,
-                    metadata_json={"agent_id": agent_id},
+                    metadata_json=msg_meta,
                 )
                 session.add(msg)
 

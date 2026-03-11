@@ -36,6 +36,9 @@ DEFAULT_ROUNDS = 3
 DEFAULT_AGENT_TIMEOUT = 60  # seconds per agent per round
 DEFAULT_TOTAL_TIMEOUT = 300  # seconds for entire roundtable
 MAX_CONTEXT_TOKENS = 2000   # Default fallback — overridden dynamically per session
+SYNTHESIS_MAX_CONTEXT_CHARS = 12_000
+SYNTHESIS_CHUNK_CHARS = 8_000
+MAX_CONTEXT_TURNS = 40
 
 
 @dataclass
@@ -63,6 +66,10 @@ class RoundtableResult:
     synthesis: str
     synthesizer_id: str
     total_duration_ms: int
+    chunked_mode: bool = False
+    chunk_count: int = 0
+    chunk_notice: str | None = None
+    chunk_kind: str | None = None
     created_at: datetime = field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
@@ -81,6 +88,10 @@ class RoundtableResult:
             "synthesis": self.synthesis,
             "synthesizer_id": self.synthesizer_id,
             "total_duration_ms": self.total_duration_ms,
+            "chunked_mode": self.chunked_mode,
+            "chunk_count": self.chunk_count,
+            "chunk_notice": self.chunk_notice,
+            "chunk_kind": self.chunk_kind,
             "created_at": self.created_at.isoformat(),
             "turns": [
                 {
@@ -241,7 +252,7 @@ class Roundtable:
         # Synthesis round
         elapsed = time.monotonic() - start
         if elapsed < total_timeout:
-            synthesis, synth_ms = await self._synthesize(
+            synthesis, synth_ms, synthesis_chunk_meta = await self._synthesize(
                 session_id=session_id,
                 topic=topic,
                 turns=turns,
@@ -251,6 +262,7 @@ class Roundtable:
         else:
             synthesis = self._fallback_synthesis(turns)
             synth_ms = 0
+            synthesis_chunk_meta = None
 
         total_ms = int((time.monotonic() - start) * 1000)
 
@@ -263,11 +275,41 @@ class Roundtable:
             synthesis=synthesis,
             synthesizer_id=synthesizer_id,
             total_duration_ms=total_ms,
+            chunked_mode=bool(synthesis_chunk_meta),
+            chunk_count=(
+                int(synthesis_chunk_meta.get("chunk_count", 0))
+                if synthesis_chunk_meta
+                else 0
+            ),
+            chunk_notice=(
+                synthesis_chunk_meta.get("notice")
+                if synthesis_chunk_meta
+                else None
+            ),
+            chunk_kind=(
+                synthesis_chunk_meta.get("kind")
+                if synthesis_chunk_meta
+                else None
+            ),
         )
 
         # Persist synthesis as final message
+        synthesis_meta = {"agent_id": synthesizer_id}
+        if synthesis_chunk_meta:
+            synthesis_meta.update(
+                {
+                    "chunked_mode": True,
+                    "chunk_count": int(synthesis_chunk_meta.get("chunk_count", 0)),
+                    "chunk_notice": synthesis_chunk_meta.get("notice"),
+                    "chunk_kind": synthesis_chunk_meta.get("kind"),
+                }
+            )
         await self._persist_message(
-            session_id, synthesizer_id, synthesis, "synthesis"
+            session_id,
+            synthesizer_id,
+            synthesis,
+            "synthesis",
+            metadata=synthesis_meta,
         )
 
         # Update pheromone scores for all participants
@@ -502,21 +544,45 @@ class Roundtable:
         turns: list[RoundtableTurn],
         synthesizer_id: str,
         timeout: float,
-    ) -> tuple:
+    ) -> tuple[str, int, dict[str, Any] | None]:
         """
         Synthesize all discussion turns into a final answer.
 
         Returns:
-            Tuple of (synthesis text, duration_ms).
+            Tuple of (synthesis text, duration_ms, chunk metadata).
         """
         context = self._build_context(turns, max_per_agent=500)
+        context_for_prompt = context
+        chunk_meta: dict[str, Any] | None = None
+
+        if len(context) > SYNTHESIS_MAX_CONTEXT_CHARS:
+            logger.info(
+                "Roundtable synthesis context too large (%d chars) — chunking first",
+                len(context),
+            )
+            context_for_prompt, chunk_count = await self._summarize_large_context_for_synthesis(
+                session_id=session_id,
+                topic=topic,
+                context=context,
+                synthesizer_id=synthesizer_id,
+                timeout=timeout,
+            )
+            if chunk_count > 1:
+                chunk_meta = {
+                    "kind": "roundtable_synthesis",
+                    "chunk_count": int(chunk_count),
+                    "notice": (
+                        "Chunked synthesis mode activated: "
+                        f"summarized {chunk_count} context chunks before final synthesis."
+                    ),
+                }
 
         prompt = (
             f"You are the synthesizer for a roundtable discussion.\n\n"
             f"TOPIC: {topic}\n\n"
             f"DISCUSSION ({len(turns)} contributions from "
             f"{len(set(t.agent_id for t in turns))} agents):\n\n"
-            f"{context}\n\n"
+            f"{context_for_prompt}\n\n"
             f"TASK: Synthesize the key insights into a coherent, "
             f"actionable answer. Highlight areas of agreement and "
             f"note any important disagreements. Be concise but thorough."
@@ -540,7 +606,7 @@ class Roundtable:
             synthesis = self._fallback_synthesis(turns)
 
         duration_ms = int((time.monotonic() - start) * 1000)
-        return synthesis, duration_ms
+        return synthesis, duration_ms, chunk_meta
 
     def _build_context(
         self,
@@ -550,6 +616,9 @@ class Roundtable:
         """Build context string from prior turns."""
         if not turns:
             return "(No prior discussion)"
+
+        if len(turns) > MAX_CONTEXT_TURNS:
+            turns = turns[-MAX_CONTEXT_TURNS:]
 
         lines = []
         for t in turns:
@@ -561,6 +630,87 @@ class Roundtable:
             )
 
         return "\n\n".join(lines)
+
+    @staticmethod
+    def _chunk_text(text: str, max_chars: int) -> list[str]:
+        """Split text into stable chunks without breaking every sentence."""
+        if not text:
+            return []
+        if len(text) <= max_chars:
+            return [text]
+
+        chunks: list[str] = []
+        current: list[str] = []
+        current_len = 0
+
+        for part in text.split("\n\n"):
+            block = part.strip()
+            if not block:
+                continue
+            block_len = len(block) + 2
+            if current and current_len + block_len > max_chars:
+                chunks.append("\n\n".join(current))
+                current = [block]
+                current_len = len(block)
+            else:
+                current.append(block)
+                current_len += block_len
+
+        if current:
+            chunks.append("\n\n".join(current))
+
+        return chunks
+
+    async def _summarize_large_context_for_synthesis(
+        self,
+        session_id: str,
+        topic: str,
+        context: str,
+        synthesizer_id: str,
+        timeout: float,
+    ) -> tuple[str, int]:
+        """Summarize oversized roundtable context chunk-by-chunk before final synthesis."""
+        chunks = self._chunk_text(context, SYNTHESIS_CHUNK_CHARS)
+        if len(chunks) <= 1:
+            return context, len(chunks)
+
+        per_chunk_timeout = max(20.0, float(timeout) / float(len(chunks) + 1))
+        summaries: list[str] = []
+
+        for idx, chunk in enumerate(chunks, start=1):
+            chunk_prompt = (
+                f"Roundtable context chunk {idx}/{len(chunks)} for topic: {topic}\n\n"
+                "Summarize this chunk into 6-10 concise bullets preserving: "
+                "key claims, agreements, disagreements, and action ideas. "
+                "Keep agent identifiers and round references when present.\n\n"
+                f"CHUNK:\n{chunk}"
+            )
+            try:
+                response = await asyncio.wait_for(
+                    self._pool.process_with_agent(
+                        agent_id=synthesizer_id,
+                        message=chunk_prompt,
+                        session_id=session_id,
+                    ),
+                    timeout=per_chunk_timeout,
+                )
+                summary = (
+                    response.get("content", "")
+                    if isinstance(response, dict)
+                    else str(response)
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Roundtable chunk summary failed (%d/%d): %s",
+                    idx,
+                    len(chunks),
+                    exc,
+                )
+                summary = chunk[:1200]
+
+            summaries.append(f"[Chunk {idx}]\n{summary}")
+
+        return "\n\n".join(summaries), len(chunks)
 
     def _build_round_prompt(
         self,
@@ -632,15 +782,19 @@ class Roundtable:
         agent_id: str,
         content: str,
         role: str,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """Persist a roundtable message to chat_messages (ORM)."""
         async with self._async_session() as session:
             async with session.begin():
+                msg_meta = {"agent_id": agent_id}
+                if metadata:
+                    msg_meta.update(metadata)
                 msg = EngineChatMessage(
                     session_id=session_id,
                     role=role,
                     content=content,
-                    metadata_json={"agent_id": agent_id},
+                    metadata_json=msg_meta,
                 )
                 session.add(msg)
 

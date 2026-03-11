@@ -71,6 +71,10 @@ class RoundtableResponse(BaseModel):
     synthesis: str
     synthesizer_id: str
     total_duration_ms: int
+    chunked_mode: bool = False
+    chunk_count: int = 0
+    chunk_notice: str | None = None
+    chunk_kind: str | None = None
     created_at: str
     turns: list[RoundtableTurnResponse] = Field(default_factory=list)
 
@@ -321,6 +325,10 @@ async def start_roundtable(
             synthesis=result.synthesis,
             synthesizer_id=result.synthesizer_id,
             total_duration_ms=result.total_duration_ms,
+            chunked_mode=bool(getattr(result, "chunked_mode", False)),
+            chunk_count=int(getattr(result, "chunk_count", 0) or 0),
+            chunk_notice=getattr(result, "chunk_notice", None),
+            chunk_kind=getattr(result, "chunk_kind", None),
             created_at=result.created_at.isoformat(),
             turns=[
                 RoundtableTurnResponse(
@@ -570,6 +578,7 @@ async def get_roundtable(session_id: str):
 
             turns = []
             synthesis = ""
+            synthesis_meta: dict[str, Any] = {}
             for msg in messages:
                 meta = msg.metadata_json or {}
                 if isinstance(meta, str):
@@ -581,6 +590,8 @@ async def get_roundtable(session_id: str):
 
                 if msg.role == "synthesis":
                     synthesis = msg.content
+                    if isinstance(meta, dict):
+                        synthesis_meta = meta
                 else:
                     # Parse round number from role like "round-1"
                     round_num = 0
@@ -598,6 +609,11 @@ async def get_roundtable(session_id: str):
                         "duration_ms": 0,
                     })
 
+            try:
+                chunk_count = int(synthesis_meta.get("chunk_count", 0) or 0)
+            except (TypeError, ValueError):
+                chunk_count = 0
+
             return {
                 "session_id": str(session_row.id),
                 "topic": (session_row.title or "").replace("Roundtable: ", ""),
@@ -607,6 +623,10 @@ async def get_roundtable(session_id: str):
                 "synthesis": synthesis,
                 "synthesizer_id": "main",
                 "total_duration_ms": 0,
+                "chunked_mode": bool(synthesis_meta.get("chunked_mode", False)),
+                "chunk_count": chunk_count,
+                "chunk_notice": synthesis_meta.get("chunk_notice"),
+                "chunk_kind": synthesis_meta.get("chunk_kind"),
                 "created_at": session_row.created_at.isoformat() if session_row.created_at else None,
                 "turns": turns,
             }
@@ -822,6 +842,10 @@ class SwarmResponse(BaseModel):
     consensus_score: float
     converged: bool
     total_duration_ms: int
+    chunked_mode: bool = False
+    chunk_count: int = 0
+    chunk_notice: str | None = None
+    chunk_kind: str | None = None
     created_at: str
     votes: list[dict] = Field(default_factory=list)
 
@@ -924,6 +948,7 @@ async def get_swarm(session_id: str):
 
             votes = []
             consensus = ""
+            consensus_meta: dict[str, Any] = {}
             for msg in messages:
                 meta = msg.metadata_json or {}
                 if isinstance(meta, str):
@@ -935,6 +960,8 @@ async def get_swarm(session_id: str):
 
                 if msg.role == "consensus":
                     consensus = msg.content
+                    if isinstance(meta, dict):
+                        consensus_meta = meta
                 elif (msg.role or "").startswith("swarm-"):
                     try:
                         iteration = int(msg.role.split("-")[1])
@@ -949,6 +976,11 @@ async def get_swarm(session_id: str):
                         "duration_ms": 0,
                     })
 
+            try:
+                chunk_count = int(consensus_meta.get("chunk_count", 0) or 0)
+            except (TypeError, ValueError):
+                chunk_count = 0
+
             return {
                 "session_id": str(row.id),
                 "topic": (row.title or "").replace("Swarm: ", ""),
@@ -959,6 +991,10 @@ async def get_swarm(session_id: str):
                 "consensus_score": 0.0,
                 "converged": False,
                 "total_duration_ms": 0,
+                "chunked_mode": bool(consensus_meta.get("chunked_mode", False)),
+                "chunk_count": chunk_count,
+                "chunk_notice": consensus_meta.get("chunk_notice"),
+                "chunk_kind": consensus_meta.get("chunk_kind"),
                 "created_at": row.created_at.isoformat() if row.created_at else None,
                 "votes": votes,
             }
@@ -1079,12 +1115,20 @@ async def _handle_roundtable_ws(
             "type": "synthesis",
             "content": result.synthesis,
             "synthesizer_id": result.synthesizer_id,
+            "chunked_mode": bool(getattr(result, "chunked_mode", False)),
+            "chunk_count": int(getattr(result, "chunk_count", 0) or 0),
+            "chunk_notice": getattr(result, "chunk_notice", None),
+            "chunk_kind": getattr(result, "chunk_kind", None),
         })
         await _ws_send(websocket, {
             "type": "done",
             "session_id": result.session_id,
             "turn_count": result.turn_count,
             "total_duration_ms": result.total_duration_ms,
+            "chunked_mode": bool(getattr(result, "chunked_mode", False)),
+            "chunk_count": int(getattr(result, "chunk_count", 0) or 0),
+            "chunk_notice": getattr(result, "chunk_notice", None),
+            "chunk_kind": getattr(result, "chunk_kind", None),
         })
     except Exception as e:
         logger.warning("WebSocket roundtable error: %s", e)
@@ -1128,6 +1172,10 @@ async def _handle_swarm_ws(
             "content": result.consensus,
             "consensus_score": result.consensus_score,
             "converged": result.converged,
+            "chunked_mode": bool(getattr(result, "chunked_mode", False)),
+            "chunk_count": int(getattr(result, "chunk_count", 0) or 0),
+            "chunk_notice": getattr(result, "chunk_notice", None),
+            "chunk_kind": getattr(result, "chunk_kind", None),
         })
         await _ws_send(websocket, {
             "type": "done",
@@ -1135,6 +1183,10 @@ async def _handle_swarm_ws(
             "vote_count": result.vote_count,
             "iterations": result.iterations,
             "total_duration_ms": result.total_duration_ms,
+            "chunked_mode": bool(getattr(result, "chunked_mode", False)),
+            "chunk_count": int(getattr(result, "chunk_count", 0) or 0),
+            "chunk_notice": getattr(result, "chunk_notice", None),
+            "chunk_kind": getattr(result, "chunk_kind", None),
         })
     except Exception as e:
         logger.warning("WebSocket swarm error: %s", e)

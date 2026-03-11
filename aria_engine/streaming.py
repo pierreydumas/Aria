@@ -298,6 +298,78 @@ class StreamManager:
 
         return messages
 
+    async def _shrink_context_to_fit_hard_limit(
+        self,
+        db,
+        session,
+        messages: list[dict[str, Any]],
+        hard_limit: int,
+        token_count: int,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Emergency context reduction for oversized iterative streaming turns."""
+        model_name = session.model or self.config.default_model
+        current = list(messages)
+        current_tokens = token_count
+
+        if current_tokens <= hard_limit:
+            return current, current_tokens
+
+        try:
+            current = await self._maybe_compress_context(
+                db=db,
+                session=session,
+                messages=current,
+                token_count=current_tokens,
+                soft_threshold=int(hard_limit * 0.70),
+            )
+            current_tokens = self.gateway.estimate_tokens_for_messages(
+                model=model_name,
+                messages=current,
+            )
+            if current_tokens <= hard_limit:
+                return current, current_tokens
+        except Exception as exc:
+            logger.warning("Emergency compression pass failed (non-fatal): %s", exc)
+
+        reserve = min(
+            int(session.max_tokens or self.config.default_max_tokens),
+            max(512, hard_limit // 8),
+        )
+        try:
+            current = self._ctx_manager.build_context(
+                all_messages=current,
+                max_tokens=hard_limit,
+                model=model_name,
+                reserve_tokens=reserve,
+            )
+            current_tokens = self.gateway.estimate_tokens_for_messages(
+                model=model_name,
+                messages=current,
+            )
+            if current_tokens <= hard_limit:
+                return current, current_tokens
+        except Exception as exc:
+            logger.warning("Emergency context manager pass failed (non-fatal): %s", exc)
+
+        while current_tokens > hard_limit and len(current) > 3:
+            drop_idx = next(
+                (
+                    i
+                    for i, msg in enumerate(current)
+                    if msg.get("role") != "system"
+                ),
+                None,
+            )
+            if drop_idx is None or drop_idx >= len(current) - 1:
+                break
+            current.pop(drop_idx)
+            current_tokens = self.gateway.estimate_tokens_for_messages(
+                model=model_name,
+                messages=current,
+            )
+
+        return current, current_tokens
+
     async def handle_connection(
         self,
         websocket: WebSocket,
@@ -612,6 +684,7 @@ class StreamManager:
             tools_for_llm = self.tools.get_tools_for_llm() if enable_tools else None
             turn_state = TurnStateMachine()
             turn_state.transition("streaming")
+            context_compaction_meta: dict[str, Any] | None = None
 
             # ── Stream LLM response ───────────────────────────────────────
             max_tool_iterations = 20
@@ -731,19 +804,46 @@ class StreamManager:
                     session.model or self.config.default_model
                 )
                 if iteration_input_tokens > _model_hard_limit:
-                    logger.error(
-                        "Pre-flight hard limit: session=%s tokens=%d > hard_limit=%d — aborting turn",
-                        session_id, iteration_input_tokens, _model_hard_limit,
+                    _tokens_before = iteration_input_tokens
+                    messages, iteration_input_tokens = await self._shrink_context_to_fit_hard_limit(
+                        db=db,
+                        session=session,
+                        messages=messages,
+                        hard_limit=_model_hard_limit,
+                        token_count=iteration_input_tokens,
                     )
-                    await self._send_json(websocket, {
-                        "type": "error",
-                        "message": (
-                            "This conversation has grown too long for me to continue reliably "
-                            f"({iteration_input_tokens:,} tokens). Please start a new session "
-                            "or ask me to summarize and compress this conversation first."
+                    if iteration_input_tokens > _model_hard_limit:
+                        logger.error(
+                            "Pre-flight hard limit: session=%s tokens=%d > hard_limit=%d — aborting turn",
+                            session_id, iteration_input_tokens, _model_hard_limit,
+                        )
+                        await self._send_json(websocket, {
+                            "type": "error",
+                            "message": (
+                                "This conversation has grown too long for me to continue reliably "
+                                f"({iteration_input_tokens:,} tokens). Please start a new session "
+                                "or ask me to summarize and compress this conversation first."
+                            ),
+                        })
+                        break
+                    model_name = session.model or self.config.default_model
+                    context_compaction_meta = {
+                        "mode": "hard_limit_shrink",
+                        "tokens_before": _tokens_before,
+                        "tokens_after": iteration_input_tokens,
+                        "hard_limit": _model_hard_limit,
+                        "model": model_name,
+                        "notice": (
+                            "Auto-compacted context to fit model limit "
+                            f"({_tokens_before:,} -> {iteration_input_tokens:,} tokens)."
                         ),
-                    })
-                    break
+                    }
+                    logger.warning(
+                        "Hard limit avoided via emergency context shrink: session=%s tokens=%d <= %d",
+                        session_id,
+                        iteration_input_tokens,
+                        _model_hard_limit,
+                    )
                 if iteration_input_tokens > _model_soft_limit and iteration == 0:
                     _pct = int(iteration_input_tokens / _model_hard_limit * 100)
                     messages.append({
@@ -1183,6 +1283,8 @@ class StreamManager:
             if turn_state.current != "finalized":
                 turn_state.transition("finalized")
             _trace_meta: dict[str, Any] = {}
+            if context_compaction_meta:
+                _trace_meta["context_compaction"] = context_compaction_meta
             if _exec_trace["tools"]:
                 _total_ms = accumulator.latency_ms or 0
                 # Add response node
@@ -1298,6 +1400,24 @@ class StreamManager:
                 "cost": accumulator.cost_usd,
                 "repair_applied": promise_repair_triggered,
                 "usage_estimated": True,
+                "context_compacted": bool(context_compaction_meta),
+                "context_notice": (
+                    context_compaction_meta.get("notice")
+                    if context_compaction_meta
+                    else None
+                ),
+                "context_tokens_before": (
+                    int(context_compaction_meta.get("tokens_before"))
+                    if context_compaction_meta
+                    and context_compaction_meta.get("tokens_before") is not None
+                    else None
+                ),
+                "context_tokens_after": (
+                    int(context_compaction_meta.get("tokens_after"))
+                    if context_compaction_meta
+                    and context_compaction_meta.get("tokens_after") is not None
+                    else None
+                ),
             })
             if trace_token is not None:
                 _stream_trace_id_ctx.reset(trace_token)
@@ -1365,6 +1485,13 @@ class StreamManager:
                 "content": assistant_msg.thinking,
             })
 
+        _meta = assistant_msg.metadata_json or {}
+        _context_meta = (
+            _meta.get("context_compaction")
+            if isinstance(_meta, dict)
+            else None
+        )
+
         await self._send_json(websocket, {
             "type": "stream_end",
             "message_id": str(assistant_msg.id),
@@ -1375,6 +1502,24 @@ class StreamManager:
             "cost": float(assistant_msg.cost or 0.0),
             "repair_applied": False,
             "usage_estimated": bool((assistant_msg.metadata_json or {}).get("usage_estimated", True)),
+            "context_compacted": bool(_context_meta),
+            "context_notice": (
+                _context_meta.get("notice")
+                if isinstance(_context_meta, dict)
+                else None
+            ),
+            "context_tokens_before": (
+                int(_context_meta.get("tokens_before"))
+                if isinstance(_context_meta, dict)
+                and _context_meta.get("tokens_before") is not None
+                else None
+            ),
+            "context_tokens_after": (
+                int(_context_meta.get("tokens_after"))
+                if isinstance(_context_meta, dict)
+                and _context_meta.get("tokens_after") is not None
+                else None
+            ),
         })
         return True
 
