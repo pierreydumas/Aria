@@ -241,6 +241,148 @@ class MetacognitiveEngine:
         
         return None
     
+    def get_strategy_for_category(self, category: str) -> dict[str, Any]:
+        """
+        Get the recommended execution strategy for a task category.
+        
+        SP7-02: Active strategy selection — instead of just tracking outcomes,
+        metacognition now recommends HOW to approach a task based on historical
+        performance data, failure patterns, and learned strategies.
+        
+        Returns:
+            Dict with approach, confidence, reasoning, and any special instructions.
+        """
+        outcomes = self._task_outcomes.get(category, [])
+        total = len(outcomes)
+        
+        # Default strategy for unknown categories
+        if total < 3:
+            return {
+                "approach": "explore_then_execute",
+                "confidence": 0.5,
+                "reasoning": f"Insufficient data for '{category}' ({total} tasks). Using cautious exploration.",
+                "max_retries": 2,
+                "use_roundtable": False,
+            }
+        
+        success_rate = sum(outcomes) / total
+        recent = outcomes[-10:] if len(outcomes) >= 10 else outcomes
+        recent_rate = sum(recent) / len(recent)
+        
+        # Check for explicit strategy override from failure pattern detection
+        if category in self._category_strategies:
+            explicit = self._category_strategies[category]
+            return {
+                "approach": explicit,
+                "confidence": round(recent_rate, 2),
+                "reasoning": f"Strategy '{explicit}' assigned due to detected failure pattern.",
+                "max_retries": 3 if explicit == "roundtable" else 2,
+                "use_roundtable": explicit == "roundtable",
+            }
+        
+        # High success — direct execution with confidence
+        if recent_rate >= 0.9 and total >= 10:
+            return {
+                "approach": "direct",
+                "confidence": round(min(recent_rate, 0.95), 2),
+                "reasoning": f"Strong track record in '{category}' ({recent_rate:.0%} recent, {total} tasks). Direct execution.",
+                "max_retries": 1,
+                "use_roundtable": False,
+            }
+        
+        # Good but not great — standard approach with verification
+        if recent_rate >= 0.7:
+            return {
+                "approach": "execute_and_verify",
+                "confidence": round(recent_rate, 2),
+                "reasoning": f"Good performance in '{category}' ({recent_rate:.0%}). Standard execution with verification.",
+                "max_retries": 2,
+                "use_roundtable": False,
+            }
+        
+        # Struggling — use more careful approach
+        if recent_rate >= 0.5:
+            return {
+                "approach": "explore_work_validate",
+                "confidence": round(recent_rate, 2),
+                "reasoning": f"Mixed results in '{category}' ({recent_rate:.0%}). Using explore/work/validate cycle.",
+                "max_retries": 2,
+                "use_roundtable": False,
+            }
+        
+        # Poor performance — bring in the roundtable
+        return {
+            "approach": "roundtable",
+            "confidence": round(recent_rate, 2),
+            "reasoning": f"Struggling in '{category}' ({recent_rate:.0%}). Recommending roundtable for diverse perspectives.",
+            "max_retries": 3,
+            "use_roundtable": True,
+        }
+    
+    def predict_outcome(self, category: str) -> dict[str, Any]:
+        """
+        SP7-03: Predict the likely outcome of a task before execution.
+        
+        Uses historical data to estimate success probability, expected duration,
+        and risk factors. This is Aria's "intuition" — she can anticipate
+        what will happen before acting.
+        """
+        outcomes = self._task_outcomes.get(category, [])
+        total = len(outcomes)
+        
+        if total < 5:
+            return {
+                "predicted_success": 0.5,
+                "confidence_in_prediction": 0.2,
+                "expected_duration_ms": 5000,
+                "risk_factors": ["insufficient_history"],
+                "recommendation": "proceed_with_caution",
+            }
+        
+        success_rate = sum(outcomes) / total
+        recent = outcomes[-10:] if len(outcomes) >= 10 else outcomes
+        recent_rate = sum(recent) / len(recent)
+        
+        # Weight recent performance more heavily (70% recent, 30% all-time)
+        predicted_success = round(recent_rate * 0.7 + success_rate * 0.3, 3)
+        
+        # Confidence in prediction scales with sample size
+        prediction_confidence = min(0.95, total / 100)
+        
+        # Estimate duration from window results
+        cat_durations = [
+            r["duration_ms"] for r in self._window_results
+            if r.get("category") == category and r.get("duration_ms", 0) > 0
+        ]
+        expected_ms = int(sum(cat_durations) / len(cat_durations)) if cat_durations else 5000
+        
+        # Identify risk factors
+        risks = []
+        if recent_rate < success_rate - 0.1:
+            risks.append("declining_performance")
+        if self._failure_patterns.get(category, 0) >= 3:
+            risks.append("recurring_failures")
+        if self._current_streak == 0 and total > 5:
+            risks.append("recent_failure")
+        
+        # Recommendation
+        if predicted_success >= 0.8:
+            rec = "proceed_confidently"
+        elif predicted_success >= 0.6:
+            rec = "proceed_with_verification"
+        elif predicted_success >= 0.4:
+            rec = "consider_alternative_approach"
+        else:
+            rec = "seek_assistance_or_defer"
+        
+        return {
+            "predicted_success": predicted_success,
+            "confidence_in_prediction": round(prediction_confidence, 2),
+            "expected_duration_ms": expected_ms,
+            "risk_factors": risks,
+            "recommendation": rec,
+        }
+
     def get_learning_velocity(self) -> dict[str, Any]:
         """
         Calculate how fast Aria is improving.

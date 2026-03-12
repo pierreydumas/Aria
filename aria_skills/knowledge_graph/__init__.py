@@ -14,6 +14,8 @@ from aria_skills.api_client import get_api_client
 from aria_skills.base import BaseSkill, SkillConfig, SkillResult, SkillStatus
 from aria_skills.registry import SkillRegistry
 
+from .cache import KGCacheManager
+
 
 @SkillRegistry.register
 class KnowledgeGraphSkill(BaseSkill):
@@ -28,6 +30,7 @@ class KnowledgeGraphSkill(BaseSkill):
         self._entities: dict[str, dict] = {}  # fallback cache
         self._relations: list[dict] = []  # fallback cache
         self._api = None
+        self._cache = KGCacheManager()
     
     @property
     def name(self) -> str:
@@ -37,7 +40,7 @@ class KnowledgeGraphSkill(BaseSkill):
         """Initialize knowledge graph."""
         self._api = await get_api_client()
         self._status = SkillStatus.AVAILABLE
-        self.logger.info("Knowledge graph initialized (API-backed)")
+        self.logger.info("Knowledge graph initialized (API-backed, cache enabled)")
         return True
     
     async def close(self):
@@ -70,7 +73,10 @@ class KnowledgeGraphSkill(BaseSkill):
             if not result:
                 raise Exception(result.error)
             api_data = result.data
-            return SkillResult.ok(api_data if api_data else entity)
+            saved = api_data if api_data else entity
+            self._cache.invalidate(name)
+            self._cache.put_entity(saved)
+            return SkillResult.ok(saved)
         except Exception as e:
             self.logger.warning(f"API add_entity failed, using fallback: {e}")
             self._entities[entity_id] = entity
@@ -97,6 +103,8 @@ class KnowledgeGraphSkill(BaseSkill):
             if not result:
                 raise Exception(result.error)
             api_data = result.data
+            self._cache.invalidate(from_entity)
+            self._cache.invalidate(to_entity)
             return SkillResult.ok(api_data if api_data else rel)
         except Exception as e:
             detail = ""
@@ -119,7 +127,17 @@ class KnowledgeGraphSkill(BaseSkill):
         lookup = entity_id or query
         if not lookup:
             return SkillResult.fail("Provide 'query' or 'entity_id'")
-        
+
+        # Check cache first
+        if entity_id:
+            cached = self._cache.get_entity(entity_id)
+            if cached is not None:
+                return SkillResult.ok({"entity": cached, "relations": [], "_cached": True})
+        if query and type:
+            cached = self._cache.get_entity_by_name(query, type)
+            if cached is not None:
+                return SkillResult.ok({"entity": cached, "relations": [], "_cached": True})
+
         try:
             params: dict[str, Any] = {}
             if type:
@@ -132,6 +150,7 @@ class KnowledgeGraphSkill(BaseSkill):
             # Filter by name match
             matches = [e for e in entities if lookup.lower() in e.get("name", "").lower()]
             if matches:
+                self._cache.put_entity(matches[0])
                 return SkillResult.ok({"entity": matches[0], "relations": []})
             return SkillResult.fail(f"Entity not found: {lookup}")
         except Exception as e:
@@ -159,6 +178,13 @@ class KnowledgeGraphSkill(BaseSkill):
         When entity_name + depth are given, performs a BFS traversal.
         When only entity_type/relation are given, lists matching entities.
         """
+        # --- Check traversal cache ---
+        if entity_name:
+            cached = self._cache.get_traversal(entity_name, depth, relation, entity_type)
+            if cached is not None:
+                cached["_cached"] = True
+                return SkillResult.ok(cached)
+
         # --- Path A: Traverse from a named entity ---
         if entity_name:
             try:
@@ -175,12 +201,14 @@ class KnowledgeGraphSkill(BaseSkill):
                 data = resp.data
                 # If traverse found the entity, return subgraph
                 if not data.get("error"):
-                    return SkillResult.ok({
+                    result_data = {
                         "entities": data.get("nodes", []),
                         "relations": data.get("edges", []),
                         "total_entities": data.get("total_nodes", 0),
                         "total_relations": data.get("total_edges", 0),
-                    })
+                    }
+                    self._cache.put_traversal(entity_name, depth, result_data, relation, entity_type)
+                    return SkillResult.ok(result_data)
                 # If entity not found via traverse, fall through to search
             except Exception as e:
                 self.logger.warning(f"API kg-traverse failed: {e}")
@@ -244,3 +272,7 @@ class KnowledgeGraphSkill(BaseSkill):
                 "total_entities": len(entities),
                 "total_relations": len(relations),
             })
+
+    async def cache_stats(self) -> SkillResult:
+        """Return KG cache hit/miss statistics."""
+        return SkillResult.ok(self._cache.stats)

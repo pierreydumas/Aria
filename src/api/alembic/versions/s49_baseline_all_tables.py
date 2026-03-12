@@ -687,11 +687,13 @@ def upgrade():
         sa.Column("error_type", sa.String(100), nullable=True),
         sa.Column("tokens_used", sa.Integer, nullable=True),
         sa.Column("model_used", sa.String(100), nullable=True),
+        sa.Column("agent_id", sa.String(100), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("NOW()")),
     )
     _safe_create_index("idx_invocation_skill", "skill_invocations", ["skill_name"])
     _safe_execute("CREATE INDEX IF NOT EXISTS idx_invocation_created ON skill_invocations (created_at DESC)")
     _safe_create_index("idx_invocation_success", "skill_invocations", ["success"])
+    _safe_create_index("idx_invocation_agent", "skill_invocations", ["agent_id"])
 
     # ==================================================================
     # 31. engine_chat_sessions

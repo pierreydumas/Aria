@@ -94,9 +94,11 @@ class WorkingMemorySkill(BaseSkill):
         if not self._api:
             return SkillResult.fail("Working memory not initialized")
         try:
+            # API schema requires value as str; serialize non-strings
+            str_value = value if isinstance(value, str) else _json.dumps(value, default=str)
             result = await self._api.post("/working-memory", data={
                 "key": key,
-                "value": value,
+                "value": str_value,
                 "category": category,
                 "importance": importance,
                 "ttl_hours": ttl_hours,

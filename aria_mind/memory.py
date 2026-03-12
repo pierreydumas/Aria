@@ -335,6 +335,63 @@ class MemoryManager:
         self._consolidation_count += 1
         self._last_consolidation = datetime.now(timezone.utc).isoformat()
 
+        # ── SP7-01: Bridge consolidated insights → pgvector semantic memory ─
+        # This closes the gap where consolidation writes to files but never
+        # reaches semantic search. Consolidated summaries and lessons are now
+        # stored as semantic memories via api_client, making Aria's distilled
+        # wisdom searchable by meaning, not just keywords.
+        semantic_stored = 0
+        try:
+            from aria_skills.api_client import get_api_client
+            api = await get_api_client()
+            if api:
+                # Store each category summary as a semantic memory
+                for category, summary in summaries.items():
+                    if not summary or len(summary) < 30:
+                        continue
+                    importance = 0.7 if category not in _telemetry_categories else 0.3
+                    result = await api.store_memory_semantic(
+                        content=summary,
+                        category="consolidation",
+                        importance=importance,
+                        source="memory_consolidation",
+                        summary=f"Consolidation #{self._consolidation_count}: {category}",
+                        metadata={
+                            "consolidation_number": self._consolidation_count,
+                            "source_category": category,
+                            "entry_count": len(by_category.get(category, [])),
+                            "origin": "consolidation_pipeline",
+                        },
+                    )
+                    if result.success:
+                        semantic_stored += 1
+
+                # Store lessons as high-importance semantic memories
+                for lesson in lessons:
+                    if not lesson or len(lesson) < 20:
+                        continue
+                    result = await api.store_memory_semantic(
+                        content=lesson,
+                        category="lesson",
+                        importance=0.85,
+                        source="memory_consolidation",
+                        summary=lesson[:100],
+                        metadata={
+                            "consolidation_number": self._consolidation_count,
+                            "origin": "consolidation_lesson",
+                        },
+                    )
+                    if result.success:
+                        semantic_stored += 1
+
+                if semantic_stored:
+                    self.logger.info(
+                        f"🔗 Consolidation→Semantic bridge: "
+                        f"{semantic_stored} memories stored in pgvector"
+                    )
+        except Exception as e:
+            self.logger.debug(f"Semantic bridge skipped (non-fatal): {e}")
+
         # ── ARIA-REV-008: Promote high-importance entries before clearing ─
         # Entries with importance >= 0.6 are saved to deep/ storage so they
         # survive consolidation. This prevents lossy data loss of critical
@@ -882,6 +939,68 @@ class MemoryManager:
                 result["error"] = f"Invalid JSON: {e}"
         return result
 
+    # -------------------------------------------------------------------------
+    # SP7-08: Memory Quality Feedback Loop
+    #
+    # Tracks whether retrieved memories were actually useful in responses.
+    # Used by consolidation to prioritize high-utility memories and decay
+    # memories that are retrieved but never referenced.
+    # -------------------------------------------------------------------------
+
+    def __init_quality_tracking(self):
+        """Lazy-init quality tracking state."""
+        if not hasattr(self, "_retrieval_stats"):
+            self._retrieval_stats: dict[str, dict[str, int]] = {}  # memory_id → {retrieved, used}
+
+    def record_retrieval_quality(
+        self,
+        memory_id: str | None,
+        was_used: bool,
+        source: str = "semantic",
+    ) -> None:
+        """
+        Record whether a retrieved memory was actually used in a response.
+
+        Called by cognition after generating a response to track which
+        memories contributed. Feeds into consolidation priority.
+        """
+        self.__init_quality_tracking()
+        key = str(memory_id or f"unknown_{source}")
+        if key not in self._retrieval_stats:
+            self._retrieval_stats[key] = {"retrieved": 0, "used": 0}
+        self._retrieval_stats[key]["retrieved"] += 1
+        if was_used:
+            self._retrieval_stats[key]["used"] += 1
+
+    def get_retrieval_quality_report(self) -> dict[str, Any]:
+        """
+        Get aggregated memory quality metrics.
+
+        Returns hit rate (used/retrieved) and identifies memories that
+        are frequently retrieved but never used (noise candidates).
+        """
+        self.__init_quality_tracking()
+        if not self._retrieval_stats:
+            return {"total_retrievals": 0, "total_used": 0, "hit_rate": 0.0, "noise_candidates": []}
+
+        total_retrieved = sum(s["retrieved"] for s in self._retrieval_stats.values())
+        total_used = sum(s["used"] for s in self._retrieval_stats.values())
+        hit_rate = total_used / max(total_retrieved, 1)
+
+        # Identify noise: retrieved 3+ times but never used
+        noise = [
+            mid for mid, stats in self._retrieval_stats.items()
+            if stats["retrieved"] >= 3 and stats["used"] == 0
+        ]
+
+        return {
+            "total_retrievals": total_retrieved,
+            "total_used": total_used,
+            "hit_rate": round(hit_rate, 3),
+            "noise_candidates": noise[:10],
+            "tracked_memories": len(self._retrieval_stats),
+        }
+
     def get_status(self) -> dict[str, Any]:
         """Get memory system status with pattern awareness."""
         memories_path = self._get_memories_path()
@@ -913,6 +1032,7 @@ class MemoryManager:
                 "average_score": round(avg_score, 3),
                 "scoring_enabled": True,
             },
+            "retrieval_quality": self.get_retrieval_quality_report(),
         }
 
     def __repr__(self):

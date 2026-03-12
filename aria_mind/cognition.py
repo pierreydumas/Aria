@@ -208,6 +208,13 @@ class Cognition:
         # Flag user interactions as important — real conversations are rare
         self.memory.flag_important(prompt[:500], reason="user_interaction")
 
+        # Focus is managed by Aria herself (via soul/focus_manager).
+        # No auto-switching here — Aria decides when to change focus.
+        if hasattr(self.soul, 'focus_manager'):
+            fm = self.soul.focus_manager
+            context["active_focus"] = fm.active.type.value
+            context["focus_overlay"] = fm.active.get_system_prompt_overlay()
+
         # Step 2.1: Sentiment analysis for adaptive tone + persistence
         if self._sentiment_analyzer:
             try:
@@ -247,6 +254,35 @@ class Cognition:
                         context["working_memory"] = wm_result.data.get("context", [])
                 except Exception as e:
                     self.logger.debug(f"Working memory context injection skipped: {e}")
+
+        # Step 2.7: SP7-05 — Semantic memory recall via pgvector
+        # Pull memories by *meaning*, not just recency. Goes through api_client
+        # (5-layer compliant) → /memories/search → pgvector cosine distance.
+        # Only fires if api_client is available; non-blocking on failure.
+        if self._skills:
+            api = self._skills.get("api_client")
+            if api and api.is_available:
+                try:
+                    sem_result = await api.search_memories_semantic(
+                        query=prompt[:500],
+                        limit=5,
+                        min_importance=0.3,
+                    )
+                    if sem_result.success and sem_result.data:
+                        memories = sem_result.data
+                        if isinstance(memories, dict):
+                            memories = memories.get("results", memories.get("items", []))
+                        if isinstance(memories, list) and memories:
+                            # Tag each memory with retrieval metadata for quality tracking (SP7-08)
+                            for mem in memories:
+                                if isinstance(mem, dict):
+                                    mem["_retrieved_for"] = prompt[:80]
+                            context["semantic_memory"] = memories[:5]
+                            self.logger.debug(
+                                f"🔍 Semantic recall: {len(memories)} memories for prompt"
+                            )
+                except Exception as e:
+                    self.logger.debug(f"Semantic memory recall skipped: {e}")
         
         # Step 3: Build context with recent memory + confidence awareness
         recent = self.memory.recall_short(limit=5)
@@ -276,40 +312,77 @@ class Cognition:
             except Exception as e:
                 self.logger.debug(f"Skill routing hint injection skipped: {e}")
         
-        # Step 4: Process through agents with retry logic
+        # Step 4: Process through agents with metacognition-guided strategy
+        # SP7-02: Metacognition now drives execution approach — not just tracking
         result = None
         last_error = None
+        task_category = context.get("task_category", "general")
+
+        # Consult metacognition for recommended strategy
+        strategy = {"approach": "direct", "max_retries": self._MAX_RETRIES, "use_roundtable": False}
+        try:
+            from aria_mind.metacognition import get_metacognitive_engine
+            mc = get_metacognitive_engine()
+            strategy = mc.get_strategy_for_category(task_category)
+            prediction = mc.predict_outcome(task_category)
+            context["strategy"] = strategy
+            context["outcome_prediction"] = prediction
+            if strategy["approach"] != "direct":
+                self.logger.info(
+                    f"🧠 Metacognition strategy for '{task_category}': "
+                    f"{strategy['approach']} (confidence={strategy['confidence']})"
+                )
+        except Exception:
+            pass
+
+        max_retries = strategy.get("max_retries", self._MAX_RETRIES)
         
         if self._agents:
-            for attempt in range(self._MAX_RETRIES + 1):
+            # SP7-02: Route to roundtable when metacognition recommends it
+            if strategy.get("use_roundtable") and hasattr(self._agents, "roundtable"):
                 try:
-                    # On retry, add context about previous failure
-                    retry_prompt = prompt
-                    if attempt > 0 and last_error:
-                        retry_prompt = (
-                            f"{prompt}\n\n"
-                            f"[Note: Previous attempt failed with: {last_error}. "
-                            f"Try a different approach.]"
-                        )
-                    
-                    response = await self._agents.process(retry_prompt, **context)
-                    result = response.content
-                    
-                    # Validate we got a real response
-                    if result and not result.startswith("[Error") and not result.startswith("[LLM Error"):
-                        break  # Success
-                    else:
-                        last_error = result
-                        self.logger.warning(
-                            f"Agent attempt {attempt + 1}/{self._MAX_RETRIES + 1} "
-                            f"returned error-like response, retrying..."
-                        )
-                        
+                    response = await self._agents.roundtable(prompt, **context)
+                    if hasattr(response, "content"):
+                        result = response.content
+                    elif isinstance(response, str):
+                        result = response
+                    if result and not result.startswith("[Error"):
+                        self.logger.info("🏛️ Roundtable strategy succeeded")
                 except Exception as e:
+                    self.logger.warning(f"Roundtable strategy failed, falling back: {e}")
                     last_error = str(e)
-                    self.logger.error(
-                        f"Agent attempt {attempt + 1}/{self._MAX_RETRIES + 1} failed: {e}"
-                    )
+
+            # Standard retry loop (or fallback from roundtable)
+            if not result or result.startswith("[Error") or result.startswith("[LLM Error"):
+                for attempt in range(max_retries + 1):
+                    try:
+                        # On retry, add context about previous failure
+                        retry_prompt = prompt
+                        if attempt > 0 and last_error:
+                            retry_prompt = (
+                                f"{prompt}\n\n"
+                                f"[Note: Previous attempt failed with: {last_error}. "
+                                f"Try a different approach.]"
+                            )
+                        
+                        response = await self._agents.process(retry_prompt, **context)
+                        result = response.content
+                        
+                        # Validate we got a real response
+                        if result and not result.startswith("[Error") and not result.startswith("[LLM Error"):
+                            break  # Success
+                        else:
+                            last_error = result
+                            self.logger.warning(
+                                f"Agent attempt {attempt + 1}/{max_retries + 1} "
+                                f"returned error-like response, retrying..."
+                            )
+                            
+                    except Exception as e:
+                        last_error = str(e)
+                        self.logger.error(
+                            f"Agent attempt {attempt + 1}/{max_retries + 1} failed: {e}"
+                        )
         
         # Fallback if agents failed or unavailable
         if not result or result.startswith("[Error") or result.startswith("[LLM Error"):
@@ -351,6 +424,32 @@ class Cognition:
             f"streak={self._streak}, "
             f"latency={elapsed_ms:.0f}ms)"
         )
+
+        # Step 7.3: SP7-08 — Memory quality feedback loop
+        # Track which semantic memories were retrieved and whether they appear
+        # to have been useful (simple overlap heuristic). Feeds into
+        # consolidation priority: high-utility memories get boosted.
+        semantic_memories = context.get("semantic_memory", [])
+        if semantic_memories and result and is_success:
+            result_lower = result.lower()
+            used = 0
+            for mem in semantic_memories:
+                if not isinstance(mem, dict):
+                    continue
+                content = (mem.get("content") or mem.get("summary") or "")[:120].lower()
+                # Simple relevance check: does the response reference any key phrases?
+                tokens = [t for t in content.split() if len(t) > 4][:8]
+                overlap = sum(1 for t in tokens if t in result_lower)
+                was_used = overlap >= 2
+                if was_used:
+                    used += 1
+                self.memory.record_retrieval_quality(
+                    memory_id=mem.get("id"),
+                    was_used=was_used,
+                    source="semantic",
+                )
+            if used:
+                self.logger.debug(f"📊 Memory quality: {used}/{len(semantic_memories)} semantic memories used")
         
         # Step 7.5: Remember task in working memory
         if self._skills:
@@ -490,15 +589,21 @@ class Cognition:
         Uses litellm router which handles model selection internally.
         """
         if self._skills:
-            # Use LiteLLM router (handles model priority per models.yaml)
-            llm = self._skills.get("litellm") or self._skills.get("llm")
-            if llm and llm.is_available:
-                result = await llm.generate(
-                    prompt=prompt,
-                    system_prompt=context.get("system_prompt"),
-                )
+            # Use LLM skill (auto-resolves model from models.yaml fallback chain)
+            llm = self._skills.get("llm") or self._skills.get("litellm")
+            if llm and llm.is_available and hasattr(llm, "complete"):
+                messages = []
+                if context.get("system_prompt"):
+                    messages.append({"role": "system", "content": context["system_prompt"]})
+                messages.append({"role": "user", "content": prompt})
+                result = await llm.complete(messages=messages, temperature=0.7, max_tokens=2048)
                 if result.success:
-                    return result.data.get("text", "")
+                    data = result.data or {}
+                    # LLMSkill returns OpenAI-style response
+                    choices = data.get("choices", [])
+                    if choices:
+                        return choices[0].get("message", {}).get("content", "")
+                    return data.get("text", "")
         
         # Last resort - acknowledge but can't process
         return (
@@ -562,15 +667,21 @@ class Cognition:
                 self.logger.debug(f"LLM reflection failed, using structured fallback: {e}")
         
         if not reflection and self._skills:
-            llm = self._skills.get("litellm") or self._skills.get("llm")
-            if llm and llm.is_available:
+            llm = self._skills.get("llm") or self._skills.get("litellm")
+            if llm and llm.is_available and hasattr(llm, "complete"):
                 try:
-                    result = await llm.generate(
-                        prompt=reflection_prompt,
-                        system_prompt="You are Aria Blue's inner voice. Be genuine and insightful.",
-                    )
+                    messages = [
+                        {"role": "system", "content": "You are Aria Blue's inner voice. Be genuine and insightful."},
+                        {"role": "user", "content": reflection_prompt},
+                    ]
+                    result = await llm.complete(messages=messages, temperature=0.7, max_tokens=2048)  # profile: reflection
                     if result.success:
-                        reflection = result.data.get("text", "")
+                        data = result.data or {}
+                        choices = data.get("choices", [])
+                        if choices:
+                            reflection = choices[0].get("message", {}).get("content", "")
+                        else:
+                            reflection = data.get("text", "")
                 except Exception as e:
                     self.logger.debug(f"Direct LLM reflection failed: {e}")
         
@@ -679,15 +790,21 @@ class Cognition:
                 self.logger.debug(f"Agent planning failed: {e}")
         
         if not plan_text and self._skills:
-            llm = self._skills.get("litellm") or self._skills.get("llm")
-            if llm and llm.is_available:
+            llm = self._skills.get("llm") or self._skills.get("litellm")
+            if llm and llm.is_available and hasattr(llm, "complete"):
                 try:
-                    result = await llm.generate(
-                        prompt=planning_prompt,
-                        system_prompt="You are a strategic planner. Return only numbered steps.",
-                    )
+                    messages = [
+                        {"role": "system", "content": "You are a strategic planner. Return only numbered steps."},
+                        {"role": "user", "content": planning_prompt},
+                    ]
+                    result = await llm.complete(messages=messages, temperature=0.3, max_tokens=1024)  # profile: planning
                     if result.success:
-                        plan_text = result.data.get("text", "")
+                        data = result.data or {}
+                        choices = data.get("choices", [])
+                        if choices:
+                            plan_text = choices[0].get("message", {}).get("content", "")
+                        else:
+                            plan_text = data.get("text", "")
                 except Exception as e:
                     self.logger.debug(f"Direct LLM planning failed: {e}")
         
@@ -758,6 +875,160 @@ class Cognition:
             "technical": has_technical_terms,
         }
     
+    async def plan_execute_verify_reflect(
+        self,
+        goal: str,
+        context: dict[str, Any] | None = None,
+        max_steps: int = 7,
+    ) -> dict[str, Any]:
+        """
+        SP7-03: Structured Plan → Execute → Verify → Reflect loop.
+
+        Instead of a single-shot plan or delegate, this method:
+        1. PLAN  — decompose the goal into numbered steps with success criteria
+        2. EXECUTE — run each step, passing output as context to the next
+        3. VERIFY — after each step, check if the success criteria was met
+        4. REFLECT — if anything failed, analyze why and decide whether to
+                     re-plan, retry, or abort
+
+        This is Aria's structured reasoning chain — the bridge between
+        "process a prompt" and "think through a complex task."
+
+        Returns:
+            Dict with plan, step_results, overall_success, reflection
+        """
+        import re as _re
+        context = context or {}
+        start = time.monotonic()
+
+        # ── 1. PLAN ──────────────────────────────────────────────
+        steps = await self.plan(goal)
+        if not steps or (len(steps) == 1 and steps[0].startswith("Cannot plan")):
+            return {
+                "plan": steps,
+                "step_results": [],
+                "overall_success": False,
+                "reflection": steps[0] if steps else "Planning blocked by boundaries.",
+            }
+
+        steps = steps[:max_steps]
+        self.logger.info(f"📋 PEVR plan for '{goal[:60]}': {len(steps)} steps")
+
+        # ── 2. EXECUTE + 3. VERIFY (per step) ────────────────────
+        step_results: list[dict[str, Any]] = []
+        accumulated_context = context.copy()
+        failures = 0
+
+        for i, step in enumerate(steps, 1):
+            step_start = time.monotonic()
+            step_prompt = (
+                f"You are executing step {i}/{len(steps)} of a plan.\n"
+                f"Goal: {goal}\n"
+                f"This step: {step}\n"
+            )
+            # Inject outputs from previous steps
+            if step_results:
+                prev_summaries = [
+                    f"Step {r['step']}: {'✅' if r['success'] else '❌'} {r['output'][:120]}"
+                    for r in step_results[-3:]
+                ]
+                step_prompt += f"\nPrevious results:\n" + "\n".join(prev_summaries) + "\n"
+
+            step_prompt += "\nExecute this step and report your result concisely."
+
+            # Execute
+            output = None
+            try:
+                if self._agents:
+                    resp = await self._agents.process(step_prompt, **accumulated_context)
+                    output = resp.content if hasattr(resp, "content") else str(resp)
+                elif self._skills:
+                    output = await self._fallback_process(step_prompt, accumulated_context)
+            except Exception as e:
+                output = f"[Error: {e}]"
+
+            # Verify — is this a real result?
+            success = bool(output) and not output.startswith("[Error") and not output.startswith("[LLM Error")
+
+            elapsed = (time.monotonic() - step_start) * 1000
+            step_result = {
+                "step": i,
+                "description": step,
+                "output": output or "",
+                "success": success,
+                "elapsed_ms": round(elapsed),
+            }
+            step_results.append(step_result)
+
+            # Feed into accumulated context
+            accumulated_context[f"step_{i}_result"] = output[:500] if output else ""
+
+            if not success:
+                failures += 1
+                self.logger.warning(f"  Step {i} failed: {output[:100] if output else 'no output'}")
+                # Abort early if too many consecutive failures
+                if failures >= 3:
+                    self.logger.warning("PEVR aborting: 3+ failures")
+                    break
+            else:
+                self.logger.info(f"  Step {i} ✅ ({elapsed:.0f}ms)")
+
+        # ── 4. REFLECT ────────────────────────────────────────────
+        total_elapsed = (time.monotonic() - start) * 1000
+        successes = sum(1 for r in step_results if r["success"])
+        overall_success = successes == len(step_results) and failures == 0
+
+        # Build reflection prompt
+        results_text = "\n".join(
+            f"Step {r['step']}: {'✅' if r['success'] else '❌'} {r['description'][:80]} → {r['output'][:100]}"
+            for r in step_results
+        )
+        reflection_prompt = (
+            f"You are Aria Blue, reflecting on a completed plan execution.\n"
+            f"Goal: {goal}\n"
+            f"Results ({successes}/{len(step_results)} successful):\n{results_text}\n\n"
+            f"Reflect: What worked? What failed and why? "
+            f"What would you do differently next time? One short paragraph."
+        )
+
+        reflection = ""
+        try:
+            if self._agents:
+                resp = await self._agents.process(reflection_prompt, **context)
+                reflection = resp.content if hasattr(resp, "content") else str(resp)
+            elif self._skills:
+                reflection = await self._fallback_process(reflection_prompt, context)
+        except Exception:
+            reflection = (
+                f"Executed {len(step_results)} steps: {successes} succeeded, {failures} failed. "
+                f"Total time: {total_elapsed:.0f}ms."
+            )
+
+        # Record outcome in metacognition
+        self._record_outcome(
+            overall_success,
+            error_context={"component": "pevr", "error_type": "multi_step_failure"} if not overall_success else None,
+            elapsed_ms=total_elapsed,
+            category=context.get("task_category", "planning"),
+        )
+
+        # Store reflection
+        await self.memory.log_thought(
+            f"[PEVR] Goal: {goal[:80]}. {successes}/{len(step_results)} steps succeeded. "
+            f"Reflection: {reflection[:200]}",
+            category="pevr_reflection",
+        )
+
+        return {
+            "plan": steps,
+            "step_results": step_results,
+            "overall_success": overall_success,
+            "successes": successes,
+            "failures": failures,
+            "elapsed_ms": round(total_elapsed),
+            "reflection": reflection,
+        }
+
     def get_status(self) -> dict[str, Any]:
         """Get cognition status with metacognitive awareness."""
         avg_latency = (

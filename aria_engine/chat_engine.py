@@ -719,6 +719,7 @@ class ChatEngine:
                         self._db_factory,
                         skill_name=_parse_skill_from_tool(fn_name),
                         tool_name=fn_name,
+                        agent_id=session.agent_id,
                         duration_ms=tool_result.duration_ms,
                         success=tool_result.success,
                         model_used=session.model,

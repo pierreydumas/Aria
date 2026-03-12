@@ -24,6 +24,8 @@ from db.models import (
     EngineChatMessage,
     EngineChatMessageArchive,
     SkillGraphEntity,
+    SkillGraphRelation,
+    EngineAgentState,
 )
 from deps import get_db
 from schemas.requests import CreateSkillInvocation
@@ -117,22 +119,42 @@ def _coherence_scan(include_support: bool = False) -> dict:
         "coherent": coherent_count == len(rows),
     }
 
-# Well-known Aria skills (name, layer)
-_KNOWN_SKILLS = [
-    ("agent_manager", "L2"), ("api_client", "L1"), ("brainstorm", "L3"),
-    ("ci_cd", "L2"), ("community", "L3"), ("data_pipeline", "L2"),
-    ("database", "L1"), ("experiment", "L3"), ("fact_check", "L2"),
-    ("goals", "L2"), ("health", "L1"), ("hourly_goals", "L2"),
-    ("input_guard", "L1"), ("knowledge_graph", "L2"), ("litellm", "L1"),
-    ("llm", "L1"), ("market_data", "L2"), ("memory_compression", "L3"),
-    ("memeothy", "L3"), ("model_switcher", "L2"), ("moltbook", "L3"),
-    ("moonshot", "L2"), ("ollama", "L1"), ("pattern_recognition", "L3"),
-    ("performance", "L2"), ("pipeline_skill", "L2"), ("pipelines", "L2"),
-    ("portfolio", "L3"), ("pytest_runner", "L2"), ("research", "L3"),
-    ("sandbox", "L2"), ("schedule", "L2"), ("security_scan", "L2"),
-    ("sentiment_analysis", "L3"), ("session_manager", "L2"), ("social", "L3"),
-    ("telegram", "L2"), ("unified_search", "L3"), ("working_memory", "L1"),
-]
+# Layer int → display label
+_LAYER_LABELS = {0: "L0", 1: "L1", 2: "L2", 3: "L3", 4: "L4"}
+
+
+def _discover_known_skills() -> list[tuple[str, str]]:
+    """Build known-skills list dynamically from skill.json manifests."""
+    import json as _json
+
+    root = _skills_root()
+    skills: list[tuple[str, str]] = []
+    if not root.exists():
+        return skills
+    for entry in sorted(root.iterdir(), key=lambda p: p.name):
+        if not entry.is_dir() or entry.name in _SKILL_SUPPORT_DIRS:
+            continue
+        json_path = entry / "skill.json"
+        if not json_path.exists():
+            continue
+        try:
+            manifest = _json.loads(json_path.read_text(encoding="utf-8"))
+            layer_int = manifest.get("layer", 3)
+            label = _LAYER_LABELS.get(int(layer_int), "L3")
+            skills.append((entry.name, label))
+        except Exception:
+            skills.append((entry.name, "L3"))
+    return skills
+
+
+# Lazy-evaluated; refreshed on each seed/list call
+_KNOWN_SKILLS: list[tuple[str, str]] = []
+
+
+def _get_known_skills() -> list[tuple[str, str]]:
+    global _KNOWN_SKILLS
+    _KNOWN_SKILLS = _discover_known_skills()
+    return _KNOWN_SKILLS
 
 
 # ── List / Filter ────────────────────────────────────────────────────────────
@@ -151,7 +173,7 @@ async def list_skills(
 
     # Auto-seed if table is empty (first access)
     if not rows and not status:
-        for name, layer in _KNOWN_SKILLS:
+        for name, layer in _get_known_skills():
             seed_stmt = pg_insert(SkillStatusRecord).values(
                 skill_name=name,
                 canonical_name=name.replace("_", "-"),
@@ -186,6 +208,43 @@ async def list_skills(
         for row in invocation_rows
     }
 
+    # ── Enrich with focus_affinity (from graph) and assigned_agents (from agent_state) ──
+    # Build skill→affinity map from graph relations (graph uses canonical names, map via directory property)
+    affinity_rows = (
+        await db.execute(
+            select(SkillGraphEntity.properties, SkillGraphRelation.to_entity)
+            .join(SkillGraphRelation, SkillGraphEntity.id == SkillGraphRelation.from_entity)
+            .where(SkillGraphEntity.type == "skill")
+            .where(SkillGraphRelation.relation_type == "affinity")
+        )
+    ).all()
+    # Get focus_mode names by entity id
+    fm_entities = (
+        await db.execute(
+            select(SkillGraphEntity.id, SkillGraphEntity.name)
+            .where(SkillGraphEntity.type == "focus_mode")
+        )
+    ).all()
+    fm_names = {row.id: row.name for row in fm_entities}
+    affinity_map: dict[str, list[str]] = {}
+    for row in affinity_rows:
+        fm = fm_names.get(row.to_entity)
+        dir_name = (row.properties or {}).get("directory", "")
+        if fm and dir_name:
+            affinity_map.setdefault(dir_name, []).append(fm)
+
+    # Build skill→agents map from agent_state
+    agent_rows = (
+        await db.execute(
+            select(EngineAgentState.agent_id, EngineAgentState.skills)
+            .where(EngineAgentState.enabled == True)
+        )
+    ).all()
+    agents_map: dict[str, list[str]] = {}
+    for ag in agent_rows:
+        for sk in (ag.skills or []):
+            agents_map.setdefault(sk, []).append(ag.agent_id)
+
     items = []
     for row in rows:
         item = row.to_dict()
@@ -199,7 +258,15 @@ async def list_skills(
         if not item.get("last_health_check"):
             item["last_health_check"] = item.get("updated_at")
 
+        item["focus_affinity"] = affinity_map.get(row.skill_name, [])
+        item["assigned_agents"] = agents_map.get(row.skill_name, [])
+
         items.append(item)
+
+    # Layer distribution
+    layer_dist: dict[str, int] = {}
+    for row in rows:
+        layer_dist[row.layer or "?"] = layer_dist.get(row.layer or "?", 0) + 1
 
     return {
         "skills": items,
@@ -207,6 +274,7 @@ async def list_skills(
         "healthy": sum(1 for r in rows if r.status == "healthy"),
         "degraded": sum(1 for r in rows if r.status == "degraded"),
         "unavailable": sum(1 for r in rows if r.status == "unavailable"),
+        "layer_distribution": layer_dist,
     }
 
 
@@ -228,9 +296,13 @@ async def get_skill_health(name: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/skills/seed")
 async def seed_skills(db: AsyncSession = Depends(get_db)):
-    """Populate skill_status table with well-known Aria skills (idempotent)."""
+    """Seed skill_status from manifests, update stale layers, remove ghost entries."""
+    known = _get_known_skills()
+    known_names = {name for name, _ in known}
     created = 0
-    for name, layer in _KNOWN_SKILLS:
+    updated = 0
+
+    for name, layer in known:
         stmt = pg_insert(SkillStatusRecord).values(
             skill_name=name,
             canonical_name=name.replace("_", "-"),
@@ -239,8 +311,30 @@ async def seed_skills(db: AsyncSession = Depends(get_db)):
         ).on_conflict_do_nothing(index_elements=["skill_name"])
         result = await db.execute(stmt)
         created += max(0, result.rowcount)
+
+    # Update layer labels for existing rows that diverge from manifests
+    layer_map = dict(known)
+    existing = (await db.execute(select(SkillStatusRecord))).scalars().all()
+    for row in existing:
+        expected_layer = layer_map.get(row.skill_name)
+        if expected_layer and row.layer != expected_layer:
+            row.layer = expected_layer
+            updated += 1
+
+    # Remove ghost entries (in DB but no manifest on disk)
+    removed = []
+    for row in existing:
+        if row.skill_name not in known_names:
+            removed.append(row.skill_name)
+            await db.delete(row)
+
     await db.commit()
-    return {"seeded": created, "total": len(_KNOWN_SKILLS)}
+    return {
+        "seeded": created,
+        "updated_layers": updated,
+        "removed_ghosts": removed,
+        "total": len(known),
+    }
 
 
 @router.get("/skills/coherence")
@@ -259,6 +353,7 @@ async def record_invocation(body: CreateSkillInvocation, db: AsyncSession = Depe
     inv = SkillInvocation(
         skill_name=body.skill_name,
         tool_name=body.tool_name,
+        agent_id=body.agent_id,
         duration_ms=body.duration_ms,
         success=body.success,
         error_type=body.error_type,
@@ -1383,6 +1478,11 @@ async def skill_health_dashboard(
     skills = []
     total_invocations = 0
     total_failures = 0
+
+    # Lookup layer from skill_status table for enrichment
+    status_rows = (await db.execute(select(SkillStatusRecord))).scalars().all()
+    layer_by_skill = {r.skill_name: r.layer for r in status_rows}
+
     for row in skill_rows:
         total = int(row.total or 0)
         failures = int(row.failures or 0)
@@ -1392,6 +1492,7 @@ async def skill_health_dashboard(
         total_failures += failures
         skills.append({
             "skill_name": row.skill_name,
+            "layer": layer_by_skill.get(row.skill_name),
             "health_score": score,
             "status": _health_status(score),
             "total_calls": total,
@@ -1452,6 +1553,20 @@ async def skill_health_dashboard(
     degraded = [s for s in skills if s["status"] == "degraded"]
     slow = [s for s in skills if s["avg_duration_ms"] >= 5000]
 
+    # ── Per-layer health aggregates ──────────────────────────────────────
+    layer_stats: dict[str, dict] = {}
+    for s in skills:
+        lyr = s.get("layer") or "unknown"
+        if lyr not in layer_stats:
+            layer_stats[lyr] = {"count": 0, "total_calls": 0, "total_failures": 0, "score_sum": 0.0}
+        layer_stats[lyr]["count"] += 1
+        layer_stats[lyr]["total_calls"] += s["total_calls"]
+        layer_stats[lyr]["total_failures"] += s["failures"]
+        layer_stats[lyr]["score_sum"] += s["health_score"]
+    for lyr, v in layer_stats.items():
+        v["avg_health"] = round(v["score_sum"] / max(v["count"], 1), 1)
+        del v["score_sum"]
+
     return {
         "hours": safe_hours,
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -1465,6 +1580,7 @@ async def skill_health_dashboard(
             "degraded_count": len(degraded),
             "slow_count": len(slow),
         },
+        "layer_stats": layer_stats,
         "skills": skills,
         "patterns": patterns,
         "unhealthy_skills": unhealthy,

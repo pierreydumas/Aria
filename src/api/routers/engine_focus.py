@@ -130,7 +130,7 @@ SEED_PROFILES: list[dict[str, Any]] = [
             "one-line rationale. Never output prose when code suffices."
         ),
         "model_override": _get_focus_default("devsecops"),
-        "auto_skills": ["ci_cd", "database", "pytest_runner"],
+        "auto_skills": ["ci_cd", "sandbox", "pytest_runner"],
         "enabled": True,
     },
     {
@@ -151,7 +151,7 @@ SEED_PROFILES: list[dict[str, Any]] = [
             "drawing conclusions. Prefer SQL/code over English explanations."
         ),
         "model_override": None,
-        "auto_skills": ["database", "knowledge_graph", "api_client", "brainstorm"],
+        "auto_skills": ["data_pipeline", "knowledge_graph", "api_client", "brainstorm"],
         "enabled": True,
     },
     {

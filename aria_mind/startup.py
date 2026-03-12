@@ -27,11 +27,11 @@ logging.basicConfig(
 logger = logging.getLogger("aria.startup")
 
 
-def _resolve_path(*candidates: str) -> Path | None:
-    """Resolve first existing file from candidate paths."""
+def _resolve_path(*candidates: str, allow_dir: bool = False) -> Path | None:
+    """Resolve first existing file (or directory if allow_dir) from candidate paths."""
     for candidate in candidates:
         path = Path(candidate)
-        if path.exists() and path.is_file():
+        if path.exists() and (path.is_file() or (allow_dir and path.is_dir())):
             return path
     return None
 
@@ -170,7 +170,7 @@ async def run_startup():
         count = await registry.load_from_config(str(tools_md))
         if count == 0:
             # TOOLS.md has no YAML config blocks — fall back to skill.json manifests
-            skills_dir = _resolve_path("aria_skills", "aria_skills")
+            skills_dir = _resolve_path("aria_skills", "aria_skills", allow_dir=True)
             if skills_dir:
                 count = await registry.load_from_manifests(str(skills_dir))
         print(f"   ✓ Loaded skill configs ({count}): {registry.list()}")
@@ -280,6 +280,23 @@ async def run_startup():
     # =========================================================================
     print()
     print("🧩 Phase 3.5: Restoring Working Memory...")
+
+    # Wait for API readiness — brain often starts before aria-api is ready,
+    # which blows the circuit breaker and blocks all skill API calls.
+    api_skill = registry.get("api_client")
+    if api_skill:
+        import asyncio as _aio
+        for attempt in range(1, 6):
+            status = await api_skill.health_check()
+            if status == SkillStatus.AVAILABLE:
+                break
+            wait = min(attempt * 2, 8)
+            logger.info(f"Waiting for aria-api ({attempt}/5, next retry in {wait}s)...")
+            print(f"   ⏳ API not ready (attempt {attempt}/5, retrying in {wait}s)")
+            await _aio.sleep(wait)
+        # Reset circuit breaker after successful health check so skills can work
+        if hasattr(api_skill, '_circuit_open_until'):
+            api_skill._circuit_open_until = 0
 
     wm_skill = registry.get("working_memory")
     if not wm_skill:

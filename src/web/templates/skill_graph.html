@@ -240,6 +240,14 @@
     <select id="filter-category" onchange="applyFilter()">
         <option value="">All Categories</option>
     </select>
+    <select id="filter-layer" onchange="applyFilter()">
+        <option value="">All Layers</option>
+        <option value="0">L0 — Global</option>
+        <option value="1">L1 — Infrastructure</option>
+        <option value="2">L2 — Core</option>
+        <option value="3">L3 — Specialist</option>
+        <option value="4">L4 — Background</option>
+    </select>
     <button onclick="toggleLayout()" class="secondary">⚡ Toggle Layout</button>
     <button onclick="syncGraph()" class="sync-btn">🔄 Sync</button>
 </div>
@@ -271,6 +279,10 @@
                     <div class="detail-field">
                         <div class="field-label">Type</div>
                         <div class="field-value" id="detail-type"></div>
+                    </div>
+                    <div class="detail-field" id="detail-layer-field" style="display:none;">
+                        <div class="field-label">Layer</div>
+                        <div class="field-value" id="detail-layer"></div>
                     </div>
                     <div class="detail-field">
                         <div class="field-label">Description</div>
@@ -468,6 +480,16 @@ function onNodeClick(params) {
     document.getElementById('detail-name').textContent = entity.name;
     const safeTypeClass = String(entity.type || '').replace(/[^a-zA-Z0-9_-]/g, '');
     document.getElementById('detail-type').innerHTML = `<span class="type-badge type-${safeTypeClass}">${escapeHtml(entity.type || '')}</span>`;
+    // Show layer for skill entities
+    const layerField = document.getElementById('detail-layer-field');
+    const layerVal = entity.properties?.layer;
+    if (entity.type === 'skill' && layerVal != null) {
+        layerField.style.display = '';
+        const layerLabels = {0:'L0 — Global',1:'L1 — Infra',2:'L2 — Core',3:'L3 — Specialist',4:'L4 — Background'};
+        document.getElementById('detail-layer').textContent = layerLabels[layerVal] || `L${layerVal}`;
+    } else {
+        layerField.style.display = 'none';
+    }
     document.getElementById('detail-desc').textContent = entity.properties?.description || '—';
 
     // Count connections
@@ -485,9 +507,23 @@ function onNodeClick(params) {
 function applyFilter() {
     const typeFilter = document.getElementById('filter-type').value;
     const catFilter = document.getElementById('filter-category').value;
+    const layerFilter = document.getElementById('filter-layer').value;
 
     let filtered = allEntities;
     if (typeFilter) filtered = filtered.filter(e => e.type === typeFilter);
+    if (layerFilter) {
+        const layerInt = parseInt(layerFilter, 10);
+        // Keep skill entities matching the layer, plus their related tools/focus_modes/categories
+        const layerSkillIds = new Set(
+            filtered.filter(e => e.type === 'skill' && e.properties?.layer === layerInt).map(e => e.id)
+        );
+        const relatedIds = new Set(layerSkillIds);
+        allRelations.forEach(r => {
+            if (layerSkillIds.has(r.from_entity)) relatedIds.add(r.to_entity);
+            if (layerSkillIds.has(r.to_entity)) relatedIds.add(r.from_entity);
+        });
+        filtered = filtered.filter(e => relatedIds.has(e.id));
+    }
     if (catFilter) {
         // Find category entity ID
         const catEntity = allEntities.find(e => e.type === 'category' && e.name === catFilter);

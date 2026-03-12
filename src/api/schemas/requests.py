@@ -334,6 +334,7 @@ class CreateSkillInvocation(BaseModel):
     """Request body for POST /skills/invocations."""
     skill_name: str = "unknown"
     tool_name: str = "unknown"
+    agent_id: str | None = None
     duration_ms: int | None = None
     success: bool = True
     error_type: str | None = None

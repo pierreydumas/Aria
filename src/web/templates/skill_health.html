@@ -81,6 +81,12 @@
     .health-dot.degraded { background: #f59e0b; box-shadow: 0 0 6px #f59e0b; }
     .health-dot.unhealthy { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
 
+    .layer-badge { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; background: rgba(139,92,246,0.15); color: #a78bfa; letter-spacing: 0.05em; flex-shrink: 0; }
+    .layer-badge.L0 { background: rgba(239,68,68,0.15); color: #ef4444; }
+    .layer-badge.L1 { background: rgba(59,130,246,0.15); color: #60a5fa; }
+    .layer-badge.L2 { background: rgba(16,185,129,0.15); color: #34d399; }
+    .layer-badge.L4 { background: rgba(107,114,128,0.15); color: #9ca3af; }
+
     .score-badge {
         font-size: 13px;
         font-weight: 700;
@@ -286,12 +292,14 @@
 
         container.innerHTML = skills.map(s => {
             const lastSeen = s.last_seen ? new Date(s.last_seen).toLocaleString() : '—';
+            const layerBadge = s.layer ? `<span class="layer-badge ${escapeHtml(s.layer)}">${escapeHtml(s.layer)}</span>` : '';
             return `
                 <div class="health-card" onclick="this.classList.toggle('expanded')">
                     <div class="health-card-header">
                         <div class="health-card-name">
                             <span class="health-dot ${s.status}"></span>
                             ${escapeHtml(s.skill_name)}
+                            ${layerBadge}
                         </div>
                         <span class="score-badge ${s.status}">${s.health_score}</span>
                     </div>

@@ -813,6 +813,7 @@ class SkillInvocation(Base):
     id: Mapped[Any] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     skill_name: Mapped[str] = mapped_column(String(100), nullable=False)
     tool_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    agent_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer)
     success: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
     error_type: Mapped[str | None] = mapped_column(String(100))
@@ -824,6 +825,7 @@ class SkillInvocation(Base):
 Index("idx_invocation_skill", SkillInvocation.skill_name)
 Index("idx_invocation_created", SkillInvocation.created_at.desc())
 Index("idx_invocation_success", SkillInvocation.success)
+Index("idx_invocation_agent", SkillInvocation.agent_id)
 
 
 # ── Aria Engine (v2.0) ───────────────────────────────────────────────────────

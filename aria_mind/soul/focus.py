@@ -368,6 +368,9 @@ class FocusManager:
         """
         Suggest best focus for a task based on keywords.
         
+        Uses keyword matching (fast, free, always available).
+        See also: classify_focus_llm() for LLM-powered classification.
+        
         Args:
             task_keywords: Words describing the task
             
@@ -402,6 +405,66 @@ class FocusManager:
         # Return highest scoring focus, default to ORCHESTRATOR
         best = max(scores, key=scores.get)
         return best if scores[best] > 0 else FocusType.ORCHESTRATOR
+
+    async def classify_focus_llm(
+        self,
+        task_text: str,
+        llm_skill=None,
+    ) -> FocusType:
+        """
+        SP7-07: LLM-powered focus classification.
+
+        Uses a single cheap LLM call (local model, ~50 input tokens,
+        max_tokens=64) to classify the task into a focus type.
+        Cost: $0 when using local qwen3.5_mlx or free-tier OpenRouter.
+
+        Falls back to keyword matching if LLM is unavailable or fails.
+
+        Args:
+            task_text: The user prompt or task description
+            llm_skill: Optional LLM skill instance (litellm or ollama).
+                        If None, falls back to keyword matching.
+
+        Returns:
+            Recommended FocusType
+        """
+        # Build the valid focus names for the prompt
+        valid_names = [ft.value for ft in FocusType]
+
+        if llm_skill and hasattr(llm_skill, "complete"):
+            try:
+                classification_prompt = (
+                    f"Classify this task into exactly ONE focus type.\n"
+                    f"Options: {', '.join(valid_names)}\n"
+                    f"Task: {task_text[:200]}\n"
+                    f"Reply with ONLY the focus type name, nothing else."
+                )
+                messages = [
+                    {"role": "system", "content": "You are a task classifier. Reply with a single word."},
+                    {"role": "user", "content": classification_prompt},
+                ]
+                result = await llm_skill.complete(
+                    messages=messages,
+                    max_tokens=32,
+                    temperature=0.1,  # profile: focus_classify
+                )
+                if result.success:
+                    data = result.data or {}
+                    choices = data.get("choices", [])
+                    if choices:
+                        raw = choices[0].get("message", {}).get("content", "").strip().lower()
+                    else:
+                        raw = (data.get("text") or "").strip().lower()
+                    # Parse — accept the focus name anywhere in the response
+                    for ft in FocusType:
+                        if ft.value in raw:
+                            return ft
+            except Exception:
+                pass  # Fall through to keyword matching
+
+        # Fallback: keyword matching (always available, free)
+        keywords = task_text.lower().split()[:20]
+        return self.get_focus_for_task(keywords)
     
     def get_awareness_text(self) -> str:
         """

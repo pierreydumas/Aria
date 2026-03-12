@@ -352,6 +352,7 @@ services:
       BROWSERLESS_INTERNAL_PORT: ${BROWSERLESS_INTERNAL_PORT:-3000}
       # LiteLLM (internal)
       LITELLM_URL: ${LITELLM_URL:-http://litellm:4000}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-change-me}
       # Aria Email
       ARIA_EMAIL: ${ARIA_EMAIL:-}
       ARIA_EMAIL_PASSWORD: ${ARIA_EMAIL_PASSWORD:-}

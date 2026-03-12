@@ -173,6 +173,8 @@ async def ensure_schema() -> None:
             ("aria_engine.agent_state", "capabilities", "JSONB", "'[]'::jsonb"),
             ("aria_engine.agent_state", "timeout_seconds", "INTEGER", "600"),
             ("aria_engine.agent_state", "rate_limit", "JSONB", "'{}'::jsonb"),
+            # skill_invocations — track which agent invoked a skill
+            ("aria_data.skill_invocations", "agent_id", "VARCHAR(100)", None),
         ]
         for tbl, col, col_type, default in _column_migrations:
             ddl = f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS {col} {col_type}"

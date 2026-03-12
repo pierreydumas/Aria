@@ -607,6 +607,50 @@ class Heartbeat:
                     pass
                 raise move_err
 
+            # ── SP7-06: Use PEVR for complex goals at L2/L3 ──────────
+            # If the goal title suggests multi-step work and focus level
+            # allows deeper processing, delegate to cognition's PEVR loop.
+            # Simple maintenance/health goals keep the fast-path increment.
+            goal_title = str(goal.get("title") or "")
+            _complex_signals = (
+                "implement", "build", "create", "design", "refactor",
+                "migrate", "research", "investigate", "integrate", "deploy",
+            )
+            is_complex = (
+                focus_level in ("L2", "L3")
+                and len(goal_title.split()) >= 4
+                and any(sig in goal_title.lower() for sig in _complex_signals)
+            )
+
+            pevr_result = None
+            if is_complex and self._mind.cognition and hasattr(self._mind.cognition, "plan_execute_verify_reflect"):
+                try:
+                    pevr_result = await self._mind.cognition.plan_execute_verify_reflect(
+                        goal=goal_title,
+                        context={
+                            "goal_id": goal_ref,
+                            "current_progress": current_progress,
+                            "focus_level": focus_level,
+                            "task_category": "goal_work",
+                        },
+                        max_steps=5,
+                    )
+                    # PEVR success → bigger progress boost
+                    if pevr_result.get("overall_success"):
+                        next_progress = min(100, current_progress + progress_step * 2)
+                        await api.update_goal(goal_id=goal_ref, progress=next_progress)
+                        self.logger.info(
+                            f"🧠 PEVR goal work succeeded: {pevr_result['successes']}/{len(pevr_result.get('step_results', []))} steps"
+                        )
+                    else:
+                        self.logger.info(
+                            f"🧠 PEVR goal work partial: {pevr_result.get('successes', 0)} succeeded, "
+                            f"{pevr_result.get('failures', 0)} failed. Keeping standard increment."
+                        )
+                except Exception as pevr_err:
+                    self.logger.debug(f"PEVR goal work skipped, using standard: {pevr_err}")
+            # ── End SP7-06 ──────────────────────────────────────────────
+
             if next_progress >= 100:
                 try:
                     await api.update_goal(goal_id=goal_ref, status="completed", progress=100)
