@@ -197,6 +197,49 @@ class SkillRegistry:
     def list_configured(self) -> list[str]:
         """List all configured skill names."""
         return list(self._configs.keys())
+
+    async def load_from_manifests(self, skills_dir: str = "aria_skills") -> int:
+        """
+        Load skill configs from skill.json manifests (same source as ToolRegistry).
+
+        Fallback when TOOLS.md has no parseable YAML blocks.
+        """
+        import json as _json
+
+        base = Path(skills_dir)
+        if not base.is_dir():
+            logger.warning("Skills directory not found: %s", skills_dir)
+            return 0
+
+        loaded = 0
+        for manifest in sorted(base.glob("*/skill.json")):
+            try:
+                data = _json.loads(manifest.read_text())
+            except Exception as exc:
+                logger.debug("Bad manifest %s: %s", manifest, exc)
+                continue
+
+            # Derive python name from directory (e.g. 'input_guard')
+            skill_name = manifest.parent.name
+            config = SkillConfig(name=skill_name, enabled=True)
+            self._configs[skill_name] = config
+
+            if skill_name in self._skill_classes:
+                skill_class = self._skill_classes[skill_name]
+                skill = skill_class(config)
+                if skill_name == "pipeline":
+                    init_ok = await skill.initialize(registry=self)
+                else:
+                    init_ok = await skill.initialize()
+                if init_ok:
+                    self._skills[skill_name] = skill
+                    self._skills[skill.canonical_name] = skill
+                    loaded += 1
+                    logger.info("Loaded skill from manifest: %s", skill_name)
+                else:
+                    logger.warning("Failed to init skill from manifest: %s", skill_name)
+
+        return loaded
     
     async def check_all_health(self) -> dict[str, SkillStatus]:
         """Run health checks on all loaded skills."""

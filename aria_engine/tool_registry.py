@@ -67,6 +67,7 @@ class ToolRegistry:
     def __init__(self, timeout_seconds: int = 300):
         self._tools: dict[str, ToolDefinition] = {}
         self._skill_instances: dict[str, Any] = {}
+        self._manifests: dict[str, dict] = {}  # skill_name → full skill.json
         self._initialized_skills: set[str] = set()
         self._timeout = timeout_seconds
         self._consent_mode = os.getenv("ARIA_CONSENT_MODE", "enforced").strip().lower()
@@ -342,6 +343,7 @@ class ToolRegistry:
 
             try:
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                self._manifests[skill_dir.name] = manifest
                 tools = manifest.get("tools", [])
                 registered = 0
                 for tool_def in tools:
@@ -550,6 +552,157 @@ class ToolRegistry:
             })
 
         return tools
+
+    # ── Agent Skill Auto-Wiring ──────────────────────────────────────────
+
+    # Focus types that map to affinity tags in skill.json manifests.
+    FOCUS_TYPE_TO_AFFINITIES: dict[str, list[str]] = {
+        "orchestrator":   ["orchestrator"],
+        "devsecops":      ["devsecops"],
+        "data":           ["data", "trader", "research"],
+        "social":         ["social", "creative", "journalist"],
+        "memory":         ["memory", "cognitive"],
+        "rpg_master":     ["rpg_master"],
+        "conversational": [],
+    }
+
+    # Only these skills may declare layer 0 (global injection).
+    ALLOWED_L0_SKILLS: frozenset[str] = frozenset(["input_guard"])
+
+    # Hard cap to prevent token explosion.
+    MAX_SKILLS_PER_AGENT: int = 25
+
+    def build_agent_skill_map(
+        self,
+        agents: list[dict[str, Any]],
+    ) -> dict[str, list[str]]:
+        """
+        Compute agent → skills mapping using manifest metadata.
+
+        Rules:
+        1. Layer 0 skills → ALL agents (if in ALLOWED_L0_SKILLS allowlist)
+        2. Layer 1-2 skills → ALL agents (core infrastructure)
+        3. Layer 3-4 skills → agents whose focus_type matches any focus_affinity
+        4. Manual skills from the current DB list are preserved (union)
+        5. exclude_skills removes specific skills (opt-out)
+        6. Dependencies are auto-included (transitive, cycle-safe)
+
+        Args:
+            agents: list of dicts with keys: agent_id, focus_type, skills, exclude_skills
+
+        Returns:
+            {agent_id: sorted_skill_list}
+        """
+        result: dict[str, list[str]] = {}
+
+        for agent in agents:
+            agent_id = agent["agent_id"]
+            focus_type = agent.get("focus_type") or ""
+            agent_affinities = self.FOCUS_TYPE_TO_AFFINITIES.get(focus_type, [])
+            computed: set[str] = set(agent.get("skills") or [])
+
+            for skill_name, manifest in self._manifests.items():
+                layer = manifest.get("layer", 3)
+                if not isinstance(layer, int) or not (0 <= layer <= 4):
+                    layer = 4
+                affinity = manifest.get("focus_affinity", [])
+                if not isinstance(affinity, list):
+                    affinity = []
+
+                if layer == 0:
+                    if skill_name not in self.ALLOWED_L0_SKILLS:
+                        logger.warning(
+                            "Blocked skill '%s' claiming layer 0 — not in allowlist",
+                            skill_name,
+                        )
+                        continue
+                    computed.add(skill_name)
+                elif layer <= 2:
+                    # Core infrastructure — available to all agents
+                    computed.add(skill_name)
+                else:
+                    # Domain (L3-L4) — affinity match required
+                    if any(a in agent_affinities for a in affinity):
+                        computed.add(skill_name)
+
+            # Resolve transitive dependencies (cycle-safe)
+            computed |= self._resolve_deps(computed)
+
+            # Apply exclusions
+            for ex in agent.get("exclude_skills") or []:
+                computed.discard(ex)
+
+            # Cap skill count (keep L0 + L1-L2 first, then by layer)
+            if len(computed) > self.MAX_SKILLS_PER_AGENT:
+                logger.warning(
+                    "Agent %s has %d skills (cap=%d) — trimming",
+                    agent_id, len(computed), self.MAX_SKILLS_PER_AGENT,
+                )
+                prioritized = sorted(
+                    computed,
+                    key=lambda s: self._manifests.get(s, {}).get("layer", 3),
+                )
+                computed = set(prioritized[: self.MAX_SKILLS_PER_AGENT])
+
+            result[agent_id] = sorted(computed)
+
+        return result
+
+    def _resolve_deps(self, skills: set[str], _max_depth: int = 3) -> set[str]:
+        """Resolve transitive dependencies for a skill set (cycle-safe)."""
+        added: set[str] = set()
+        visited: set[str] = set()
+
+        def _walk(name: str, depth: int) -> None:
+            if depth > _max_depth or name in visited:
+                return
+            visited.add(name)
+            for dep in self._manifests.get(name, {}).get("dependencies", []):
+                if dep not in skills and dep not in added:
+                    added.add(dep)
+                _walk(dep, depth + 1)
+
+        for skill in list(skills):
+            _walk(skill, 0)
+        return added
+
+    async def get_allowed_skills(self, db: Any, agent_id: str) -> list[str] | None:
+        """
+        Read the per-agent skill filter from the DB.
+
+        Shared by ChatEngine and StreamingEngine to avoid DRY violations.
+        Returns the allowed skills list, or None if no filtering.
+        Falls closed: if skills column is NULL/empty, returns L0-only list.
+        """
+        from sqlalchemy import select
+
+        try:
+            from db.models import EngineAgentState
+        except ImportError:
+            return None
+
+        result = await db.execute(
+            select(EngineAgentState.skills).where(
+                EngineAgentState.agent_id == agent_id
+            )
+        )
+        row = result.first()
+        if row and row[0]:
+            try:
+                skills_list = (
+                    json.loads(row[0]) if isinstance(row[0], str) else row[0]
+                )
+                if isinstance(skills_list, list) and skills_list:
+                    # Ensure L0 global skills are always present
+                    for l0 in self.ALLOWED_L0_SKILLS:
+                        if l0 not in skills_list:
+                            skills_list.append(l0)
+                    return skills_list
+            except (json.JSONDecodeError, TypeError, KeyError):
+                pass
+
+        # Fail-closed: NULL or empty skills → only L0 globals
+        return list(self.ALLOWED_L0_SKILLS)
 
     async def execute(
         self,

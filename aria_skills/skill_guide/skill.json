@@ -1,0 +1,34 @@
+{
+  "name": "skill_guide",
+  "version": "1.0.0",
+  "description": "Read skill documentation (SKILL.md) on demand. Lets Aria learn how to use any skill before calling its tools.",
+  "author": "Aria Team",
+  "layer": 2,
+  "status": "active",
+  "dependencies": [],
+  "focus_affinity": [],
+  "tools": [
+    {
+      "name": "skill_guide__read",
+      "description": "Read a skill's SKILL.md documentation. Call this BEFORE using an unfamiliar skill to understand its tools, parameters, and usage patterns. Returns the full markdown guide.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "skill_name": {
+            "type": "string",
+            "description": "Snake_case skill directory name (e.g. 'sandbox', 'research', 'market_data')"
+          }
+        },
+        "required": ["skill_name"]
+      }
+    },
+    {
+      "name": "skill_guide__list",
+      "description": "List all available skills with their layer, status, and one-line description. Use this to discover what capabilities are available.",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

@@ -4,8 +4,13 @@ Agent Sync — parse AGENTS.md and upsert into aria_engine.agent_state.
 Called by POST /agents/db/sync and optionally on startup.
 Respects ``app_managed`` flag — rows edited via API/UI are skipped
 unless ``force=True`` is passed.
+
+When ``ARIA_SKILL_AUTO_WIRE=true`` (default), the ``skills`` column is
+NOT overwritten on existing rows — the auto-wiring engine in
+ToolRegistry.build_agent_skill_map() manages it instead.
 """
 import logging
+import os
 import re
 from pathlib import Path
 from datetime import datetime, timezone
@@ -147,6 +152,7 @@ async def sync_agents_from_markdown(
     updated = 0
     skipped = 0
     now = datetime.now(timezone.utc)
+    auto_wire = os.getenv("ARIA_SKILL_AUTO_WIRE", "true").lower() in {"1", "true", "yes"}
 
     async with session_factory() as db:
         for agent in agents_data:
@@ -170,7 +176,8 @@ async def sync_agents_from_markdown(
                 existing.model = agent["model"]
                 existing.fallback_model = agent["fallback_model"]
                 existing.focus_type = agent["focus_type"]
-                existing.skills = agent["skills"]
+                if not auto_wire:
+                    existing.skills = agent["skills"]
                 existing.capabilities = agent["capabilities"]
                 existing.timeout_seconds = agent["timeout_seconds"]
                 existing.rate_limit = agent["rate_limit"]

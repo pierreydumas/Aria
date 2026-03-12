@@ -178,6 +178,41 @@ async def lifespan(app: FastAPI):
             print(f"\u2705 Tool registry: {tool_count} tools discovered from skill manifests")
         except Exception as te:
             print(f"\u26a0\ufe0f  Tool manifest discovery failed (non-fatal): {te}")
+        # Auto-wire: compute agent → skills from manifest metadata and persist
+        try:
+            try:
+                from .config import SKILL_AUTO_WIRE
+            except ImportError:
+                from config import SKILL_AUTO_WIRE
+            if SKILL_AUTO_WIRE:
+                try:
+                    from .db import AsyncSessionLocal as _WireSessionLocal
+                except ImportError:
+                    from db import AsyncSessionLocal as _WireSessionLocal
+                from db.models import EngineAgentState
+                from sqlalchemy import select
+                async with _WireSessionLocal() as _wire_db:
+                    rows = (await _wire_db.execute(select(EngineAgentState))).scalars().all()
+                    agents_for_wire = [
+                        {
+                            "agent_id": r.agent_id,
+                            "focus_type": r.focus_type,
+                            "skills": r.skills or [],
+                            "exclude_skills": (r.metadata_json or {}).get("exclude_skills", []),
+                        }
+                        for r in rows
+                    ]
+                    skill_map = tool_registry.build_agent_skill_map(agents_for_wire)
+                    wired = 0
+                    for r in rows:
+                        new_skills = skill_map.get(r.agent_id)
+                        if new_skills is not None and sorted(r.skills or []) != new_skills:
+                            r.skills = new_skills
+                            wired += 1
+                    await _wire_db.commit()
+                print(f"\u2705 Skill auto-wire: {wired} agents updated, {len(skill_map)} agents mapped")
+        except Exception as _aw:
+            print(f"\u26a0\ufe0f  Skill auto-wire failed (non-fatal): {_aw}")
         # Session protection: prompt-injection guard + persistent rate-limit windows
         try:
             from aria_engine.session_protection import SessionProtection

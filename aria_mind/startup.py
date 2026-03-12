@@ -167,8 +167,13 @@ async def run_startup():
         tools_md = _resolve_path("aria_mind/TOOLS.md", "TOOLS.md")
         if not tools_md:
             raise FileNotFoundError("TOOLS.md not found in aria_mind/ or workspace root")
-        await registry.load_from_config(str(tools_md))
-        print(f"   ✓ Loaded skill configs: {registry.list()}")
+        count = await registry.load_from_config(str(tools_md))
+        if count == 0:
+            # TOOLS.md has no YAML config blocks — fall back to skill.json manifests
+            skills_dir = _resolve_path("aria_skills", "aria_skills")
+            if skills_dir:
+                count = await registry.load_from_manifests(str(skills_dir))
+        print(f"   ✓ Loaded skill configs ({count}): {registry.list()}")
     except Exception as e:
         logger.warning(f"Could not load TOOLS.md: {e}")
     

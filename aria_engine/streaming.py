@@ -681,7 +681,13 @@ class StreamManager:
 
             # Build conversation context
             messages = await self._build_context(db, session, content)
-            tools_for_llm = self.tools.get_tools_for_llm() if enable_tools else None
+
+            # Per-agent skill filtering (mirrors ChatEngine logic)
+            allowed_skills = None
+            if enable_tools and session.agent_id:
+                allowed_skills = await self.tools.get_allowed_skills(db, session.agent_id)
+
+            tools_for_llm = self.tools.get_tools_for_llm(filter_skills=allowed_skills) if enable_tools else None
             turn_state = TurnStateMachine()
             turn_state.transition("streaming")
             context_compaction_meta: dict[str, Any] | None = None
@@ -1073,8 +1079,31 @@ class StreamManager:
                                 }),
                                 success=False,
                             )
+                        elif allowed_skills:
+                            # Capability enforcement: reject tools outside agent's skills
+                            skill_part = fn_name.split("__")[0] if "__" in fn_name else ""
+                            if skill_part and skill_part not in allowed_skills:
+                                logger.warning(
+                                    "Stream agent %s blocked from tool %s (skill %s not in allowed set)",
+                                    session.agent_id, fn_name, skill_part,
+                                )
+                                tool_result = ToolResult(
+                                    tool_call_id=tc["id"],
+                                    name=fn_name,
+                                    content=json.dumps({
+                                        "error": f"Capability denied: agent '{session.agent_id}' "
+                                        f"does not have access to skill '{skill_part}'"
+                                    }),
+                                    success=False,
+                                )
+                            else:
+                                tool_result = await self.tools.execute(
+                                    tool_call_id=tc["id"],
+                                    function_name=fn_name,
+                                    arguments=tc["function"]["arguments"],
+                                )
                         else:
-                            # Execute tool
+                            # No capability filtering configured — execute directly
                             tool_result = await self.tools.execute(
                                 tool_call_id=tc["id"],
                                 function_name=fn_name,

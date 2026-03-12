@@ -396,24 +396,7 @@ class ChatEngine:
             # Filter tools by agent's allowed skills (capability matching)
             allowed_skills = None
             if enable_tools and session.agent_id:
-                from db.models import EngineAgentState
-                agent_skills = await db.execute(
-                    select(EngineAgentState.skills).where(
-                        EngineAgentState.agent_id == session.agent_id
-                    )
-                )
-                row = agent_skills.first()
-                if row and row[0]:
-                    try:
-                        skills_list = (
-                            json.loads(row[0])
-                            if isinstance(row[0], str)
-                            else row[0]
-                        )
-                        if isinstance(skills_list, list) and skills_list:
-                            allowed_skills = skills_list
-                    except (json.JSONDecodeError, TypeError, KeyError) as e:
-                        logger.warning("Malformed skills filter: %s", e)
+                allowed_skills = await self.tools.get_allowed_skills(db, session.agent_id)
 
             tools_for_llm = (
                 self.tools.get_tools_for_llm(filter_skills=allowed_skills)

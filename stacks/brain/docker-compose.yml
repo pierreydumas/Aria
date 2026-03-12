@@ -570,6 +570,7 @@ services:
       - frontend
       - backend
       - data
+      - sandbox-net
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:'+str($${API_INTERNAL_PORT})+'/health')\" || exit 1"]
       interval: 10s
@@ -644,7 +645,6 @@ services:
       dockerfile: Dockerfile
     container_name: aria-sandbox
     restart: unless-stopped
-    profiles: ["sandbox"]
     environment:
       SANDBOX_PORT: ${SANDBOX_PORT:-9999}
       SANDBOX_TIMEOUT: ${SANDBOX_TIMEOUT:-60}
@@ -663,6 +663,7 @@ services:
           memory: 512M
     networks:
       - sandbox-net
+      - backend
     mem_limit: 512m
     cpus: 1.0
 
