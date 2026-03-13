@@ -399,6 +399,14 @@ def create_app():
     def knowledge():
         return render_template('knowledge.html')
 
+    @app.route('/knowledge-cache')
+    def knowledge_cache():
+        return render_template('knowledge_cache.html')
+
+    @app.route('/memory-cache')
+    def memory_cache():
+        return render_template('memory_cache.html')
+
     @app.route('/skill-graph')
     def skill_graph():
         return render_template('skill_graph.html')

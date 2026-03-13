@@ -1,0 +1,918 @@
+{% extends "base.html" %}
+{% block title %}Knowledge Cache{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* ── Layout & Controls ──────────────────────────────────────── */
+    .page-controls {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+    .filter-select {
+        padding: 10px 14px;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        color: var(--text-primary);
+        font-size: 13px;
+    }
+
+    /* ── Tabs ────────────────────────────────────────────────────── */
+    .tabs {
+        display: flex;
+        gap: 0;
+        margin-bottom: 22px;
+        border-bottom: 2px solid var(--border-color);
+        overflow-x: auto;
+    }
+    .tab-btn {
+        padding: 12px 20px;
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -2px;
+        color: var(--text-secondary);
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+        white-space: nowrap;
+    }
+    .tab-btn.active {
+        color: var(--accent-primary);
+        border-bottom-color: var(--accent-primary);
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ── Stat Cards Grid ────────────────────────────────────────── */
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        gap: 15px;
+        margin-bottom: 22px;
+    }
+    .stat-card {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        padding: 16px;
+        position: relative;
+        overflow: hidden;
+    }
+    .stat-card h4 {
+        font-size: 11px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        margin-bottom: 6px;
+    }
+    .stat-card .value {
+        font-size: 22px;
+        font-weight: 700;
+        color: var(--text-primary);
+    }
+    .stat-card .sub {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-top: 2px;
+    }
+    .stat-card.blue .value   { color: var(--accent-blue, #3b82f6); }
+    .stat-card.green .value  { color: var(--success, #22c55e); }
+    .stat-card.orange .value { color: #f59e0b; }
+    .stat-card.purple .value { color: #a855f7; }
+    .stat-card.cyan .value   { color: #06b6d4; }
+    .stat-card.rose .value   { color: #f43f5e; }
+
+    /* ── Glow accent for hero cards ─────────────────────────────── */
+    .stat-card.glow::after {
+        content: '';
+        position: absolute;
+        bottom: 0; left: 0; right: 0;
+        height: 3px;
+        border-radius: 0 0 10px 10px;
+    }
+    .stat-card.glow.green::after  { background: var(--success, #22c55e); }
+    .stat-card.glow.blue::after   { background: var(--accent-blue, #3b82f6); }
+    .stat-card.glow.orange::after { background: #f59e0b; }
+    .stat-card.glow.purple::after { background: #a855f7; }
+
+    /* ── Charts ─────────────────────────────────────────────────── */
+    .charts-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        margin-bottom: 24px;
+    }
+    .chart-card,
+    .content-card {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 18px;
+    }
+    .chart-card h4,
+    .content-card h4 {
+        font-size: 13px;
+        color: var(--text-secondary);
+        margin-bottom: 12px;
+    }
+    .chart-card canvas { max-height: 280px; }
+
+    /* ── Gauge Ring (hit rate) ──────────────────────────────────── */
+    .gauge-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 40px;
+        flex-wrap: wrap;
+        padding: 10px 0;
+    }
+    .gauge {
+        position: relative;
+        width: 140px;
+        height: 140px;
+    }
+    .gauge svg {
+        width: 100%;
+        height: 100%;
+        transform: rotate(-90deg);
+    }
+    .gauge-bg {
+        fill: none;
+        stroke: rgba(255,255,255,0.06);
+        stroke-width: 10;
+    }
+    .gauge-fill {
+        fill: none;
+        stroke-width: 10;
+        stroke-linecap: round;
+        transition: stroke-dashoffset 1.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .gauge-label {
+        position: absolute;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        text-align: center;
+    }
+    .gauge-label .pct {
+        font-size: 28px;
+        font-weight: 700;
+        color: var(--text-primary);
+        line-height: 1;
+    }
+    .gauge-label .name {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-top: 2px;
+    }
+
+    /* ── Data Table ─────────────────────────────────────────────── */
+    .data-table {
+        width: 100%;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        overflow: hidden;
+        border-collapse: collapse;
+    }
+    .data-table th,
+    .data-table td {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border-color);
+        font-size: 13px;
+        text-align: left;
+    }
+    .data-table th {
+        font-size: 11px;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        background: rgba(0,0,0,0.2);
+    }
+    .data-table tr:last-child td { border-bottom: none; }
+
+    .status-badge {
+        display: inline-block;
+        font-size: 11px;
+        border-radius: 10px;
+        padding: 2px 8px;
+        font-weight: 700;
+    }
+    .status-badge.ok   { background: rgba(34,197,94,0.2); color: var(--success); }
+    .status-badge.warn { background: rgba(245,158,11,0.2); color: #f59e0b; }
+    .status-badge.fail { background: rgba(239,68,68,0.2); color: var(--danger); }
+
+    /* ── Cache bar visualisation ─────────────────────────────────── */
+    .cache-bar-container {
+        background: rgba(255,255,255,0.04);
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        padding: 14px;
+        margin-bottom: 14px;
+    }
+    .cache-bar-label {
+        display: flex;
+        justify-content: space-between;
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-bottom: 6px;
+    }
+    .cache-bar-track {
+        height: 12px;
+        background: rgba(255,255,255,0.06);
+        border-radius: 6px;
+        overflow: hidden;
+    }
+    .cache-bar-fill {
+        height: 100%;
+        border-radius: 6px;
+        transition: width 0.8s ease;
+    }
+    .cache-bar-fill.green  { background: linear-gradient(90deg, #22c55e, #4ade80); }
+    .cache-bar-fill.blue   { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+    .cache-bar-fill.orange { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+    .cache-bar-fill.purple { background: linear-gradient(90deg, #a855f7, #c084fc); }
+
+    .empty-state {
+        text-align: center;
+        color: var(--text-muted);
+        padding: 28px;
+    }
+
+    @media (max-width: 900px) {
+        .charts-row { grid-template-columns: 1fr; }
+        .gauge-container { gap: 20px; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>🕸️ Knowledge Graph Cache</h1>
+    <p>Cache performance, query analytics, and knowledge graph utilization.</p>
+</div>
+
+<div class="page-controls">
+    <select class="filter-select" id="hours-filter">
+        <option value="24">Last 24 Hours</option>
+        <option value="72">Last 3 Days</option>
+        <option value="168">Last Week</option>
+        <option value="720">Last Month</option>
+    </select>
+    <button class="btn btn-primary" onclick="loadDashboard()">Refresh</button>
+</div>
+
+<div class="tabs">
+    <button class="tab-btn active" data-tab="overview">📊 Overview</button>
+    <button class="tab-btn" data-tab="cache">⚡ Cache Performance</button>
+    <button class="tab-btn" data-tab="queries">🔍 Query Analytics</button>
+    <button class="tab-btn" data-tab="graph">🕸️ Graph Health</button>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     TAB 1: OVERVIEW
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="tab-panel active" id="panel-overview">
+    <div class="stats-grid">
+        <div class="stat-card blue glow">
+            <h4>Total Queries</h4>
+            <div class="value" id="stat-total-queries">-</div>
+            <div class="sub" id="stat-total-queries-sub"></div>
+        </div>
+        <div class="stat-card green glow">
+            <h4>Cache Hit Rate</h4>
+            <div class="value" id="stat-hit-rate">-</div>
+            <div class="sub" id="stat-hit-rate-sub"></div>
+        </div>
+        <div class="stat-card purple">
+            <h4>Entities</h4>
+            <div class="value" id="stat-entities">-</div>
+        </div>
+        <div class="stat-card cyan">
+            <h4>Relations</h4>
+            <div class="value" id="stat-relations">-</div>
+        </div>
+        <div class="stat-card orange">
+            <h4>Cached Items</h4>
+            <div class="value" id="stat-cached-items">-</div>
+            <div class="sub" id="stat-cached-items-sub"></div>
+        </div>
+        <div class="stat-card rose">
+            <h4>Evictions</h4>
+            <div class="value" id="stat-evictions">-</div>
+        </div>
+    </div>
+
+    <div class="charts-row">
+        <div class="chart-card">
+            <h4>📈 Query Volume Over Time</h4>
+            <canvas id="chart-query-timeline"></canvas>
+        </div>
+        <div class="chart-card">
+            <h4>🔧 Queries by Type</h4>
+            <canvas id="chart-query-types"></canvas>
+        </div>
+    </div>
+
+    <div class="charts-row">
+        <div class="chart-card">
+            <h4>🎯 Query Sources</h4>
+            <canvas id="chart-query-sources"></canvas>
+        </div>
+        <div class="chart-card">
+            <h4>🧩 Entity Type Distribution</h4>
+            <canvas id="chart-entity-types"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     TAB 2: CACHE PERFORMANCE
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="tab-panel" id="panel-cache">
+    <div id="cache-live-status" style="margin-bottom: 18px;"></div>
+
+    <div class="gauge-container" id="gauge-row">
+        <div id="gauge-entity" class="gauge">
+            <svg viewBox="0 0 160 160">
+                <circle class="gauge-bg" cx="80" cy="80" r="65"/>
+                <circle class="gauge-fill" id="gauge-entity-fill" cx="80" cy="80" r="65"
+                        stroke="#22c55e" stroke-dasharray="408.4" stroke-dashoffset="408.4"/>
+            </svg>
+            <div class="gauge-label">
+                <div class="pct" id="gauge-entity-pct">-</div>
+                <div class="name">Entity Cache</div>
+            </div>
+        </div>
+        <div id="gauge-traversal" class="gauge">
+            <svg viewBox="0 0 160 160">
+                <circle class="gauge-bg" cx="80" cy="80" r="65"/>
+                <circle class="gauge-fill" id="gauge-traversal-fill" cx="80" cy="80" r="65"
+                        stroke="#3b82f6" stroke-dasharray="408.4" stroke-dashoffset="408.4"/>
+            </svg>
+            <div class="gauge-label">
+                <div class="pct" id="gauge-traversal-pct">-</div>
+                <div class="name">Traversal Cache</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Entity Cache Bar -->
+    <div class="cache-bar-container">
+        <div class="cache-bar-label">
+            <span>Entity Cache Utilization</span>
+            <span id="entity-bar-label">0 / 1000</span>
+        </div>
+        <div class="cache-bar-track">
+            <div class="cache-bar-fill green" id="entity-bar-fill" style="width: 0%"></div>
+        </div>
+    </div>
+
+    <!-- Traversal Cache Bar -->
+    <div class="cache-bar-container">
+        <div class="cache-bar-label">
+            <span>Traversal Cache Utilization</span>
+            <span id="traversal-bar-label">0 / 500</span>
+        </div>
+        <div class="cache-bar-track">
+            <div class="cache-bar-fill blue" id="traversal-bar-fill" style="width: 0%"></div>
+        </div>
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-card green">
+            <h4>Entity Hits</h4>
+            <div class="value" id="cache-entity-hits">-</div>
+        </div>
+        <div class="stat-card rose">
+            <h4>Entity Misses</h4>
+            <div class="value" id="cache-entity-misses">-</div>
+        </div>
+        <div class="stat-card blue">
+            <h4>Traversal Hits</h4>
+            <div class="value" id="cache-traversal-hits">-</div>
+        </div>
+        <div class="stat-card rose">
+            <h4>Traversal Misses</h4>
+            <div class="value" id="cache-traversal-misses">-</div>
+        </div>
+        <div class="stat-card orange">
+            <h4>Entity Evictions</h4>
+            <div class="value" id="cache-entity-evictions">-</div>
+        </div>
+        <div class="stat-card orange">
+            <h4>Traversal Evictions</h4>
+            <div class="value" id="cache-traversal-evictions">-</div>
+        </div>
+    </div>
+
+    <div class="charts-row">
+        <div class="chart-card">
+            <h4>⚖️ Hit vs Miss Ratio (Entity)</h4>
+            <canvas id="chart-entity-hitmiss"></canvas>
+        </div>
+        <div class="chart-card">
+            <h4>⚖️ Hit vs Miss Ratio (Traversal)</h4>
+            <canvas id="chart-traversal-hitmiss"></canvas>
+        </div>
+    </div>
+
+    <div class="content-card" style="margin-bottom: 20px;">
+        <h4>📋 Cache Configuration</h4>
+        <table class="data-table">
+            <thead>
+                <tr><th>Parameter</th><th>Entity Cache</th><th>Traversal Cache</th></tr>
+            </thead>
+            <tbody id="cache-config-body">
+                <tr><td>Max Size</td><td id="cfg-entity-max">1,000</td><td id="cfg-traversal-max">500</td></tr>
+                <tr><td>TTL</td><td id="cfg-entity-ttl">600s (10 min)</td><td id="cfg-traversal-ttl">300s (5 min)</td></tr>
+                <tr><td>Eviction Policy</td><td>LRU</td><td>LRU</td></tr>
+                <tr><td>Thread Safety</td><td>RLock</td><td>RLock</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     TAB 3: QUERY ANALYTICS
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="tab-panel" id="panel-queries">
+    <div class="stats-grid">
+        <div class="stat-card blue">
+            <h4>Total Queries</h4>
+            <div class="value" id="qa-total">-</div>
+        </div>
+        <div class="stat-card green">
+            <h4>Avg Results</h4>
+            <div class="value" id="qa-avg-results">-</div>
+        </div>
+        <div class="stat-card purple">
+            <h4>Query Types</h4>
+            <div class="value" id="qa-types-count">-</div>
+        </div>
+        <div class="stat-card orange">
+            <h4>Top Type</h4>
+            <div class="value" id="qa-top-type">-</div>
+        </div>
+    </div>
+
+    <div class="charts-row">
+        <div class="chart-card">
+            <h4>📊 Results Distribution by Query Type</h4>
+            <canvas id="chart-results-by-type"></canvas>
+        </div>
+        <div class="chart-card">
+            <h4>📈 Query Rate Over Time</h4>
+            <canvas id="chart-query-rate"></canvas>
+        </div>
+    </div>
+
+    <h4 style="margin: 0 0 10px 0;">Recent Knowledge Graph Queries</h4>
+    <table class="data-table">
+        <thead>
+            <tr><th>Time</th><th>Type</th><th>Source</th><th>Results</th><th>Parameters</th></tr>
+        </thead>
+        <tbody id="recent-queries-body">
+            <tr><td colspan="5" class="empty-state">Loading query data…</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     TAB 4: GRAPH HEALTH
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="tab-panel" id="panel-graph">
+    <div class="stats-grid">
+        <div class="stat-card purple glow">
+            <h4>Total Entities</h4>
+            <div class="value" id="gh-entities">-</div>
+        </div>
+        <div class="stat-card cyan glow">
+            <h4>Total Relations</h4>
+            <div class="value" id="gh-relations">-</div>
+        </div>
+        <div class="stat-card blue">
+            <h4>Entity Types</h4>
+            <div class="value" id="gh-types">-</div>
+        </div>
+        <div class="stat-card green">
+            <h4>Avg Relations/Entity</h4>
+            <div class="value" id="gh-density">-</div>
+        </div>
+    </div>
+
+    <div class="charts-row">
+        <div class="chart-card">
+            <h4>🧩 Entity Type Breakdown</h4>
+            <canvas id="chart-gh-entity-types"></canvas>
+        </div>
+        <div class="chart-card">
+            <h4>📊 Entity Types (Bar)</h4>
+            <canvas id="chart-gh-entity-bar"></canvas>
+        </div>
+    </div>
+
+    <div class="content-card">
+        <h4>🕸️ Graph Summary</h4>
+        <div id="graph-summary" class="empty-state">Loading graph health data…</div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="/static/js/chart-helpers.js"></script>
+<script>
+const API = window.ARIA_API_BASE_URL || '';
+let charts = {};
+let dashData = null;
+
+/* ── Tab switching ──────────────────────────────────────────────────────── */
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+    });
+});
+
+/* ── Helpers ────────────────────────────────────────────────────────────── */
+function fmt(n) { return (n == null ? 0 : n).toLocaleString(); }
+function pct(rate) { return rate == null ? '-' : (rate * 100).toFixed(1) + '%'; }
+function esc(s) { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; }
+
+function fmtDate(iso) {
+    if (!iso) return '—';
+    const dt = new Date(iso);
+    return isNaN(dt) ? '—' : dt.toLocaleString();
+}
+
+function fmtShortDate(iso) {
+    if (!iso) return '';
+    const dt = new Date(iso);
+    return isNaN(dt) ? '' : dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function statusBadge(rate) {
+    if (rate >= 0.7) return '<span class="status-badge ok">Healthy</span>';
+    if (rate >= 0.4) return '<span class="status-badge warn">Warming</span>';
+    return '<span class="status-badge fail">Cold</span>';
+}
+
+const CIRCUMFERENCE = 2 * Math.PI * 65; // ~408.4
+
+function setGauge(fillId, pctId, rate, color) {
+    const fill = document.getElementById(fillId);
+    const label = document.getElementById(pctId);
+    const value = Math.max(0, Math.min(1, rate || 0));
+    const offset = CIRCUMFERENCE * (1 - value);
+    fill.style.strokeDashoffset = offset;
+    fill.style.stroke = color;
+    label.textContent = pct(value);
+}
+
+/* ── Color Palettes ─────────────────────────────────────────────────────── */
+const PALETTE = ['#3b82f6','#22c55e','#f59e0b','#a855f7','#06b6d4','#f43f5e','#ec4899','#84cc16','#14b8a6','#f97316'];
+const TYPE_COLORS = {
+    person: '#ef4444', concept: '#3b82f6', technology: '#10b981',
+    project: '#f59e0b', preference: '#ec4899', location: '#06b6d4',
+    skill: '#a855f7', organization: '#84cc16', event: '#f97316',
+    topic: '#14b8a6', other: '#6b7280',
+};
+
+/* ── Main loader ────────────────────────────────────────────────────────── */
+async function loadDashboard() {
+    const hours = document.getElementById('hours-filter').value;
+    try {
+        const resp = await fetch(`${API}/knowledge-graph/cache-analytics?hours=${hours}`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        dashData = await resp.json();
+        renderOverview(dashData);
+        renderCachePerformance(dashData);
+        renderQueryAnalytics(dashData);
+        renderGraphHealth(dashData);
+    } catch (err) {
+        console.error('Failed to load KG cache analytics:', err);
+        document.getElementById('stat-total-queries').textContent = 'Error';
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RENDER: Overview Tab
+   ═══════════════════════════════════════════════════════════════════════ */
+function renderOverview(d) {
+    const cs = d.cache_stats || d.estimated_cache;
+    const isEstimated = !d.cache_stats && !!d.estimated_cache;
+    const entityHR = cs?.entity_cache?.hit_rate ?? null;
+    const travHR = cs?.traversal_cache?.hit_rate ?? null;
+    const totalItems = cs?.total_items ?? 0;
+    const entityEvict = cs?.entity_cache?.evictions ?? 0;
+    const travEvict = cs?.traversal_cache?.evictions ?? 0;
+
+    document.getElementById('stat-total-queries').textContent = fmt(d.total_queries);
+    document.getElementById('stat-total-queries-sub').textContent = `in last ${d.period_hours}h`;
+
+    if (entityHR != null || travHR != null) {
+        const combined = entityHR != null && travHR != null
+            ? ((entityHR + travHR) / 2) : (entityHR ?? travHR);
+        document.getElementById('stat-hit-rate').textContent = pct(combined);
+        document.getElementById('stat-hit-rate-sub').textContent = 'combined average';
+    } else {
+        document.getElementById('stat-hit-rate').textContent = 'N/A';
+        document.getElementById('stat-hit-rate-sub').textContent = 'cache not active';
+    }
+
+    document.getElementById('stat-entities').textContent = fmt(d.entity_count);
+    document.getElementById('stat-relations').textContent = fmt(d.relation_count);
+    document.getElementById('stat-cached-items').textContent = fmt(totalItems);
+    document.getElementById('stat-cached-items-sub').textContent = cs ? 'entity + traversal' : 'cache offline';
+    document.getElementById('stat-evictions').textContent = fmt(entityEvict + travEvict);
+
+    // Query timeline chart
+    const timeLabels = (d.query_timeline || []).map(t => fmtShortDate(t.time));
+    const timeCounts = (d.query_timeline || []).map(t => t.count);
+    ARIAChartHelpers.renderChart(charts, 'chart-query-timeline', 'line', {
+        labels: timeLabels,
+        datasets: [{
+            label: 'Queries',
+            data: timeCounts,
+            borderColor: '#3b82f6',
+            backgroundColor: 'rgba(59,130,246,0.15)',
+            fill: true,
+            tension: 0.35,
+            pointRadius: 2,
+        }],
+    }, { maxTicksLimit: 12 });
+
+    // Query types doughnut
+    const qvLabels = (d.query_volume || []).map(q => q.type);
+    const qvCounts = (d.query_volume || []).map(q => q.count);
+    ARIAChartHelpers.renderChart(charts, 'chart-query-types', 'doughnut', {
+        labels: qvLabels,
+        datasets: [{
+            data: qvCounts,
+            backgroundColor: qvLabels.map((_, i) => PALETTE[i % PALETTE.length]),
+            borderWidth: 0,
+        }],
+    });
+
+    // Sources doughnut
+    const srcLabels = (d.query_sources || []).map(s => s.source);
+    const srcCounts = (d.query_sources || []).map(s => s.count);
+    ARIAChartHelpers.renderChart(charts, 'chart-query-sources', 'doughnut', {
+        labels: srcLabels,
+        datasets: [{
+            data: srcCounts,
+            backgroundColor: srcLabels.map((_, i) => PALETTE[(i + 3) % PALETTE.length]),
+            borderWidth: 0,
+        }],
+    });
+
+    // Entity types doughnut
+    const etLabels = (d.entity_types || []).map(e => e.type);
+    const etCounts = (d.entity_types || []).map(e => e.count);
+    ARIAChartHelpers.renderChart(charts, 'chart-entity-types', 'doughnut', {
+        labels: etLabels,
+        datasets: [{
+            data: etCounts,
+            backgroundColor: etLabels.map(t => TYPE_COLORS[t] || '#6b7280'),
+            borderWidth: 0,
+        }],
+    });
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RENDER: Cache Performance Tab
+   ═══════════════════════════════════════════════════════════════════════ */
+function renderCachePerformance(d) {
+    const cs = d.cache_stats || d.estimated_cache;
+    const isEstimated = !d.cache_stats && !!d.estimated_cache;
+    const liveDiv = document.getElementById('cache-live-status');
+
+    if (!cs) {
+        liveDiv.innerHTML = `
+            <div class="content-card" style="text-align:center; padding: 20px;">
+                <div style="font-size: 32px; margin-bottom: 8px;">🔌</div>
+                <div style="color: var(--text-secondary); font-size: 14px;">
+                    Cache is <strong>offline</strong> — no data available yet.<br>
+                    Run some KG queries and refresh to see estimated stats.
+                </div>
+            </div>`;
+        return;
+    }
+
+    if (isEstimated) {
+        liveDiv.innerHTML = `
+            <div class="content-card" style="text-align:center; padding: 12px;">
+                <span class="status-badge warn" style="font-size: 13px; padding: 4px 12px;">📊 Estimated from Query Log</span>
+                <div style="color: var(--text-muted); font-size: 12px; margin-top: 6px;">
+                    Live cache runs in the skill process. These stats are estimated from DB query patterns.
+                </div>
+            </div>`;
+    } else {
+        liveDiv.innerHTML = `
+            <div class="content-card" style="text-align:center; padding: 12px;">
+                <span class="status-badge ok" style="font-size: 13px; padding: 4px 12px;">⚡ Cache Active</span>
+            </div>`;
+    }
+
+    const ec = cs.entity_cache || {};
+    const tc = cs.traversal_cache || {};
+
+    // Gauges
+    setGauge('gauge-entity-fill', 'gauge-entity-pct', ec.hit_rate, '#22c55e');
+    setGauge('gauge-traversal-fill', 'gauge-traversal-pct', tc.hit_rate, '#3b82f6');
+
+    // Utilization bars
+    const entityMax = ec.maxsize || 1000;
+    const travMax = tc.maxsize || 500;
+    const entityPct = Math.min(100, ((ec.size || 0) / entityMax) * 100);
+    const travPct = Math.min(100, ((tc.size || 0) / travMax) * 100);
+
+    document.getElementById('entity-bar-fill').style.width = entityPct + '%';
+    document.getElementById('entity-bar-label').textContent = `${fmt(ec.size || 0)} / ${fmt(entityMax)}`;
+    document.getElementById('traversal-bar-fill').style.width = travPct + '%';
+    document.getElementById('traversal-bar-label').textContent = `${fmt(tc.size || 0)} / ${fmt(travMax)}`;
+
+    // Stat cards
+    document.getElementById('cache-entity-hits').textContent = fmt(ec.hits);
+    document.getElementById('cache-entity-misses').textContent = fmt(ec.misses);
+    document.getElementById('cache-traversal-hits').textContent = fmt(tc.hits);
+    document.getElementById('cache-traversal-misses').textContent = fmt(tc.misses);
+    document.getElementById('cache-entity-evictions').textContent = fmt(ec.evictions);
+    document.getElementById('cache-traversal-evictions').textContent = fmt(tc.evictions);
+
+    // Config from live data
+    if (ec.ttl_seconds) document.getElementById('cfg-entity-ttl').textContent = `${ec.ttl_seconds}s (${Math.round(ec.ttl_seconds/60)} min)`;
+    if (tc.ttl_seconds) document.getElementById('cfg-traversal-ttl').textContent = `${tc.ttl_seconds}s (${Math.round(tc.ttl_seconds/60)} min)`;
+    if (ec.maxsize) document.getElementById('cfg-entity-max').textContent = fmt(ec.maxsize);
+    if (tc.maxsize) document.getElementById('cfg-traversal-max').textContent = fmt(tc.maxsize);
+
+    // Hit/miss doughnut — Entity
+    ARIAChartHelpers.renderChart(charts, 'chart-entity-hitmiss', 'doughnut', {
+        labels: ['Hits', 'Misses'],
+        datasets: [{
+            data: [ec.hits || 0, ec.misses || 0],
+            backgroundColor: ['#22c55e', '#ef4444'],
+            borderWidth: 0,
+        }],
+    });
+
+    // Hit/miss doughnut — Traversal
+    ARIAChartHelpers.renderChart(charts, 'chart-traversal-hitmiss', 'doughnut', {
+        labels: ['Hits', 'Misses'],
+        datasets: [{
+            data: [tc.hits || 0, tc.misses || 0],
+            backgroundColor: ['#3b82f6', '#ef4444'],
+            borderWidth: 0,
+        }],
+    });
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RENDER: Query Analytics Tab
+   ═══════════════════════════════════════════════════════════════════════ */
+function renderQueryAnalytics(d) {
+    document.getElementById('qa-total').textContent = fmt(d.total_queries);
+
+    const qv = d.query_volume || [];
+    const totalResults = qv.reduce((s, q) => s + (q.avg_results * q.count), 0);
+    const avgResults = d.total_queries ? (totalResults / d.total_queries).toFixed(1) : '0';
+    document.getElementById('qa-avg-results').textContent = avgResults;
+    document.getElementById('qa-types-count').textContent = qv.length;
+    document.getElementById('qa-top-type').textContent = qv.length ? qv[0].type : '-';
+
+    // Results by type bar chart
+    ARIAChartHelpers.renderChart(charts, 'chart-results-by-type', 'bar', {
+        labels: qv.map(q => q.type),
+        datasets: [
+            {
+                label: 'Count',
+                data: qv.map(q => q.count),
+                backgroundColor: 'rgba(59,130,246,0.6)',
+                borderRadius: 4,
+            },
+            {
+                label: 'Avg Results',
+                data: qv.map(q => q.avg_results),
+                backgroundColor: 'rgba(34,197,94,0.6)',
+                borderRadius: 4,
+            },
+        ],
+    });
+
+    // Query rate line chart (reuse timeline data)
+    const timeLabels = (d.query_timeline || []).map(t => fmtShortDate(t.time));
+    const timeCounts = (d.query_timeline || []).map(t => t.count);
+    ARIAChartHelpers.renderChart(charts, 'chart-query-rate', 'bar', {
+        labels: timeLabels,
+        datasets: [{
+            label: 'Queries/hour',
+            data: timeCounts,
+            backgroundColor: 'rgba(168,85,247,0.5)',
+            borderRadius: 4,
+        }],
+    }, { maxTicksLimit: 12 });
+
+    // Recent queries table
+    const tbody = document.getElementById('recent-queries-body');
+    const queries = d.recent_queries || [];
+    if (!queries.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No queries in this time range.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = queries.map(q => {
+        const params = q.params || {};
+        const trace = params.__trace;
+        const cleanParams = { ...params };
+        delete cleanParams.__trace;
+        // Remove null/undefined values — they're just unset optional params
+        Object.keys(cleanParams).forEach(k => {
+            if (cleanParams[k] === null || cleanParams[k] === undefined) delete cleanParams[k];
+        });
+        const paramStr = Object.keys(cleanParams).length
+            ? Object.entries(cleanParams).map(([k, v]) => {
+                let val = typeof v === 'object' ? JSON.stringify(v) : String(v);
+                if (val.length > 80) val = val.slice(0, 77) + '…';
+                return `${esc(k)}=${esc(val)}`;
+            }).join(', ')
+            : '—';
+        return `<tr>
+            <td>${fmtDate(q.created_at)}</td>
+            <td><span class="status-badge ok">${esc(q.query_type)}</span></td>
+            <td>${esc(q.source || '—')}</td>
+            <td>${q.result_count}</td>
+            <td style="max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${esc(paramStr)}">${esc(paramStr)}</td>
+        </tr>`;
+    }).join('');
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RENDER: Graph Health Tab
+   ═══════════════════════════════════════════════════════════════════════ */
+function renderGraphHealth(d) {
+    document.getElementById('gh-entities').textContent = fmt(d.entity_count);
+    document.getElementById('gh-relations').textContent = fmt(d.relation_count);
+
+    const types = d.entity_types || [];
+    document.getElementById('gh-types').textContent = types.length;
+
+    const density = d.entity_count > 0
+        ? (d.relation_count / d.entity_count).toFixed(2)
+        : '0';
+    document.getElementById('gh-density').textContent = density;
+
+    // Entity types doughnut
+    ARIAChartHelpers.renderChart(charts, 'chart-gh-entity-types', 'doughnut', {
+        labels: types.map(t => t.type),
+        datasets: [{
+            data: types.map(t => t.count),
+            backgroundColor: types.map(t => TYPE_COLORS[t.type] || '#6b7280'),
+            borderWidth: 0,
+        }],
+    });
+
+    // Entity types bar
+    ARIAChartHelpers.renderChart(charts, 'chart-gh-entity-bar', 'bar', {
+        labels: types.map(t => t.type),
+        datasets: [{
+            label: 'Entities',
+            data: types.map(t => t.count),
+            backgroundColor: types.map(t => (TYPE_COLORS[t.type] || '#6b7280') + '99'),
+            borderRadius: 6,
+        }],
+    }, { indexAxis: 'y' });
+
+    // Summary card
+    const summaryDiv = document.getElementById('graph-summary');
+    const topType = types.length ? types[0] : null;
+    const cacheInfo = (d.cache_stats || d.estimated_cache)
+        ? d.cache_stats
+            ? `Cache is <strong style="color:var(--success)">active</strong> with ${fmt(d.cache_stats.total_items)} items cached.`
+            : `Cache stats <strong style="color:#f59e0b">estimated</strong> from ${fmt(d.total_queries)} logged queries.`
+        : `Cache is <strong style="color:var(--text-muted)">offline</strong> — stats will populate when the KG skill is processing.`;
+
+    summaryDiv.innerHTML = `
+        <div style="text-align:left; line-height:1.8; font-size:13px; color:var(--text-secondary);">
+            The knowledge graph contains <strong style="color:var(--text-primary)">${fmt(d.entity_count)} entities</strong>
+            connected by <strong style="color:var(--text-primary)">${fmt(d.relation_count)} relations</strong>
+            across <strong style="color:var(--text-primary)">${types.length} types</strong>.
+            ${topType ? `The most common type is <strong style="color:${TYPE_COLORS[topType.type] || '#6b7280'}">${esc(topType.type)}</strong> (${fmt(topType.count)} entities).` : ''}
+            <br>
+            Graph density (relations per entity) is <strong style="color:var(--text-primary)">${density}</strong>.
+            ${parseFloat(density) > 2 ? 'This is a well-connected graph.' : parseFloat(density) > 1 ? 'Moderate connectivity — room for more relations.' : 'Sparse graph — consider enriching connections.'}
+            <br>
+            ${cacheInfo}
+            <br>
+            In the last ${d.period_hours}h, <strong style="color:var(--text-primary)">${fmt(d.total_queries)} queries</strong> were executed against the knowledge graph.
+        </div>`;
+}
+
+/* ── Init ───────────────────────────────────────────────────────────────── */
+document.addEventListener('DOMContentLoaded', () => loadDashboard());
+</script>
+{% endblock %}

@@ -63,9 +63,8 @@ class AriaEngine:
         await self._init_database()
         logger.info("✅ Phase 1: Database connected")
 
-        # Phase 2: Run pending migrations
-        await self._run_migrations()
-        logger.info("✅ Phase 2: Migrations applied")
+        # Phase 2: Schema bootstrapping handled by ensure_schema() in API lifespan
+        logger.info("✅ Phase 2: Schema ready (ORM-driven)")
 
         # Phase 3: Load agent state from DB
         await self._init_agents()
@@ -129,26 +128,6 @@ class AriaEngine:
         # Verify connection
         async with self._db_engine.begin() as conn:
             await conn.execute(sa_text("SELECT 1"))
-
-    async def _run_migrations(self):
-        """Run Alembic migrations programmatically."""
-        try:
-            from alembic.config import Config
-            from alembic import command
-
-            alembic_cfg = Config()
-            alembic_cfg.set_main_option("script_location", "src/api/alembic")
-            # Use sync driver for Alembic
-            sync_url = self.config.database_url
-            if "+asyncpg" in sync_url:
-                sync_url = sync_url.replace("+asyncpg", "")
-            if "+psycopg" in sync_url:
-                sync_url = sync_url.replace("+psycopg", "")
-            alembic_cfg.set_main_option("sqlalchemy.url", sync_url)
-
-            await asyncio.to_thread(command.upgrade, alembic_cfg, "head")
-        except Exception as e:
-            logger.warning("Alembic migration skipped: %s", e)
 
     async def _init_agents(self):
         """Load agent definitions from DB and instantiate pool."""

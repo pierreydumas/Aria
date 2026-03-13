@@ -8,6 +8,7 @@ import logging
 import math
 import os
 import re
+import time
 import uuid
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -17,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import cast, func, or_, select, delete, String
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import Memory, SemanticMemory, WorkingMemory, Thought, LessonLearned
+from db.models import Memory, SemanticMemory, WorkingMemory, Thought, LessonLearned, CacheMetricSnapshot
 from deps import get_db
 from pagination import paginate_query, build_paginated_response
 from schemas.requests import CreateMemory, CreateSemanticMemory, SearchByVector, SummarizeSession, UpdateMemory
@@ -259,9 +260,22 @@ async def generate_embedding(text: str) -> list[float]:
     between a fallback vector and a real embedding is ~0 (effectively
     random). Callers that store the result should tag metadata with
     ``is_fallback_embedding=True`` when the remote call fails.
+
+    Results are cached by the MemoryCacheManager (Tier 1 — 30 min TTL).
     """
     import httpx
     global _EMBED_REMOTE_DISABLED_UNTIL
+
+    # ── Check memory cache first ────────────────────────────────────────
+    try:
+        from aria_engine.memory_cache import get_memory_cache
+        _mcache = get_memory_cache()
+        cached = _mcache.get_embedding(text)
+        if cached is not None:
+            _mcache.record_embedding_latency(0.0, source="cached")
+            return cached
+    except Exception:
+        _mcache = None
 
     def _local_embedding_fallback(value: str, dims: int = 768) -> list[float]:
         tokens = re.findall(r"[a-z0-9_]+", (value or "").lower())
@@ -285,8 +299,14 @@ async def generate_embedding(text: str) -> list[float]:
 
     now_utc = datetime.now(timezone.utc)
     if _EMBED_REMOTE_DISABLED_UNTIL and now_utc < _EMBED_REMOTE_DISABLED_UNTIL:
-        return _local_embedding_fallback(text)
+        _t0 = time.monotonic()
+        fb = _local_embedding_fallback(text)
+        if _mcache:
+            _mcache.record_embedding_latency((time.monotonic() - _t0) * 1000, source="fallback")
+            _mcache.record_embedding_dims(len(fb))
+        return fb
 
+    _t0 = time.monotonic()
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
@@ -299,12 +319,23 @@ async def generate_embedding(text: str) -> list[float]:
             embedding = resp.json().get("data", [{}])[0].get("embedding")
             if isinstance(embedding, list) and embedding:
                 _EMBED_REMOTE_DISABLED_UNTIL = None
+                _lat = (time.monotonic() - _t0) * 1000
+                if _mcache:
+                    _mcache.put_embedding(text, embedding)
+                    _mcache.record_embedding_latency(_lat, source="remote")
+                    _mcache.record_embedding_dims(len(embedding))
                 return embedding
             raise ValueError("empty embedding from LiteLLM response")
     except Exception as exc:
         _EMBED_REMOTE_DISABLED_UNTIL = datetime.now(timezone.utc) + timedelta(seconds=EMBED_REMOTE_RETRY_AFTER_SECONDS)
         logger.warning("LiteLLM embedding failed, using local fallback: %s", exc)
-        return _local_embedding_fallback(text)
+        fallback = _local_embedding_fallback(text)
+        _lat = (time.monotonic() - _t0) * 1000
+        if _mcache:
+            _mcache.put_embedding(text, fallback)
+            _mcache.record_embedding_latency(_lat, source="fallback")
+            _mcache.record_embedding_dims(len(fallback))
+        return fallback
 
 
 @router.get("/memories/semantic/stats")
@@ -436,6 +467,12 @@ async def store_semantic_memory(
     db.add(memory)
     await db.commit()
     await db.refresh(memory)
+    # Invalidate semantic/graph caches since new memory was added
+    try:
+        from aria_engine.memory_cache import get_memory_cache
+        get_memory_cache().invalidate_semantic()
+    except Exception:
+        pass
     return {"id": str(memory.id), "stored": True}
 
 
@@ -866,7 +903,19 @@ async def get_memory_graph(
 
     Node types: semantic_memory, working_memory, kv_memory, thought, lesson
     Edge types: same_category (star topology), shared_source (star topology)
+
+    Results cached by MemoryCacheManager (Tier 3 — 60s TTL).
     """
+    # ── Check memory graph cache ─────────────────────────────────────
+    try:
+        from aria_engine.memory_cache import get_memory_cache
+        _mcache = get_memory_cache()
+        cached = _mcache.get_graph(limit, include_types)
+        if cached is not None:
+            return cached
+    except Exception:
+        _mcache = None
+
     types = (
         ["semantic", "working", "kv", "thought", "lesson"]
         if include_types == "all"
@@ -1018,7 +1067,7 @@ async def get_memory_graph(
         t = n["type"]
         type_counts[t] = type_counts.get(t, 0) + 1
 
-    return {
+    response = {
         "nodes": nodes,
         "edges": edges,
         "stats": {
@@ -1028,6 +1077,12 @@ async def get_memory_graph(
             "categories": list(category_index.keys()),
         },
     }
+
+    # Store in Tier 3 cache
+    if _mcache:
+        _mcache.put_graph(limit, include_types, response)
+
+    return response
 
 
 # ===========================================================================
@@ -1415,4 +1470,296 @@ async def get_memory_consolidation_dashboard(
         "recent_consolidations": recent_memories,
         "promotion_candidates": promotion_candidates,
         "compression_stats": compression_stats,
+    }
+
+
+# ===========================================================================
+# Memory Cache Analytics — AA++++ dashboard endpoint
+# ===========================================================================
+
+
+@router.get("/memory-cache/analytics")
+async def memory_cache_analytics(
+    hours: int = Query(24, ge=1, le=720),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Return full memory cache analytics: live cache stats, access log,
+    and memory store totals for the Memory Cache dashboard.
+    Accepts ``hours`` query param to filter DB data (default 24h).
+    """
+    from datetime import timedelta
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    # ── 1. Live cache stats (in-process) ─────────────────────────────────
+    cache_stats = None
+    access_log = []
+    latency_stats = None
+    vector_health = None
+    timeseries = []
+    try:
+        from aria_engine.memory_cache import get_memory_cache
+        _mcache = get_memory_cache()
+        cache_stats = _mcache.stats
+        access_log = _mcache.get_access_log(limit=200)
+        latency_stats = _mcache.get_latency_stats()
+        vector_health = _mcache.get_vector_health()
+        timeseries = _mcache.get_timeseries(last_n=60)
+    except Exception:
+        pass
+
+    # ── 1b. Persist snapshot to DB (debounced: max once per 60s) ─────────
+    if cache_stats and (cache_stats.get("total_hits", 0) + cache_stats.get("total_misses", 0)) > 0:
+        last_snap = (await db.execute(
+            select(CacheMetricSnapshot.created_at)
+            .where(CacheMetricSnapshot.cache_type == "memory")
+            .order_by(CacheMetricSnapshot.created_at.desc())
+            .limit(1)
+        )).scalar()
+        should_write = last_snap is None or (datetime.now(timezone.utc) - last_snap).total_seconds() > 60
+        if should_write:
+            emb_lat = (latency_stats or {}).get("embedding", {}).get("all", {})
+            snap = CacheMetricSnapshot(
+                cache_type="memory",
+                total_hits=cache_stats.get("total_hits", 0),
+                total_misses=cache_stats.get("total_misses", 0),
+                total_items=cache_stats.get("total_items", 0),
+                hit_rate=cache_stats.get("overall_hit_rate", 0.0),
+                latency_p50=emb_lat.get("p50"),
+                latency_p95=emb_lat.get("p95"),
+                latency_p99=emb_lat.get("p99"),
+                details={
+                    "cache_stats": cache_stats,
+                    "latency_stats": latency_stats,
+                    "vector_health": vector_health,
+                    "timeseries_tail": timeseries[-5:] if timeseries else [],
+                },
+            )
+            db.add(snap)
+            await db.commit()
+
+    # ── 1c. DB fallback when in-process data is empty (post-restart) ─────
+    if cache_stats is None or (cache_stats.get("total_hits", 0) + cache_stats.get("total_misses", 0)) == 0:
+        fallback_rows = (await db.execute(
+            select(CacheMetricSnapshot)
+            .where(CacheMetricSnapshot.cache_type == "memory")
+            .where(CacheMetricSnapshot.created_at >= since)
+            .order_by(CacheMetricSnapshot.created_at.desc())
+            .limit(60)
+        )).scalars().all()
+        if fallback_rows:
+            latest = fallback_rows[0]
+            if cache_stats is None:
+                cache_stats = latest.details.get("cache_stats")
+            if latency_stats is None:
+                latency_stats = latest.details.get("latency_stats")
+            if vector_health is None:
+                vector_health = latest.details.get("vector_health")
+            if not timeseries:
+                # Rebuild timeseries from snapshot history
+                for row in reversed(fallback_rows):
+                    ts_tail = (row.details or {}).get("timeseries_tail", [])
+                    timeseries.extend(ts_tail)
+                # Deduplicate by time key
+                seen_times = set()
+                deduped = []
+                for entry in timeseries:
+                    t = entry.get("time", "")
+                    if t not in seen_times:
+                        seen_times.add(t)
+                        deduped.append(entry)
+                timeseries = deduped[-60:]
+
+    # ── 2. Memory store totals (within time window) ──────────────────────
+    semantic_count = (await db.execute(
+        select(func.count()).select_from(SemanticMemory).where(SemanticMemory.created_at >= since)
+    )).scalar() or 0
+    working_count = (await db.execute(
+        select(func.count()).select_from(WorkingMemory).where(WorkingMemory.created_at >= since)
+    )).scalar() or 0
+    kv_count = (await db.execute(
+        select(func.count()).select_from(Memory).where(Memory.created_at >= since)
+    )).scalar() or 0
+    thought_count = (await db.execute(
+        select(func.count()).select_from(Thought).where(Thought.created_at >= since)
+    )).scalar() or 0
+    lesson_count = (await db.execute(
+        select(func.count()).select_from(LessonLearned).where(LessonLearned.created_at >= since)
+    )).scalar() or 0
+
+    # ── Memory creation timeline (hourly buckets) ────────────────────────
+    bucket = func.date_trunc("hour", SemanticMemory.created_at)
+    timeline_stmt = (
+        select(bucket.label("bucket"), func.count().label("count"))
+        .where(SemanticMemory.created_at >= since)
+        .group_by(bucket)
+        .order_by(bucket)
+    )
+    timeline_rows = (await db.execute(timeline_stmt)).all()
+    memory_timeline = [
+        {"time": r.bucket.isoformat() if r.bucket else "", "count": r.count}
+        for r in timeline_rows
+    ]
+
+    # ── 3. Semantic memory category breakdown (within time window) ───────
+    cat_stmt = (
+        select(SemanticMemory.category, func.count().label("count"))
+        .where(SemanticMemory.created_at >= since)
+        .group_by(SemanticMemory.category)
+        .order_by(func.count().desc())
+    )
+    cat_rows = (await db.execute(cat_stmt)).all()
+    category_distribution = [{"category": r.category or "uncategorized", "count": r.count} for r in cat_rows]
+
+    # ── 4. Source distribution (within time window) ──────────────────────
+    src_stmt = (
+        select(SemanticMemory.source, func.count().label("count"))
+        .where(SemanticMemory.created_at >= since)
+        .group_by(SemanticMemory.source)
+        .order_by(func.count().desc())
+        .limit(20)
+    )
+    src_rows = (await db.execute(src_stmt)).all()
+    source_distribution = [{"source": r.source or "unknown", "count": r.count} for r in src_rows]
+
+    # ── 5. Access frequency (top-accessed semantic memories) ─────────────
+    top_stmt = (
+        select(
+            SemanticMemory.id,
+            SemanticMemory.summary,
+            SemanticMemory.category,
+            SemanticMemory.access_count,
+            SemanticMemory.accessed_at,
+        )
+        .where(SemanticMemory.access_count > 0)
+        .where(SemanticMemory.created_at >= since)
+        .order_by(SemanticMemory.access_count.desc())
+        .limit(20)
+    )
+    top_rows = (await db.execute(top_stmt)).all()
+    top_accessed = [
+        {
+            "id": str(r.id),
+            "summary": (r.summary or "")[:80],
+            "category": r.category,
+            "access_count": r.access_count,
+            "last_accessed": r.accessed_at.isoformat() if r.accessed_at else None,
+        }
+        for r in top_rows
+    ]
+
+    # ── 6. Recent memories (last 20) ────────────────────────────────────
+    recent_stmt = (
+        select(SemanticMemory.id, SemanticMemory.summary, SemanticMemory.category, SemanticMemory.created_at)
+        .where(SemanticMemory.created_at >= since)
+        .order_by(SemanticMemory.created_at.desc())
+        .limit(20)
+    )
+    recent_rows = (await db.execute(recent_stmt)).all()
+    recent_memories = [
+        {
+            "id": str(r.id),
+            "summary": (r.summary or "")[:80],
+            "category": r.category,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in recent_rows
+    ]
+
+    # ── 7. Access log analytics ──────────────────────────────────────────
+    tier_hits = {"embedding": 0, "semantic_search": 0, "memory_graph": 0}
+    tier_misses = {"embedding": 0, "semantic_search": 0, "memory_graph": 0}
+    for entry in access_log:
+        tier = entry.get("tier", "")
+        if entry.get("result") == "hit":
+            tier_hits[tier] = tier_hits.get(tier, 0) + 1
+        else:
+            tier_misses[tier] = tier_misses.get(tier, 0) + 1
+
+    tier_analytics = {}
+    for tier in ("embedding", "semantic_search", "memory_graph"):
+        h, m = tier_hits.get(tier, 0), tier_misses.get(tier, 0)
+        total = h + m
+        tier_analytics[tier] = {
+            "hits": h,
+            "misses": m,
+            "total": total,
+            "hit_rate": round(h / total, 4) if total else 0.0,
+        }
+
+    return {
+        "cache_stats": cache_stats,
+        "tier_analytics": tier_analytics,
+        "access_log_recent": access_log[-50:],
+        "latency_stats": latency_stats,
+        "vector_health": vector_health,
+        "timeseries": timeseries,
+        "memory_totals": {
+            "semantic": semantic_count,
+            "working": working_count,
+            "kv": kv_count,
+            "thought": thought_count,
+            "lesson": lesson_count,
+            "total": semantic_count + working_count + kv_count + thought_count + lesson_count,
+        },
+        "category_distribution": category_distribution,
+        "source_distribution": source_distribution,
+        "top_accessed": top_accessed,
+        "recent_memories": recent_memories,
+        "memory_timeline": memory_timeline,
+        "period_hours": hours,
+    }
+
+
+@router.post("/memory-cache/invalidate")
+async def invalidate_memory_cache():
+    """Manually invalidate the full memory cache."""
+    try:
+        from aria_engine.memory_cache import get_memory_cache
+        count = get_memory_cache().invalidate_all()
+        return {"invalidated": count, "status": "ok"}
+    except Exception as e:
+        return {"invalidated": 0, "status": "error", "error": str(e)}
+
+
+@router.post("/memory-cache/warmup")
+async def warmup_memory_cache(
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Warm the embedding cache (Tier 1) by generating embeddings for
+    recent semantic memories. Runs in the same worker process that
+    will later serve analytics, so cached data is immediately visible.
+    """
+    stmt = (
+        select(SemanticMemory.summary)
+        .where(SemanticMemory.summary.isnot(None))
+        .order_by(SemanticMemory.created_at.desc())
+        .limit(min(limit, 200))
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+
+    cached = 0
+    errors = 0
+    for summary in rows:
+        if not summary or not summary.strip():
+            continue
+        try:
+            await generate_embedding(summary)
+            cached += 1
+        except Exception:
+            errors += 1
+
+    try:
+        from aria_engine.memory_cache import get_memory_cache
+        stats = get_memory_cache().stats
+    except Exception:
+        stats = None
+
+    return {
+        "warmed": cached,
+        "errors": errors,
+        "total_memories": len(rows),
+        "cache_stats": stats,
+        "status": "ok",
     }

@@ -14,7 +14,7 @@ from aria_skills.api_client import get_api_client
 from aria_skills.base import BaseSkill, SkillConfig, SkillResult, SkillStatus
 from aria_skills.registry import SkillRegistry
 
-from .cache import KGCacheManager
+from .cache import get_shared_cache
 
 
 @SkillRegistry.register
@@ -30,7 +30,7 @@ class KnowledgeGraphSkill(BaseSkill):
         self._entities: dict[str, dict] = {}  # fallback cache
         self._relations: list[dict] = []  # fallback cache
         self._api = None
-        self._cache = KGCacheManager()
+        self._cache = get_shared_cache()
     
     @property
     def name(self) -> str:

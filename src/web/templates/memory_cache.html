@@ -1,0 +1,1298 @@
+{% extends "base.html" %}
+{% block title %}Memory Cache{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* ── Layout & Controls ──────────────────────────────────────── */
+    .page-controls {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .filter-select {
+        padding: 10px 14px;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        color: var(--text-primary);
+        font-size: 13px;
+        cursor: pointer;
+    }
+
+    /* ── Tabs ────────────────────────────────────────────────────── */
+    .tabs {
+        display: flex;
+        gap: 0;
+        margin-bottom: 22px;
+        border-bottom: 2px solid var(--border-color);
+        overflow-x: auto;
+    }
+    .tab-btn {
+        padding: 12px 20px;
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -2px;
+        color: var(--text-secondary);
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+        white-space: nowrap;
+    }
+    .tab-btn.active {
+        color: var(--accent-primary);
+        border-bottom-color: var(--accent-primary);
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ── Stat Cards Grid ────────────────────────────────────────── */
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        gap: 15px;
+        margin-bottom: 22px;
+    }
+    .stat-card {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        padding: 16px;
+        position: relative;
+        overflow: hidden;
+    }
+    .stat-card h4 {
+        font-size: 11px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        margin-bottom: 6px;
+    }
+    .stat-card .value {
+        font-size: 22px;
+        font-weight: 700;
+        color: var(--text-primary);
+    }
+    .stat-card .sub {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-top: 2px;
+    }
+    .stat-card.blue .value   { color: var(--accent-blue, #3b82f6); }
+    .stat-card.green .value  { color: var(--success, #22c55e); }
+    .stat-card.orange .value { color: #f59e0b; }
+    .stat-card.purple .value { color: #a855f7; }
+    .stat-card.cyan .value   { color: #06b6d4; }
+    .stat-card.rose .value   { color: #f43f5e; }
+
+    .stat-card.glow::after {
+        content: '';
+        position: absolute;
+        bottom: 0; left: 0; right: 0;
+        height: 3px;
+        border-radius: 0 0 10px 10px;
+    }
+    .stat-card.glow.green::after  { background: var(--success, #22c55e); }
+    .stat-card.glow.blue::after   { background: var(--accent-blue, #3b82f6); }
+    .stat-card.glow.orange::after { background: #f59e0b; }
+    .stat-card.glow.purple::after { background: #a855f7; }
+    .stat-card.glow.cyan::after   { background: #06b6d4; }
+
+    /* ── Charts ─────────────────────────────────────────────────── */
+    .charts-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        margin-bottom: 24px;
+    }
+    .charts-row.triple { grid-template-columns: 1fr 1fr 1fr; }
+    .chart-card,
+    .content-card {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 18px;
+    }
+    .chart-card h4,
+    .content-card h4 {
+        font-size: 13px;
+        color: var(--text-secondary);
+        margin-bottom: 12px;
+    }
+    .chart-card canvas { max-height: 280px; }
+    .chart-wrapper { position: relative; height: 260px; }
+    .chart-wrapper canvas { position: absolute; inset: 0; }
+
+    /* ── Gauge Ring ──────────────────────────────────────────────── */
+    .gauge-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 40px;
+        flex-wrap: wrap;
+        padding: 10px 0;
+        margin-bottom: 20px;
+    }
+    .gauge {
+        position: relative;
+        width: 140px;
+        height: 140px;
+    }
+    .gauge svg {
+        width: 100%;
+        height: 100%;
+        transform: rotate(-90deg);
+    }
+    .gauge-bg {
+        fill: none;
+        stroke: rgba(255,255,255,0.06);
+        stroke-width: 10;
+    }
+    .gauge-fill {
+        fill: none;
+        stroke-width: 10;
+        stroke-linecap: round;
+        transition: stroke-dashoffset 1.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .gauge-label {
+        position: absolute;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        text-align: center;
+    }
+    .gauge-label .pct {
+        font-size: 28px;
+        font-weight: 700;
+        color: var(--text-primary);
+        line-height: 1;
+    }
+    .gauge-label .name {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-top: 2px;
+    }
+
+    /* ── Cache bar ──────────────────────────────────────────────── */
+    .cache-bar-container {
+        background: rgba(255,255,255,0.04);
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        padding: 14px;
+        margin-bottom: 14px;
+    }
+    .cache-bar-label {
+        display: flex;
+        justify-content: space-between;
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-bottom: 6px;
+    }
+    .cache-bar-track {
+        height: 12px;
+        background: rgba(255,255,255,0.06);
+        border-radius: 6px;
+        overflow: hidden;
+    }
+    .cache-bar-fill {
+        height: 100%;
+        border-radius: 6px;
+        transition: width 0.8s ease;
+    }
+    .cache-bar-fill.green  { background: linear-gradient(90deg, #22c55e, #4ade80); }
+    .cache-bar-fill.blue   { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+    .cache-bar-fill.purple { background: linear-gradient(90deg, #a855f7, #c084fc); }
+    .cache-bar-fill.orange { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+    .cache-bar-fill.cyan   { background: linear-gradient(90deg, #06b6d4, #22d3ee); }
+
+    /* ── Data Table ─────────────────────────────────────────────── */
+    .data-table {
+        width: 100%;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        overflow: hidden;
+        border-collapse: collapse;
+        margin-bottom: 20px;
+    }
+    .data-table th,
+    .data-table td {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border-color);
+        font-size: 13px;
+        text-align: left;
+    }
+    .data-table th {
+        font-size: 11px;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        background: rgba(0,0,0,0.2);
+    }
+    .data-table tr:last-child td { border-bottom: none; }
+
+    .status-badge {
+        display: inline-block;
+        font-size: 11px;
+        border-radius: 10px;
+        padding: 2px 8px;
+        font-weight: 700;
+    }
+    .status-badge.hit  { background: rgba(34,197,94,0.2); color: var(--success); }
+    .status-badge.miss { background: rgba(239,68,68,0.2); color: var(--danger); }
+    .status-badge.ok   { background: rgba(34,197,94,0.2); color: var(--success); }
+    .status-badge.warn { background: rgba(245,158,11,0.2); color: #f59e0b; }
+    .status-badge.fail { background: rgba(239,68,68,0.2); color: var(--danger); }
+
+    /* ── Latency bar (percentile viz) ───────────────────────────── */
+    .latency-row {
+        display: grid;
+        grid-template-columns: 100px 1fr 60px;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--border-color);
+    }
+    .latency-row:last-child { border-bottom: none; }
+    .latency-label { font-size: 12px; color: var(--text-secondary); font-weight: 600; }
+    .latency-bar-track {
+        height: 8px;
+        background: rgba(255,255,255,0.06);
+        border-radius: 4px;
+        overflow: hidden;
+        position: relative;
+    }
+    .latency-bar-fill {
+        height: 100%;
+        border-radius: 4px;
+        transition: width 0.8s ease;
+    }
+    .latency-value { font-size: 12px; color: var(--text-primary); font-weight: 700; text-align: right; }
+
+    /* ── Health indicator ────────────────────────────────────────── */
+    .health-indicator {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 16px;
+        border-radius: 10px;
+        margin-bottom: 12px;
+    }
+    .health-indicator.healthy { background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); }
+    .health-indicator.degraded { background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); }
+    .health-indicator.critical { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); }
+    .health-dot {
+        width: 12px; height: 12px;
+        border-radius: 50%;
+        animation: pulse 2s infinite;
+    }
+    .health-indicator.healthy .health-dot { background: #22c55e; box-shadow: 0 0 8px #22c55e66; }
+    .health-indicator.degraded .health-dot { background: #f59e0b; box-shadow: 0 0 8px #f59e0b66; }
+    .health-indicator.critical .health-dot { background: #ef4444; box-shadow: 0 0 8px #ef444466; }
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+    .health-text { font-size: 13px; color: var(--text-primary); font-weight: 600; }
+    .health-sub { font-size: 11px; color: var(--text-muted); }
+
+    .empty-state {
+        text-align: center;
+        color: var(--text-muted);
+        padding: 28px;
+    }
+
+    @media (max-width: 1100px) {
+        .charts-row.triple { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 900px) {
+        .charts-row, .charts-row.triple { grid-template-columns: 1fr; }
+        .gauge-container { gap: 20px; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>🧠 Memory Cache</h1>
+    <p>Three-tier cache performance, embedding latency, vector health, and memory pipeline analytics.</p>
+</div>
+
+<div class="page-controls">
+    <select class="filter-select" id="hours-filter" onchange="loadDashboard()">
+        <option value="24">Last 24 Hours</option>
+        <option value="72">Last 3 Days</option>
+        <option value="168">Last 7 Days</option>
+        <option value="720">Last 30 Days</option>
+    </select>
+    <button class="btn btn-primary" onclick="loadDashboard()">↻ Refresh</button>
+    <button class="btn btn-secondary" onclick="warmupCache()" style="background:#1a3a2a;color:#4ade80;border:1px solid #2d5a3d;padding:10px 14px;border-radius:8px;cursor:pointer;">🔥 Warm Up</button>
+    <button class="btn btn-secondary" onclick="invalidateCache()" style="background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border-color);padding:10px 14px;border-radius:8px;cursor:pointer;">🗑️ Invalidate All</button>
+    <span id="uptime-badge" style="font-size:11px;color:var(--text-muted);margin-left:auto;"></span>
+</div>
+
+<div class="tabs">
+    <button class="tab-btn active" data-tab="overview">📊 Overview</button>
+    <button class="tab-btn" data-tab="tiers">⚡ Cache Tiers</button>
+    <button class="tab-btn" data-tab="latency">🏎️ Latency</button>
+    <button class="tab-btn" data-tab="vectors">🧬 Vectors</button>
+    <button class="tab-btn" data-tab="timeseries">📈 Time Series</button>
+    <button class="tab-btn" data-tab="store">💾 Memory Store</button>
+    <button class="tab-btn" data-tab="access">📋 Access Log</button>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     TAB 1: OVERVIEW
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="tab-panel active" id="panel-overview">
+    <div class="stats-grid">
+        <div class="stat-card green glow">
+            <h4>Overall Hit Rate</h4>
+            <div class="value" id="stat-hit-rate">-</div>
+            <div class="sub" id="stat-hit-rate-sub"></div>
+        </div>
+        <div class="stat-card blue glow">
+            <h4>Total Cached</h4>
+            <div class="value" id="stat-total-cached">-</div>
+            <div class="sub">items across all tiers</div>
+        </div>
+        <div class="stat-card purple">
+            <h4>Total Hits</h4>
+            <div class="value" id="stat-total-hits">-</div>
+        </div>
+        <div class="stat-card rose">
+            <h4>Total Misses</h4>
+            <div class="value" id="stat-total-misses">-</div>
+        </div>
+        <div class="stat-card cyan">
+            <h4>Total Memories</h4>
+            <div class="value" id="stat-total-memories">-</div>
+        </div>
+        <div class="stat-card orange">
+            <h4>Embed P95 Latency</h4>
+            <div class="value" id="stat-emb-p95">-</div>
+            <div class="sub">ms</div>
+        </div>
+    </div>
+
+    <div class="gauge-container">
+        <div class="gauge">
+            <svg viewBox="0 0 160 160">
+                <circle class="gauge-bg" cx="80" cy="80" r="65"/>
+                <circle class="gauge-fill" id="gauge-embedding-fill" cx="80" cy="80" r="65"
+                        stroke="#22c55e" stroke-dasharray="408.4" stroke-dashoffset="408.4"/>
+            </svg>
+            <div class="gauge-label">
+                <div class="pct" id="gauge-embedding-pct">-</div>
+                <div class="name">Embedding</div>
+            </div>
+        </div>
+        <div class="gauge">
+            <svg viewBox="0 0 160 160">
+                <circle class="gauge-bg" cx="80" cy="80" r="65"/>
+                <circle class="gauge-fill" id="gauge-semantic-fill" cx="80" cy="80" r="65"
+                        stroke="#a855f7" stroke-dasharray="408.4" stroke-dashoffset="408.4"/>
+            </svg>
+            <div class="gauge-label">
+                <div class="pct" id="gauge-semantic-pct">-</div>
+                <div class="name">Semantic</div>
+            </div>
+        </div>
+        <div class="gauge">
+            <svg viewBox="0 0 160 160">
+                <circle class="gauge-bg" cx="80" cy="80" r="65"/>
+                <circle class="gauge-fill" id="gauge-graph-fill" cx="80" cy="80" r="65"
+                        stroke="#3b82f6" stroke-dasharray="408.4" stroke-dashoffset="408.4"/>
+            </svg>
+            <div class="gauge-label">
+                <div class="pct" id="gauge-graph-pct">-</div>
+                <div class="name">Graph</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="charts-row">
+        <div class="chart-card">
+            <h4>🎯 Hit Rate by Tier</h4>
+            <div class="chart-wrapper"><canvas id="chart-hit-rates"></canvas></div>
+        </div>
+        <div class="chart-card">
+            <h4>📊 Memory Store Distribution</h4>
+            <div class="chart-wrapper"><canvas id="chart-memory-dist"></canvas></div>
+        </div>
+    </div>
+
+    <div class="charts-row">
+        <div class="chart-card">
+            <h4>🏷️ Category Distribution</h4>
+            <div class="chart-wrapper"><canvas id="chart-categories"></canvas></div>
+        </div>
+        <div class="chart-card">
+            <h4>🔧 Source Distribution</h4>
+            <div class="chart-wrapper"><canvas id="chart-sources"></canvas></div>
+        </div>
+    </div>
+
+    <div class="content-card" id="summary-card">
+        <h4>📋 Pipeline Summary</h4>
+        <div id="summary-text" style="line-height:1.8;font-size:13px;color:var(--text-secondary);"></div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     TAB 2: CACHE TIERS
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="tab-panel" id="panel-tiers">
+    <div class="cache-bar-container">
+        <div class="cache-bar-label">
+            <span>🔤 Embedding Cache (Tier 1 — 30 min TTL)</span>
+            <span id="emb-bar-label">0 / 2,000</span>
+        </div>
+        <div class="cache-bar-track">
+            <div class="cache-bar-fill green" id="emb-bar-fill" style="width: 0%"></div>
+        </div>
+    </div>
+    <div class="cache-bar-container">
+        <div class="cache-bar-label">
+            <span>🔍 Semantic Search Cache (Tier 2 — 2 min TTL)</span>
+            <span id="sem-bar-label">0 / 500</span>
+        </div>
+        <div class="cache-bar-track">
+            <div class="cache-bar-fill purple" id="sem-bar-fill" style="width: 0%"></div>
+        </div>
+    </div>
+    <div class="cache-bar-container">
+        <div class="cache-bar-label">
+            <span>🧠 Memory Graph Cache (Tier 3 — 1 min TTL)</span>
+            <span id="graph-bar-label">0 / 20</span>
+        </div>
+        <div class="cache-bar-track">
+            <div class="cache-bar-fill blue" id="graph-bar-fill" style="width: 0%"></div>
+        </div>
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-card green"><h4>Embedding Hits</h4><div class="value" id="tier-emb-hits">-</div></div>
+        <div class="stat-card rose"><h4>Embedding Misses</h4><div class="value" id="tier-emb-misses">-</div></div>
+        <div class="stat-card purple"><h4>Semantic Hits</h4><div class="value" id="tier-sem-hits">-</div></div>
+        <div class="stat-card rose"><h4>Semantic Misses</h4><div class="value" id="tier-sem-misses">-</div></div>
+        <div class="stat-card blue"><h4>Graph Hits</h4><div class="value" id="tier-graph-hits">-</div></div>
+        <div class="stat-card rose"><h4>Graph Misses</h4><div class="value" id="tier-graph-misses">-</div></div>
+    </div>
+
+    <div class="charts-row">
+        <div class="chart-card">
+            <h4>⚖️ Hit vs Miss — Per Tier</h4>
+            <div class="chart-wrapper"><canvas id="chart-tier-hitmiss"></canvas></div>
+        </div>
+        <div class="chart-card">
+            <h4>📦 Evictions by Tier</h4>
+            <div class="chart-wrapper"><canvas id="chart-tier-evictions"></canvas></div>
+        </div>
+    </div>
+
+    <div class="content-card">
+        <h4>📋 Cache Configuration</h4>
+        <table class="data-table">
+            <thead><tr><th>Parameter</th><th>Embedding</th><th>Semantic</th><th>Graph</th></tr></thead>
+            <tbody>
+                <tr><td>Max Size</td><td id="cfg-emb-max">2,000</td><td id="cfg-sem-max">500</td><td id="cfg-graph-max">20</td></tr>
+                <tr><td>TTL</td><td id="cfg-emb-ttl">1800s</td><td id="cfg-sem-ttl">120s</td><td id="cfg-graph-ttl">60s</td></tr>
+                <tr><td>Eviction Policy</td><td>LRU</td><td>LRU</td><td>LRU</td></tr>
+                <tr><td>Thread Safety</td><td>RLock</td><td>RLock</td><td>RLock</td></tr>
+                <tr><td>Invalidation</td><td>Manual only</td><td>On memory write</td><td>On memory write</td></tr>
+                <tr><td>Key Strategy</td><td>SHA-256(text[:512])</td><td>SHA-256(emb[:8]+params)</td><td>limit:types</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     TAB 3: LATENCY
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="tab-panel" id="panel-latency">
+    <div id="latency-health" class="health-indicator healthy">
+        <div class="health-dot"></div>
+        <div>
+            <div class="health-text" id="latency-health-text">Embedding service healthy</div>
+            <div class="health-sub" id="latency-health-sub">Latency within normal range</div>
+        </div>
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-card green glow">
+            <h4>Embed P50</h4>
+            <div class="value" id="lat-emb-p50">-</div>
+            <div class="sub">ms (median)</div>
+        </div>
+        <div class="stat-card orange glow">
+            <h4>Embed P95</h4>
+            <div class="value" id="lat-emb-p95">-</div>
+            <div class="sub">ms</div>
+        </div>
+        <div class="stat-card rose">
+            <h4>Embed P99</h4>
+            <div class="value" id="lat-emb-p99">-</div>
+            <div class="sub">ms</div>
+        </div>
+        <div class="stat-card blue">
+            <h4>Samples</h4>
+            <div class="value" id="lat-emb-count">-</div>
+        </div>
+        <div class="stat-card purple glow">
+            <h4>Semantic P50</h4>
+            <div class="value" id="lat-sem-p50">-</div>
+            <div class="sub">ms (median)</div>
+        </div>
+        <div class="stat-card cyan">
+            <h4>Semantic P95</h4>
+            <div class="value" id="lat-sem-p95">-</div>
+            <div class="sub">ms</div>
+        </div>
+    </div>
+
+    <div class="charts-row">
+        <div class="chart-card">
+            <h4>🏎️ Embedding Latency — by Source</h4>
+            <div class="chart-wrapper"><canvas id="chart-emb-latency-source"></canvas></div>
+        </div>
+        <div class="chart-card">
+            <h4>🔍 Semantic Search Latency</h4>
+            <div class="chart-wrapper"><canvas id="chart-sem-latency"></canvas></div>
+        </div>
+    </div>
+
+    <div class="content-card">
+        <h4>📊 Embedding Latency Percentiles</h4>
+        <div id="emb-latency-bars" style="padding: 8px 0;"></div>
+    </div>
+
+    <div class="content-card" style="margin-top: 20px;">
+        <h4>📊 Semantic Search Latency Percentiles</h4>
+        <div id="sem-latency-bars" style="padding: 8px 0;"></div>
+    </div>
+
+    <div class="content-card" style="margin-top: 20px;">
+        <h4>🔗 Embedding Source Breakdown</h4>
+        <table class="data-table">
+            <thead><tr><th>Source</th><th>P50 (ms)</th><th>P95 (ms)</th><th>P99 (ms)</th><th>Avg (ms)</th><th>Count</th></tr></thead>
+            <tbody id="emb-source-table-body">
+                <tr><td colspan="6" class="empty-state">No latency data yet — chat with Aria to generate samples</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     TAB 4: VECTORS
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="tab-panel" id="panel-vectors">
+    <div id="vector-health" class="health-indicator healthy">
+        <div class="health-dot"></div>
+        <div>
+            <div class="health-text" id="vector-health-text">Vector pipeline healthy</div>
+            <div class="health-sub" id="vector-health-sub">768-dim embeddings, remote source active</div>
+        </div>
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-card blue glow">
+            <h4>Expected Dims</h4>
+            <div class="value">768</div>
+            <div class="sub">pgvector columns</div>
+        </div>
+        <div class="stat-card green glow">
+            <h4>Dimension Status</h4>
+            <div class="value" id="vec-dim-status">-</div>
+        </div>
+        <div class="stat-card purple">
+            <h4>Remote Embeddings</h4>
+            <div class="value" id="vec-remote-count">-</div>
+            <div class="sub" id="vec-remote-pct"></div>
+        </div>
+        <div class="stat-card orange">
+            <h4>Fallback Embeddings</h4>
+            <div class="value" id="vec-fallback-count">-</div>
+            <div class="sub" id="vec-fallback-pct"></div>
+        </div>
+        <div class="stat-card cyan">
+            <h4>Distinct Dims Seen</h4>
+            <div class="value" id="vec-dims-seen">-</div>
+        </div>
+        <div class="stat-card rose">
+            <h4>Fallback Rate</h4>
+            <div class="value" id="vec-fallback-rate">-</div>
+        </div>
+    </div>
+
+    <div class="charts-row">
+        <div class="chart-card">
+            <h4>🧬 Embedding Source Distribution</h4>
+            <div class="chart-wrapper"><canvas id="chart-vec-sources"></canvas></div>
+        </div>
+        <div class="chart-card">
+            <h4>📐 Dimension Distribution</h4>
+            <div class="chart-wrapper"><canvas id="chart-vec-dims"></canvas></div>
+        </div>
+    </div>
+
+    <div class="content-card">
+        <h4>🔧 Vector Pipeline Configuration</h4>
+        <table class="data-table">
+            <thead><tr><th>Parameter</th><th>Value</th></tr></thead>
+            <tbody>
+                <tr><td>Embedding Model</td><td>text-embedding-3-small (via LiteLLM)</td></tr>
+                <tr><td>Vector Dimensions</td><td>768</td></tr>
+                <tr><td>Distance Metric</td><td>Cosine (pgvector)</td></tr>
+                <tr><td>Embedding Endpoint</td><td>http://litellm:4000/v1/embeddings</td></tr>
+                <tr><td>Remote Timeout</td><td>2.5s</td></tr>
+                <tr><td>Retry Backoff</td><td>120s (on failure)</td></tr>
+                <tr><td>Fallback Strategy</td><td>Deterministic hash-based L2-normalized vector</td></tr>
+                <tr><td>Cache TTL (Tier 1)</td><td>1800s (30 min)</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     TAB 5: TIME SERIES
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="tab-panel" id="panel-timeseries">
+    <div class="stats-grid">
+        <div class="stat-card green glow">
+            <h4>Timeseries Minutes</h4>
+            <div class="value" id="ts-minutes">-</div>
+            <div class="sub">data points</div>
+        </div>
+        <div class="stat-card blue">
+            <h4>Peak Hits / Min</h4>
+            <div class="value" id="ts-peak-hits">-</div>
+        </div>
+        <div class="stat-card rose">
+            <h4>Peak Misses / Min</h4>
+            <div class="value" id="ts-peak-misses">-</div>
+        </div>
+        <div class="stat-card purple">
+            <h4>Avg Hits / Min</h4>
+            <div class="value" id="ts-avg-hits">-</div>
+        </div>
+    </div>
+
+    <div class="chart-card" style="margin-bottom: 20px;">
+        <h4>📈 Cache Hit / Miss — Per Minute (All Tiers)</h4>
+        <div class="chart-wrapper" style="height: 320px;"><canvas id="chart-ts-all"></canvas></div>
+    </div>
+
+    <div class="charts-row">
+        <div class="chart-card">
+            <h4>🔤 Embedding Tier — Per Minute</h4>
+            <div class="chart-wrapper"><canvas id="chart-ts-embedding"></canvas></div>
+        </div>
+        <div class="chart-card">
+            <h4>🔍 Semantic Tier — Per Minute</h4>
+            <div class="chart-wrapper"><canvas id="chart-ts-semantic"></canvas></div>
+        </div>
+    </div>
+
+    <div class="chart-card">
+        <h4>🧠 Graph Tier — Per Minute</h4>
+        <div class="chart-wrapper"><canvas id="chart-ts-graph"></canvas></div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     TAB 6: MEMORY STORE
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="tab-panel" id="panel-store">
+    <div class="stats-grid">
+        <div class="stat-card purple glow"><h4>Semantic Memories</h4><div class="value" id="store-semantic">-</div></div>
+        <div class="stat-card orange glow"><h4>Working Memory</h4><div class="value" id="store-working">-</div></div>
+        <div class="stat-card blue"><h4>KV Memory</h4><div class="value" id="store-kv">-</div></div>
+        <div class="stat-card green"><h4>Thoughts</h4><div class="value" id="store-thought">-</div></div>
+        <div class="stat-card rose"><h4>Lessons</h4><div class="value" id="store-lesson">-</div></div>
+        <div class="stat-card cyan"><h4>Total</h4><div class="value" id="store-total">-</div></div>
+    </div>
+
+    <div class="chart-card" style="margin-bottom: 20px;">
+        <h4>📈 Memory Creation Timeline</h4>
+        <div class="chart-wrapper" style="height: 260px;"><canvas id="chart-memory-timeline"></canvas></div>
+    </div>
+
+    <h4 style="margin: 0 0 10px 0;">🔥 Most Accessed Memories</h4>
+    <table class="data-table">
+        <thead><tr><th>#</th><th>Summary</th><th>Category</th><th>Accesses</th><th>Last Accessed</th></tr></thead>
+        <tbody id="top-accessed-body">
+            <tr><td colspan="5" class="empty-state">Loading…</td></tr>
+        </tbody>
+    </table>
+
+    <h4 style="margin: 0 0 10px 0;">🕐 Recently Created</h4>
+    <table class="data-table">
+        <thead><tr><th>Summary</th><th>Category</th><th>Created</th></tr></thead>
+        <tbody id="recent-memories-body">
+            <tr><td colspan="3" class="empty-state">Loading…</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     TAB 7: ACCESS LOG
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="tab-panel" id="panel-access">
+    <div class="stats-grid">
+        <div class="stat-card green"><h4>Log Embedding Hits</h4><div class="value" id="log-emb-hits">-</div></div>
+        <div class="stat-card purple"><h4>Log Semantic Hits</h4><div class="value" id="log-sem-hits">-</div></div>
+        <div class="stat-card blue"><h4>Log Graph Hits</h4><div class="value" id="log-graph-hits">-</div></div>
+        <div class="stat-card orange"><h4>Total Log Entries</h4><div class="value" id="log-total">-</div></div>
+    </div>
+
+    <h4 style="margin: 0 0 10px 0;">Recent Cache Access Log</h4>
+    <table class="data-table">
+        <thead><tr><th>Time</th><th>Tier</th><th>Result</th></tr></thead>
+        <tbody id="access-log-body">
+            <tr><td colspan="3" class="empty-state">Loading log data…</td></tr>
+        </tbody>
+    </table>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="/static/js/chart-helpers.js"></script>
+<script>
+const API_BASE = '{{ api_base_url }}';
+const CIRCUMFERENCE = 408.4;
+const charts = {};
+
+/* ── Helpers ────────────────────────────────────────────────────────────── */
+function fmt(n) { return n == null ? '-' : Number(n).toLocaleString(); }
+function pct(n) { return n == null ? '-' : (n * 100).toFixed(1) + '%'; }
+function ms(n) { return n == null ? '-' : n.toFixed(1); }
+function esc(s) {
+    if (s == null) return '';
+    const d = document.createElement('div');
+    d.textContent = String(s);
+    return d.innerHTML;
+}
+function timeAgo(iso) {
+    if (!iso) return '-';
+    const d = new Date(iso);
+    const s = Math.floor((Date.now() - d) / 1000);
+    if (s < 60) return s + 's ago';
+    if (s < 3600) return Math.floor(s/60) + 'm ago';
+    if (s < 86400) return Math.floor(s/3600) + 'h ago';
+    return d.toLocaleDateString();
+}
+function formatUptime(sec) {
+    if (!sec) return '';
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+function setGauge(fillId, pctId, rate) {
+    const offset = CIRCUMFERENCE * (1 - (rate || 0));
+    document.getElementById(fillId).style.strokeDashoffset = offset;
+    document.getElementById(pctId).textContent = pct(rate);
+}
+
+function renderLatencyBars(containerId, stats, color) {
+    const el = document.getElementById(containerId);
+    if (!el || !stats || !stats.count) {
+        el.innerHTML = '<div class="empty-state">No latency data yet</div>';
+        return;
+    }
+    const maxVal = Math.max(stats.max, 1);
+    const rows = [
+        { label: 'P50 (Median)', val: stats.p50 },
+        { label: 'P95', val: stats.p95 },
+        { label: 'P99', val: stats.p99 },
+        { label: 'Average', val: stats.avg },
+        { label: 'Min', val: stats.min },
+        { label: 'Max', val: stats.max },
+    ];
+    el.innerHTML = rows.map(r => `
+        <div class="latency-row">
+            <div class="latency-label">${r.label}</div>
+            <div class="latency-bar-track">
+                <div class="latency-bar-fill" style="width:${(r.val/maxVal)*100}%;background:${color};"></div>
+            </div>
+            <div class="latency-value">${ms(r.val)} ms</div>
+        </div>
+    `).join('');
+}
+
+/* ── Tab switching ──────────────────────────────────────────────────────── */
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+    });
+});
+
+/* ── Main loader ───────────────────────────────────────────────────────── */
+async function loadDashboard() {
+    try {
+        const hours = document.getElementById('hours-filter').value;
+        const resp = await fetch(`${API_BASE}/memory-cache/analytics?hours=${hours}`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const d = await resp.json();
+        renderOverview(d);
+        renderTiers(d);
+        renderLatency(d);
+        renderVectors(d);
+        renderTimeseries(d);
+        renderStore(d);
+        renderAccessLog(d);
+    } catch (err) {
+        console.error('Memory cache dashboard load failed:', err);
+    }
+}
+
+/* ── Overview tab ──────────────────────────────────────────────────────── */
+function renderOverview(d) {
+    const cs = d.cache_stats;
+    if (cs) {
+        document.getElementById('stat-hit-rate').textContent = pct(cs.overall_hit_rate);
+        document.getElementById('stat-hit-rate-sub').textContent =
+            `${fmt(cs.total_hits)} hits / ${fmt(cs.total_hits + cs.total_misses)} total`;
+        document.getElementById('stat-total-cached').textContent = fmt(cs.total_items);
+        document.getElementById('stat-total-hits').textContent = fmt(cs.total_hits);
+        document.getElementById('stat-total-misses').textContent = fmt(cs.total_misses);
+        document.getElementById('uptime-badge').textContent =
+            `Cache uptime: ${formatUptime(cs.uptime_seconds)} — since ${new Date(cs.started_at).toLocaleTimeString()}`;
+
+        const emb = cs.embedding_cache || {};
+        const sem = cs.semantic_cache || {};
+        const gr  = cs.graph_cache || {};
+        setGauge('gauge-embedding-fill', 'gauge-embedding-pct', emb.hit_rate);
+        setGauge('gauge-semantic-fill', 'gauge-semantic-pct', sem.hit_rate);
+        setGauge('gauge-graph-fill', 'gauge-graph-pct', gr.hit_rate);
+
+        ARIAChartHelpers.renderChart(charts, 'chart-hit-rates', 'bar', {
+            labels: ['Embedding', 'Semantic', 'Graph'],
+            datasets: [{
+                label: 'Hit Rate %',
+                data: [(emb.hit_rate||0)*100, (sem.hit_rate||0)*100, (gr.hit_rate||0)*100],
+                backgroundColor: ['#22c55e99', '#a855f799', '#3b82f699'],
+                borderRadius: 6,
+            }],
+        });
+    } else {
+        document.getElementById('stat-hit-rate').textContent = 'offline';
+        document.getElementById('stat-total-cached').textContent = '-';
+    }
+
+    // Embedding P95 on overview
+    const ls = d.latency_stats;
+    if (ls && ls.embedding && ls.embedding.all) {
+        document.getElementById('stat-emb-p95').textContent = ms(ls.embedding.all.p95);
+    }
+
+    const mt = d.memory_totals || {};
+    document.getElementById('stat-total-memories').textContent = fmt(mt.total);
+
+    ARIAChartHelpers.renderChart(charts, 'chart-memory-dist', 'doughnut', {
+        labels: ['Semantic', 'Working', 'KV', 'Thought', 'Lesson'],
+        datasets: [{
+            data: [mt.semantic||0, mt.working||0, mt.kv||0, mt.thought||0, mt.lesson||0],
+            backgroundColor: ['#a855f7', '#f59e0b', '#3b82f6', '#22c55e', '#ef4444'],
+            borderWidth: 0,
+        }],
+    });
+
+    const cats = d.category_distribution || [];
+    ARIAChartHelpers.renderChart(charts, 'chart-categories', 'bar', {
+        labels: cats.slice(0,12).map(c => c.category),
+        datasets: [{
+            label: 'Memories',
+            data: cats.slice(0,12).map(c => c.count),
+            backgroundColor: '#a855f799',
+            borderRadius: 6,
+        }],
+    }, { indexAxis: 'y' });
+
+    const srcs = d.source_distribution || [];
+    ARIAChartHelpers.renderChart(charts, 'chart-sources', 'bar', {
+        labels: srcs.slice(0,10).map(s => s.source),
+        datasets: [{
+            label: 'Memories',
+            data: srcs.slice(0,10).map(s => s.count),
+            backgroundColor: '#3b82f699',
+            borderRadius: 6,
+        }],
+    }, { indexAxis: 'y' });
+
+    // Summary
+    const summaryDiv = document.getElementById('summary-text');
+    const cacheOk = cs && cs.total_items > 0;
+    const fallbackWarn = d.vector_health && d.vector_health.fallback_ratio > 0.1
+        ? `<br>⚠️ Fallback rate is <strong style="color:#f59e0b">${pct(d.vector_health.fallback_ratio)}</strong> — LiteLLM may be experiencing issues.`
+        : '';
+    summaryDiv.innerHTML = `
+        Aria's memory store contains <strong style="color:var(--text-primary)">${fmt(mt.total)} memories</strong>
+        across ${cats.length} categories.<br>
+        Cache is <strong style="color:${cacheOk ? 'var(--success)' : 'var(--text-muted)'}">${cacheOk ? 'active' : 'warming up'}</strong>
+        with ${fmt(cs ? cs.total_items : 0)} cached items and ${pct(cs ? cs.overall_hit_rate : 0)} overall hit rate.<br>
+        <strong>Tier 1 — Embedding:</strong> saves ~250ms per repeated LiteLLM call (30 min TTL, 2000 slots).<br>
+        <strong>Tier 2 — Semantic:</strong> avoids pgvector cosine-distance queries for recently seen embeddings (2 min TTL).<br>
+        <strong>Tier 3 — Graph:</strong> prevents expensive graph rebuilds on rapid dashboard reloads (1 min TTL).
+        ${fallbackWarn}
+    `;
+}
+
+/* ── Cache Tiers tab ───────────────────────────────────────────────────── */
+function renderTiers(d) {
+    const cs = d.cache_stats;
+    if (!cs) return;
+    const emb = cs.embedding_cache || {}, sem = cs.semantic_cache || {}, gr = cs.graph_cache || {};
+
+    const embPct = emb.maxsize ? (emb.size / emb.maxsize * 100) : 0;
+    const semPct = sem.maxsize ? (sem.size / sem.maxsize * 100) : 0;
+    const grPct  = gr.maxsize  ? (gr.size  / gr.maxsize  * 100) : 0;
+
+    document.getElementById('emb-bar-fill').style.width = embPct + '%';
+    document.getElementById('emb-bar-label').textContent = `${fmt(emb.size)} / ${fmt(emb.maxsize)}`;
+    document.getElementById('sem-bar-fill').style.width = semPct + '%';
+    document.getElementById('sem-bar-label').textContent = `${fmt(sem.size)} / ${fmt(sem.maxsize)}`;
+    document.getElementById('graph-bar-fill').style.width = grPct + '%';
+    document.getElementById('graph-bar-label').textContent = `${fmt(gr.size)} / ${fmt(gr.maxsize)}`;
+
+    document.getElementById('tier-emb-hits').textContent = fmt(emb.hits);
+    document.getElementById('tier-emb-misses').textContent = fmt(emb.misses);
+    document.getElementById('tier-sem-hits').textContent = fmt(sem.hits);
+    document.getElementById('tier-sem-misses').textContent = fmt(sem.misses);
+    document.getElementById('tier-graph-hits').textContent = fmt(gr.hits);
+    document.getElementById('tier-graph-misses').textContent = fmt(gr.misses);
+
+    document.getElementById('cfg-emb-max').textContent = fmt(emb.maxsize);
+    document.getElementById('cfg-sem-max').textContent = fmt(sem.maxsize);
+    document.getElementById('cfg-graph-max').textContent = fmt(gr.maxsize);
+    document.getElementById('cfg-emb-ttl').textContent = `${emb.ttl_seconds}s (${Math.round(emb.ttl_seconds/60)} min)`;
+    document.getElementById('cfg-sem-ttl').textContent = `${sem.ttl_seconds}s (${Math.round(sem.ttl_seconds/60)} min)`;
+    document.getElementById('cfg-graph-ttl').textContent = `${gr.ttl_seconds}s (${Math.round(gr.ttl_seconds/60)} min)`;
+
+    ARIAChartHelpers.renderChart(charts, 'chart-tier-hitmiss', 'bar', {
+        labels: ['Embedding', 'Semantic', 'Graph'],
+        datasets: [
+            { label: 'Hits', data: [emb.hits, sem.hits, gr.hits], backgroundColor: '#22c55e99', borderRadius: 6 },
+            { label: 'Misses', data: [emb.misses, sem.misses, gr.misses], backgroundColor: '#ef444499', borderRadius: 6 },
+        ],
+    });
+
+    ARIAChartHelpers.renderChart(charts, 'chart-tier-evictions', 'bar', {
+        labels: ['Embedding', 'Semantic', 'Graph'],
+        datasets: [{
+            label: 'Evictions',
+            data: [emb.evictions, sem.evictions, gr.evictions],
+            backgroundColor: ['#22c55e66', '#a855f766', '#3b82f666'],
+            borderRadius: 6,
+        }],
+    });
+}
+
+/* ── Latency tab ───────────────────────────────────────────────────────── */
+function renderLatency(d) {
+    const ls = d.latency_stats;
+    if (!ls) return;
+
+    const embAll = (ls.embedding && ls.embedding.all) || {};
+    const semAll = (ls.semantic && ls.semantic.all) || {};
+
+    document.getElementById('lat-emb-p50').textContent = ms(embAll.p50);
+    document.getElementById('lat-emb-p95').textContent = ms(embAll.p95);
+    document.getElementById('lat-emb-p99').textContent = ms(embAll.p99);
+    document.getElementById('lat-emb-count').textContent = fmt(embAll.count);
+    document.getElementById('lat-sem-p50').textContent = ms(semAll.p50);
+    document.getElementById('lat-sem-p95').textContent = ms(semAll.p95);
+
+    // Health indicator
+    const healthEl = document.getElementById('latency-health');
+    const healthText = document.getElementById('latency-health-text');
+    const healthSub = document.getElementById('latency-health-sub');
+    if (embAll.p95 > 2000) {
+        healthEl.className = 'health-indicator critical';
+        healthText.textContent = 'Embedding service degraded';
+        healthSub.textContent = `P95 latency ${ms(embAll.p95)}ms — exceeds 2s threshold`;
+    } else if (embAll.p95 > 500) {
+        healthEl.className = 'health-indicator degraded';
+        healthText.textContent = 'Embedding latency elevated';
+        healthSub.textContent = `P95 latency ${ms(embAll.p95)}ms — above 500ms`;
+    } else {
+        healthEl.className = 'health-indicator healthy';
+        healthText.textContent = 'Embedding service healthy';
+        healthSub.textContent = embAll.count ? `P95 latency ${ms(embAll.p95)}ms — ${fmt(embAll.count)} samples` : 'No samples yet';
+    }
+
+    // Percentile bar visualizations
+    renderLatencyBars('emb-latency-bars', embAll, '#22c55e');
+    renderLatencyBars('sem-latency-bars', semAll, '#a855f7');
+
+    // Embedding latency by source chart
+    const remote = (ls.embedding && ls.embedding.remote) || {};
+    const fallback = (ls.embedding && ls.embedding.fallback) || {};
+    const cached = (ls.embedding && ls.embedding.cached) || {};
+
+    ARIAChartHelpers.renderChart(charts, 'chart-emb-latency-source', 'bar', {
+        labels: ['P50', 'P95', 'P99', 'Avg'],
+        datasets: [
+            { label: 'Remote', data: [remote.p50||0, remote.p95||0, remote.p99||0, remote.avg||0], backgroundColor: '#3b82f699', borderRadius: 4 },
+            { label: 'Fallback', data: [fallback.p50||0, fallback.p95||0, fallback.p99||0, fallback.avg||0], backgroundColor: '#f59e0b99', borderRadius: 4 },
+            { label: 'Cached', data: [cached.p50||0, cached.p95||0, cached.p99||0, cached.avg||0], backgroundColor: '#22c55e99', borderRadius: 4 },
+        ],
+    });
+
+    // Semantic latency chart
+    const semUncached = (ls.semantic && ls.semantic.uncached) || {};
+    const semCached = (ls.semantic && ls.semantic.cached) || {};
+
+    ARIAChartHelpers.renderChart(charts, 'chart-sem-latency', 'bar', {
+        labels: ['P50', 'P95', 'P99', 'Avg'],
+        datasets: [
+            { label: 'DB Query', data: [semUncached.p50||0, semUncached.p95||0, semUncached.p99||0, semUncached.avg||0], backgroundColor: '#a855f799', borderRadius: 4 },
+            { label: 'Cached', data: [semCached.p50||0, semCached.p95||0, semCached.p99||0, semCached.avg||0], backgroundColor: '#22c55e99', borderRadius: 4 },
+        ],
+    });
+
+    // Source breakdown table
+    const tbody = document.getElementById('emb-source-table-body');
+    const sources = [
+        { name: 'Remote (LiteLLM)', s: remote },
+        { name: 'Fallback (local hash)', s: fallback },
+        { name: 'Cached (Tier 1)', s: cached },
+    ];
+    const hasData = sources.some(x => x.s.count > 0);
+    if (hasData) {
+        tbody.innerHTML = sources.filter(x => x.s.count > 0).map(x => `
+            <tr>
+                <td>${esc(x.name)}</td>
+                <td>${ms(x.s.p50)}</td>
+                <td>${ms(x.s.p95)}</td>
+                <td>${ms(x.s.p99)}</td>
+                <td>${ms(x.s.avg)}</td>
+                <td><strong>${fmt(x.s.count)}</strong></td>
+            </tr>
+        `).join('');
+    }
+}
+
+/* ── Vectors tab ───────────────────────────────────────────────────────── */
+function renderVectors(d) {
+    const vh = d.vector_health;
+    if (!vh) return;
+
+    const dimKeys = Object.keys(vh.dimensions_seen || {});
+    const consistent = vh.dimension_consistent;
+
+    document.getElementById('vec-dim-status').textContent = consistent ? '✓ OK' : '⚠ Mixed';
+    document.getElementById('vec-remote-count').textContent = fmt(vh.remote_count);
+    document.getElementById('vec-remote-pct').textContent = pct(vh.remote_ratio);
+    document.getElementById('vec-fallback-count').textContent = fmt(vh.fallback_count);
+    document.getElementById('vec-fallback-pct').textContent = pct(vh.fallback_ratio);
+    document.getElementById('vec-dims-seen').textContent = dimKeys.length || '-';
+    document.getElementById('vec-fallback-rate').textContent = pct(vh.fallback_ratio);
+
+    // Vector health indicator
+    const healthEl = document.getElementById('vector-health');
+    const healthText = document.getElementById('vector-health-text');
+    const healthSub = document.getElementById('vector-health-sub');
+    if (vh.fallback_ratio > 0.5) {
+        healthEl.className = 'health-indicator critical';
+        healthText.textContent = 'Vector pipeline degraded — high fallback rate';
+        healthSub.textContent = `${pct(vh.fallback_ratio)} of embeddings using local fallback`;
+    } else if (vh.fallback_ratio > 0.1 || !consistent) {
+        healthEl.className = 'health-indicator degraded';
+        healthText.textContent = 'Vector pipeline warning';
+        healthSub.textContent = !consistent ? 'Mixed vector dimensions detected' : `Fallback rate ${pct(vh.fallback_ratio)}`;
+    } else {
+        healthEl.className = 'health-indicator healthy';
+        healthText.textContent = 'Vector pipeline healthy';
+        healthSub.textContent = `768-dim embeddings, ${pct(vh.remote_ratio)} remote source`;
+    }
+
+    // Source doughnut
+    ARIAChartHelpers.renderChart(charts, 'chart-vec-sources', 'doughnut', {
+        labels: ['Remote (LiteLLM)', 'Fallback (local)'],
+        datasets: [{
+            data: [vh.remote_count || 0, vh.fallback_count || 0],
+            backgroundColor: ['#3b82f7', '#f59e0b'],
+            borderWidth: 0,
+        }],
+    });
+
+    // Dimension bar chart
+    const dims = vh.dimensions_seen || {};
+    ARIAChartHelpers.renderChart(charts, 'chart-vec-dims', 'bar', {
+        labels: Object.keys(dims).map(d => d + '-dim'),
+        datasets: [{
+            label: 'Embedding Count',
+            data: Object.values(dims),
+            backgroundColor: '#06b6d499',
+            borderRadius: 6,
+        }],
+    });
+}
+
+/* ── Time Series tab ───────────────────────────────────────────────────── */
+function renderTimeseries(d) {
+    const ts = d.timeseries || [];
+    document.getElementById('ts-minutes').textContent = fmt(ts.length);
+
+    if (ts.length === 0) {
+        document.getElementById('ts-peak-hits').textContent = '-';
+        document.getElementById('ts-peak-misses').textContent = '-';
+        document.getElementById('ts-avg-hits').textContent = '-';
+        return;
+    }
+
+    const totalHitsPerMin = ts.map(t =>
+        (t.embedding_hits || 0) + (t.semantic_hits || 0) + (t.graph_hits || 0)
+    );
+    const totalMissesPerMin = ts.map(t =>
+        (t.embedding_misses || 0) + (t.semantic_misses || 0) + (t.graph_misses || 0)
+    );
+
+    document.getElementById('ts-peak-hits').textContent = fmt(Math.max(...totalHitsPerMin));
+    document.getElementById('ts-peak-misses').textContent = fmt(Math.max(...totalMissesPerMin));
+    const avgHits = totalHitsPerMin.reduce((a,b) => a+b, 0) / totalHitsPerMin.length;
+    document.getElementById('ts-avg-hits').textContent = avgHits.toFixed(1);
+
+    const labels = ts.map(t => {
+        const parts = (t.time || '').split('T');
+        return parts.length > 1 ? parts[1] : t.time;
+    });
+
+    // All tiers combined
+    ARIAChartHelpers.renderChart(charts, 'chart-ts-all', 'line', {
+        labels,
+        datasets: [
+            { label: 'Total Hits', data: totalHitsPerMin, borderColor: '#22c55e', backgroundColor: '#22c55e22', fill: true, tension: 0.3 },
+            { label: 'Total Misses', data: totalMissesPerMin, borderColor: '#ef4444', backgroundColor: '#ef444422', fill: true, tension: 0.3 },
+        ],
+    });
+
+    // Embedding tier
+    ARIAChartHelpers.renderChart(charts, 'chart-ts-embedding', 'line', {
+        labels,
+        datasets: [
+            { label: 'Hits', data: ts.map(t => t.embedding_hits || 0), borderColor: '#22c55e', backgroundColor: '#22c55e22', fill: true, tension: 0.3 },
+            { label: 'Misses', data: ts.map(t => t.embedding_misses || 0), borderColor: '#ef4444', backgroundColor: '#ef444422', fill: true, tension: 0.3 },
+        ],
+    });
+
+    // Semantic tier
+    ARIAChartHelpers.renderChart(charts, 'chart-ts-semantic', 'line', {
+        labels,
+        datasets: [
+            { label: 'Hits', data: ts.map(t => t.semantic_hits || 0), borderColor: '#a855f7', backgroundColor: '#a855f722', fill: true, tension: 0.3 },
+            { label: 'Misses', data: ts.map(t => t.semantic_misses || 0), borderColor: '#ef4444', backgroundColor: '#ef444422', fill: true, tension: 0.3 },
+        ],
+    });
+
+    // Graph tier
+    ARIAChartHelpers.renderChart(charts, 'chart-ts-graph', 'line', {
+        labels,
+        datasets: [
+            { label: 'Hits', data: ts.map(t => t.graph_hits || 0), borderColor: '#3b82f6', backgroundColor: '#3b82f622', fill: true, tension: 0.3 },
+            { label: 'Misses', data: ts.map(t => t.graph_misses || 0), borderColor: '#ef4444', backgroundColor: '#ef444422', fill: true, tension: 0.3 },
+        ],
+    });
+}
+
+/* ── Memory Store tab ──────────────────────────────────────────────────── */
+function renderStore(d) {
+    const mt = d.memory_totals || {};
+    document.getElementById('store-semantic').textContent = fmt(mt.semantic);
+    document.getElementById('store-working').textContent = fmt(mt.working);
+    document.getElementById('store-kv').textContent = fmt(mt.kv);
+    document.getElementById('store-thought').textContent = fmt(mt.thought);
+    document.getElementById('store-lesson').textContent = fmt(mt.lesson);
+    document.getElementById('store-total').textContent = fmt(mt.total);
+
+    // Memory creation timeline
+    const tl = d.memory_timeline || [];
+    if (tl.length > 0) {
+        const tlLabels = tl.map(t => {
+            const parts = (t.time || '').split('T');
+            return parts.length > 1 ? parts[1].slice(0, 5) : t.time;
+        });
+        ARIAChartHelpers.renderChart(charts, 'chart-memory-timeline', 'bar', {
+            labels: tlLabels,
+            datasets: [{
+                label: 'Memories Created',
+                data: tl.map(t => t.count),
+                backgroundColor: '#a855f766',
+                borderColor: '#a855f7',
+                borderWidth: 1,
+                borderRadius: 4,
+            }],
+        });
+    }
+
+    const topBody = document.getElementById('top-accessed-body');
+    const top = d.top_accessed || [];
+    topBody.innerHTML = top.length === 0
+        ? '<tr><td colspan="5" class="empty-state">No accessed memories yet</td></tr>'
+        : top.map((m, i) => `<tr><td>${i+1}</td><td>${esc(m.summary)}</td><td>${esc(m.category)}</td><td><strong>${fmt(m.access_count)}</strong></td><td>${timeAgo(m.last_accessed)}</td></tr>`).join('');
+
+    const recentBody = document.getElementById('recent-memories-body');
+    const recent = d.recent_memories || [];
+    recentBody.innerHTML = recent.length === 0
+        ? '<tr><td colspan="3" class="empty-state">No memories yet</td></tr>'
+        : recent.map(m => `<tr><td>${esc(m.summary)}</td><td>${esc(m.category)}</td><td>${timeAgo(m.created_at)}</td></tr>`).join('');
+}
+
+/* ── Access Log tab ────────────────────────────────────────────────────── */
+function renderAccessLog(d) {
+    const ta = d.tier_analytics || {};
+    document.getElementById('log-emb-hits').textContent = fmt((ta.embedding||{}).hits);
+    document.getElementById('log-sem-hits').textContent = fmt((ta.semantic_search||{}).hits);
+    document.getElementById('log-graph-hits').textContent = fmt((ta.memory_graph||{}).hits);
+    document.getElementById('log-total').textContent = fmt((d.access_log_recent || []).length);
+
+    const logBody = document.getElementById('access-log-body');
+    const entries = (d.access_log_recent || []).reverse();
+    logBody.innerHTML = entries.length === 0
+        ? '<tr><td colspan="3" class="empty-state">No access events recorded yet</td></tr>'
+        : entries.map(e => `<tr><td>${timeAgo(e.timestamp)}</td><td>${esc(e.tier)}</td><td><span class="status-badge ${e.result === 'hit' ? 'hit' : 'miss'}">${e.result}</span></td></tr>`).join('');
+}
+
+/* ── Invalidate ────────────────────────────────────────────────────────── */
+async function warmupCache() {
+    try {
+        const btn = event.target;
+        btn.disabled = true;
+        btn.textContent = '🔥 Warming...';
+        const resp = await fetch(`${API_BASE}/memory-cache/warmup?limit=50`, { method: 'POST' });
+        const d = await resp.json();
+        btn.textContent = '🔥 Warm Up';
+        btn.disabled = false;
+        alert(`Cache warmed: ${d.warmed} embeddings cached (${d.errors} errors)`);
+        loadDashboard();
+    } catch (err) {
+        alert('Warmup failed: ' + err.message);
+    }
+}
+
+async function invalidateCache() {
+    try {
+        const resp = await fetch(`${API_BASE}/memory-cache/invalidate`, { method: 'POST' });
+        const d = await resp.json();
+        alert(`Cache invalidated: ${d.invalidated} entries cleared`);
+        loadDashboard();
+    } catch (err) {
+        alert('Failed to invalidate: ' + err.message);
+    }
+}
+
+/* ── Auto-refresh & Init ──────────────────────────────────────────────── */
+document.addEventListener('DOMContentLoaded', () => {
+    loadDashboard();
+    setInterval(loadDashboard, 30000);  // refresh every 30s
+});
+</script>
+{% endblock %}

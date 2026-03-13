@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from db.models import EngineChatSession, EngineChatMessage
@@ -816,7 +816,19 @@ class Roundtable:
                 EngineChatMessage,
                 EngineChatMessage.session_id == EngineChatSession.id,
             )
-            .where(EngineChatSession.session_type == "roundtable")
+            .where(
+                or_(
+                    EngineChatSession.session_type == "roundtable",
+                    and_(
+                        EngineChatSession.title.ilike("Roundtable:%"),
+                        EngineChatSession.session_type != "scoped",
+                    ),
+                    and_(
+                        EngineChatSession.title.ilike("%Roundtable Architecture Review%"),
+                        EngineChatSession.session_type != "scoped",
+                    ),
+                )
+            )
             .group_by(
                 EngineChatSession.id,
                 EngineChatSession.title,

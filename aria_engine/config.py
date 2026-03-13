@@ -77,8 +77,8 @@ if HAS_PYDANTIC:
         )
 
         # Database pool
-        db_pool_size: int = 10
-        db_max_overflow: int = 20
+        db_pool_size: int = Field(default=10, alias="DB_POOL_SIZE")
+        db_max_overflow: int = Field(default=20, alias="DB_MAX_OVERFLOW")
 
         # Debug
         debug: bool = False
@@ -169,8 +169,12 @@ else:
         ).lower() in ("true", "1", "yes"))
 
         # Database pool
-        db_pool_size: int = 10
-        db_max_overflow: int = 20
+        db_pool_size: int = field(default_factory=lambda: int(os.environ.get(
+            "DB_POOL_SIZE", "10"
+        )))
+        db_max_overflow: int = field(default_factory=lambda: int(os.environ.get(
+            "DB_MAX_OVERFLOW", "20"
+        )))
 
         # Debug
         debug: bool = field(default_factory=lambda: os.environ.get(

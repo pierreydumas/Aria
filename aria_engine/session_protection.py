@@ -22,7 +22,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from aria_engine.config import EngineConfig
-from aria_engine.exceptions import EngineError
+from aria_engine.exceptions import EngineError, safe_fire_and_forget
 from db.models import EngineChatMessage
 
 logger = logging.getLogger("aria.engine.session_protection")
@@ -351,7 +351,7 @@ class SessionProtection:
         if injection_match:
             threat_type, threat_pattern = injection_match
             blocked = threat_type in HIGH_SEVERITY_THREAT_TYPES
-            asyncio.create_task(
+            safe_fire_and_forget(
                 self._log_security_event(
                     threat_type=threat_type,
                     threat_pattern=threat_pattern,
@@ -359,7 +359,8 @@ class SessionProtection:
                     session_id=session_id,
                     agent_id=agent_id,
                     blocked=blocked,
-                )
+                ),
+                name=f"security-event-{threat_type}",
             )
             if blocked:
                 raise PromptInjectionError(threat_type)
@@ -412,11 +413,11 @@ class SessionProtection:
         agent_window.add()
 
         # Fire-and-forget persistence to aria_engine.rate_limit_windows
-        asyncio.create_task(
+        safe_fire_and_forget(
             self._save_window(session_id, "session", session_window),
             name=f"rlw-session-{session_id[:8]}",
         )
-        asyncio.create_task(
+        safe_fire_and_forget(
             self._save_window(agent_id, "agent", agent_window),
             name=f"rlw-agent-{agent_id}",
         )

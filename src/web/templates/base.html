@@ -218,7 +218,7 @@
 
                     <!-- Memory Dropdown (reorganized) -->
                     <div class="nav-dropdown">
-                        <button class="nav-dropdown-toggle {% if '/memories' in request.path or '/knowledge' in request.path or '/memory-graph' in request.path or '/working-memory' in request.path or '/records' in request.path or '/activities' in request.path or '/thoughts' in request.path or '/memory-search' in request.path or '/memory-timeline' in request.path or '/embedding-explorer' in request.path or '/memory-dashboard' in request.path or '/memory-explorer' in request.path %}active{% endif %}">
+                        <button class="nav-dropdown-toggle {% if '/memories' in request.path or '/knowledge' in request.path or '/memory-graph' in request.path or '/memory-cache' in request.path or '/working-memory' in request.path or '/records' in request.path or '/activities' in request.path or '/thoughts' in request.path or '/memory-search' in request.path or '/memory-timeline' in request.path or '/embedding-explorer' in request.path or '/memory-dashboard' in request.path or '/memory-explorer' in request.path or '/knowledge-cache' in request.path %}active{% endif %}">
                             <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
                                 <path d="M8 0a5.53 5.53 0 0 0-3.594 1.342C3.567 2.06 3 3.013 3 4c0 1.204.757 2.364 2 3.127V7.5a.5.5 0 0 0 .5.5h5a.5.5 0 0 0 .5-.5v-.373c1.243-.763 2-1.923 2-3.127 0-.987-.567-1.94-1.406-2.658A5.53 5.53 0 0 0 8 0zM5.5 9A1.5 1.5 0 0 0 4 10.5v.5A1.5 1.5 0 0 0 5.5 12h5a1.5 1.5 0 0 0 1.5-1.5v-.5A1.5 1.5 0 0 0 10.5 9h-5zM6 13.5a.5.5 0 0 0 0 1h4a.5.5 0 0 0 0-1H6z"/>
                             </svg>
@@ -249,6 +249,12 @@
                             </a>
                             <a href="/knowledge" class="{% if '/knowledge' == request.path %}active{% endif %}">
                                 🕸️ Knowledge Graph
+                            </a>
+                            <a href="/knowledge-cache" class="{% if '/knowledge-cache' in request.path %}active{% endif %}">
+                                ⚡ KG Cache
+                            </a>
+                            <a href="/memory-cache" class="{% if '/memory-cache' in request.path %}active{% endif %}">
+                                ⚡ Memory Cache
                             </a>
                             <a href="/memory-graph" class="{% if '/memory-graph' in request.path %}active{% endif %}">
                                 🧠 Memory Graph

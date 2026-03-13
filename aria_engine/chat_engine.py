@@ -930,6 +930,15 @@ class ChatEngine:
         if session.system_prompt:
             messages.append({"role": "system", "content": session.system_prompt})
 
+        # ── Semantic memory injection (shared with streaming path) ────────
+        try:
+            from aria_engine.memory_cache import retrieve_semantic_memories
+            memory_block = await retrieve_semantic_memories(db, current_content)
+            if memory_block:
+                messages.append({"role": "system", "content": memory_block})
+        except Exception:
+            pass
+
         # Load recent messages from DB.
         # Fetch MORE than context_window so we can guarantee a minimum number
         # of user/assistant turns survive even when tool messages dominate.

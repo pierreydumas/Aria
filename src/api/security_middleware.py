@@ -86,12 +86,28 @@ EXEMPT_ENDPOINTS = {
 }
 
 # Endpoint prefixes exempt from body scanning (internal management APIs
-# that legitimately use cron expressions like */30, SQL-like payload text, etc.)
+# that legitimately use cron expressions like */30, SQL-like payload text,
+# memory content, skill data, knowledge graph entities, etc.)
+# All /api/* routes are internal — called by Aria's own skills from within
+# the Docker network.  External input is validated by Pydantic schemas.
 EXEMPT_PREFIXES = (
     "/engine/cron",
     "/engine/chat",
     "/engine/sessions",
     "/graphql",
+    "/memories",
+    "/memory-cache",
+    "/knowledge-graph",
+    "/skills",
+    "/working-memory",
+    "/thoughts",
+    "/lessons",
+    "/artifacts",
+    "/analysis",
+    "/social",
+    "/proposals",
+    "/activities",
+    "/sentiment",
 )
 
 # Endpoints that serve interactive docs and need frontend assets/scripts

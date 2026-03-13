@@ -97,6 +97,22 @@ async def write_artifact(body: ArtifactWriteRequest):
         filepath = folder / body.filename
         logger.debug("Writing to filepath: %s", filepath)
 
+        # Guard: resolved path must stay inside aria_memories/
+        resolved = filepath.resolve()
+        if not str(resolved).startswith(str(ARIA_MEMORIES_PATH.resolve())):
+            raise HTTPException(status_code=400, detail="Path escapes storage root")
+
+        # LLMs sometimes pass nested paths as filename (e.g. "sub/dir/file.md").
+        # Ensure ALL parent directories exist, not just the category folder.
+        try:
+            filepath.parent.mkdir(parents=True, exist_ok=True)
+        except (OSError, PermissionError) as e:
+            logger.error("Failed to create parent dirs %s: %s", filepath.parent, e)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Cannot create directories for: {body.filename}",
+            )
+
         # Validate JSON payloads when filename ends with .json
         if body.filename.lower().endswith(".json"):
             try:

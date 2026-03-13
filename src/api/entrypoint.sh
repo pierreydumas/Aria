@@ -17,12 +17,6 @@ else
     echo "Plain text logging enabled (level=$LOG_LEVEL)"
 fi
 
-# Run database migrations or health check if requested
-if [ "${RUN_MIGRATIONS:-false}" = "true" ]; then
-    echo "Running database migrations..."
-    python -c "from db.init import run_migrations; import asyncio; asyncio.run(run_migrations())" 2>/dev/null || echo "Migration skipped (module not available)"
-fi
-
 echo "Starting Aria API..."
 exec uvicorn main:app \
     --host 0.0.0.0 \

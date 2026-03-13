@@ -14,7 +14,7 @@ from sqlalchemy import delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from db.models import KnowledgeEntity, KnowledgeRelation, KnowledgeQueryLog, SkillGraphEntity, SkillGraphRelation
+from db.models import KnowledgeEntity, KnowledgeRelation, KnowledgeQueryLog, SkillGraphEntity, SkillGraphRelation, CacheMetricSnapshot
 from deps import get_db
 
 router = APIRouter(tags=["Knowledge Graph"])
@@ -364,6 +364,11 @@ async def create_knowledge_entity(body: EntityCreate, db: AsyncSession = Depends
         logger.warning("Entity merge conflict: %s", exc)
         await db.rollback()
         raise HTTPException(status_code=409, detail=f"Entity creation failed: {exc}")
+    try:
+        from aria_skills.knowledge_graph.cache import get_shared_cache
+        get_shared_cache().invalidate(body.name)
+    except Exception:
+        pass
     return {"id": str(entity.id), "created": True}
 
 
@@ -389,6 +394,13 @@ async def create_knowledge_relation(body: RelationCreate, db: AsyncSession = Dep
         logger.warning("Relation merge conflict: %s", exc)
         await db.rollback()
         raise HTTPException(status_code=409, detail=f"Relation creation failed: {exc}")
+    try:
+        from aria_skills.knowledge_graph.cache import get_shared_cache
+        cache = get_shared_cache()
+        cache.invalidate(body.from_entity)
+        cache.invalidate(body.to_entity)
+    except Exception:
+        pass
     return {"id": str(relation.id), "created": True}
 
 
@@ -499,6 +511,17 @@ async def graph_search(
     db: AsyncSession = Depends(get_db),
 ):
     """ILIKE text search for entities in the skill graph."""
+    # ── Server-side cache check ──
+    try:
+        from aria_skills.knowledge_graph.cache import get_shared_cache
+        _gs_cache = get_shared_cache()
+        _gs_key = f"gsearch:{q}:{entity_type}:{limit}"
+        _gs_cached = _gs_cache._entities.get(_gs_key)
+        if _gs_cached is not None:
+            return _gs_cached
+    except Exception:
+        _gs_cache = _gs_key = None
+
     pattern = f"%{q}%"
     stmt = select(SkillGraphEntity).where(
         or_(
@@ -514,7 +537,10 @@ async def graph_search(
     entities = [e.to_dict() for e in result.scalars().all()]
 
     await _log_query(db, "search", {"q": q, "entity_type": entity_type}, len(entities), request=request)
-    return {"results": entities, "query": q, "count": len(entities)}
+    response = {"results": entities, "query": q, "count": len(entities)}
+    if _gs_cache and _gs_key:
+        _gs_cache._entities.put(_gs_key, response)
+    return response
 
 
 # ── S4-02: Skill-for-task discovery ──────────────────────────────────────────
@@ -527,6 +553,17 @@ async def find_skill_for_task(
     db: AsyncSession = Depends(get_db),
 ):
     """Find the best skill for a given task from the skill graph."""
+    # ── Server-side cache check ──
+    try:
+        from aria_skills.knowledge_graph.cache import get_shared_cache
+        _sft_cache = get_shared_cache()
+        _sft_key = f"sft:{task[:120]}:{limit}"
+        _sft_cached = _sft_cache._entities.get(_sft_key)
+        if _sft_cached is not None:
+            return _sft_cached
+    except Exception:
+        pass
+
     pattern = f"%{task}%"
 
     # Search skills by name/description
@@ -602,6 +639,14 @@ async def find_skill_for_task(
         "tools_searched": len(tool_matches),
     }
     await _log_query(db, "skill_for_task", {"task": task}, len(candidates[:limit]), request=request)
+    # ── Server-side cache store ──
+    try:
+        from aria_skills.knowledge_graph.cache import get_shared_cache
+        _sft_cache = get_shared_cache()
+        _sft_key = f"sft:{task[:120]}:{limit}"
+        _sft_cache._entities.put(_sft_key, result_data)
+    except Exception:
+        pass
     return result_data
 
 
@@ -634,6 +679,16 @@ async def kg_traverse(
     db: AsyncSession = Depends(get_db),
 ):
     """BFS traversal on the organic knowledge graph (knowledge_entities / knowledge_relations)."""
+    # ── Server-side cache check ──
+    try:
+        from aria_skills.knowledge_graph.cache import get_shared_cache
+        _trav_cache = get_shared_cache()
+        _cached_trav = _trav_cache.get_traversal(start, max_depth, relation_type)
+        if _cached_trav is not None:
+            return _cached_trav
+    except Exception:
+        _trav_cache = None
+
     # Resolve start entity
     start_entity = None
     try:
@@ -724,13 +779,20 @@ async def kg_traverse(
         len(nodes),
         request=request,
     )
-    return {
+    response = {
         "nodes": nodes,
         "edges": edges,
         "traversal_depth": max_depth,
         "total_nodes": len(nodes),
         "total_edges": len(edges),
     }
+    # ── Server-side cache store ──
+    try:
+        from aria_skills.knowledge_graph.cache import get_shared_cache
+        get_shared_cache().put_traversal(start, max_depth, response, relation_type)
+    except Exception:
+        pass
+    return response
 
 
 # ── Knowledge Graph entity search ────────────────────────────────────────────
@@ -744,6 +806,17 @@ async def kg_search(
     db: AsyncSession = Depends(get_db),
 ):
     """ILIKE text search for entities in the organic knowledge graph."""
+    # ── Server-side cache check ──
+    try:
+        from aria_skills.knowledge_graph.cache import get_shared_cache
+        _cache = get_shared_cache()
+        _cache_key = f"kgsearch:{q}:{entity_type}:{limit}"
+        _cached = _cache._entities.get(_cache_key)
+        if _cached is not None:
+            return _cached
+    except Exception:
+        _cache = _cache_key = None
+
     pattern = f"%{q}%"
     stmt = select(KnowledgeEntity).where(
         or_(
@@ -759,5 +832,237 @@ async def kg_search(
     entities = [e.to_dict() for e in result.scalars().all()]
 
     await _log_query(db, "kg_search", {"q": q, "entity_type": entity_type}, len(entities), request=request)
-    return {"results": entities, "query": q, "count": len(entities)}
+    response = {"results": entities, "query": q, "count": len(entities)}
+    if _cache and _cache_key:
+        _cache._entities.put(_cache_key, response)
+    return response
+
+
+# ── KG Cache analytics endpoint ──────────────────────────────────────────────
+
+@router.get("/knowledge-graph/cache-analytics")
+async def kg_cache_analytics(
+    hours: int = Query(24, ge=1, le=720),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Return KG cache + query analytics for the dashboard.
+
+    Aggregates query-log data by type and time bucket, plus entity/relation totals.
+    Cache hit/miss stats come from the in-process KGCacheManager (if available).
+    """
+    from datetime import timedelta
+
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+    # ── 1. Query volume by type ──────────────────────────────────────────────
+    qtype_stmt = (
+        select(
+            KnowledgeQueryLog.query_type,
+            func.count().label("count"),
+            func.avg(KnowledgeQueryLog.result_count).label("avg_results"),
+        )
+        .where(KnowledgeQueryLog.created_at >= since)
+        .group_by(KnowledgeQueryLog.query_type)
+        .order_by(func.count().desc())
+    )
+    qtype_rows = (await db.execute(qtype_stmt)).all()
+    query_volume = [
+        {"type": r.query_type, "count": r.count, "avg_results": round(float(r.avg_results or 0), 1)}
+        for r in qtype_rows
+    ]
+
+    # ── 2. Query volume over time (hourly buckets) ───────────────────────────
+    bucket = func.date_trunc("hour", KnowledgeQueryLog.created_at)
+    time_stmt = (
+        select(
+            bucket.label("bucket"),
+            func.count().label("count"),
+        )
+        .where(KnowledgeQueryLog.created_at >= since)
+        .group_by(bucket)
+        .order_by(bucket)
+    )
+    time_rows = (await db.execute(time_stmt)).all()
+    query_timeline = [
+        {"time": r.bucket.isoformat() if r.bucket else "", "count": r.count}
+        for r in time_rows
+    ]
+
+    # ── 3. Query volume by source ────────────────────────────────────────────
+    src_stmt = (
+        select(
+            KnowledgeQueryLog.source,
+            func.count().label("count"),
+        )
+        .where(KnowledgeQueryLog.created_at >= since)
+        .group_by(KnowledgeQueryLog.source)
+        .order_by(func.count().desc())
+    )
+    src_rows = (await db.execute(src_stmt)).all()
+    query_sources = [{"source": r.source or "unknown", "count": r.count} for r in src_rows]
+
+    # ── 4. Entity/relation totals ────────────────────────────────────────────
+    entity_count = (await db.execute(select(func.count()).select_from(KnowledgeEntity))).scalar() or 0
+    relation_count = (await db.execute(select(func.count()).select_from(KnowledgeRelation))).scalar() or 0
+
+    # ── 5. Entity type distribution ──────────────────────────────────────────
+    etype_stmt = (
+        select(KnowledgeEntity.type, func.count().label("count"))
+        .group_by(KnowledgeEntity.type)
+        .order_by(func.count().desc())
+    )
+    etype_rows = (await db.execute(etype_stmt)).all()
+    entity_types = [{"type": r.type, "count": r.count} for r in etype_rows]
+
+    # ── 6. Recent queries log (last 50) ──────────────────────────────────────
+    recent_stmt = (
+        select(KnowledgeQueryLog)
+        .where(KnowledgeQueryLog.created_at >= since)
+        .order_by(KnowledgeQueryLog.created_at.desc())
+        .limit(50)
+    )
+    recent_rows = (await db.execute(recent_stmt)).scalars().all()
+    recent_queries = [log.to_dict() for log in recent_rows]
+
+    # ── 7. In-process cache stats (best effort) ─────────────────────────────
+    cache_stats = None
+    try:
+        from aria_skills.knowledge_graph.cache import get_shared_cache
+        cache = get_shared_cache()
+        cache_stats = cache.stats
+    except Exception:
+        pass
+
+    # ── 7b. Persist snapshot to DB (debounced: max once per 60s) ─────────
+    if cache_stats and (cache_stats.get("total_items", 0) > 0 or
+            sum(v.get("hits", 0) for v in [cache_stats.get("entity_cache", {}), cache_stats.get("traversal_cache", {})])):
+        last_snap = (await db.execute(
+            select(CacheMetricSnapshot.created_at)
+            .where(CacheMetricSnapshot.cache_type == "kg")
+            .order_by(CacheMetricSnapshot.created_at.desc())
+            .limit(1)
+        )).scalar()
+        should_write = last_snap is None or (datetime.now(timezone.utc) - last_snap).total_seconds() > 60
+        if should_write:
+            ec = cache_stats.get("entity_cache", {})
+            tc = cache_stats.get("traversal_cache", {})
+            total_h = ec.get("hits", 0) + tc.get("hits", 0)
+            total_m = ec.get("misses", 0) + tc.get("misses", 0)
+            total = total_h + total_m
+            snap = CacheMetricSnapshot(
+                cache_type="kg",
+                total_hits=total_h,
+                total_misses=total_m,
+                total_items=cache_stats.get("total_items", 0),
+                hit_rate=round(total_h / total, 4) if total else 0.0,
+                details={"cache_stats": cache_stats},
+            )
+            db.add(snap)
+            await db.commit()
+
+    # ── 7c. DB fallback when in-process is empty (post-restart) ──────────
+    if cache_stats is None:
+        fb_row = (await db.execute(
+            select(CacheMetricSnapshot)
+            .where(CacheMetricSnapshot.cache_type == "kg")
+            .where(CacheMetricSnapshot.created_at >= since)
+            .order_by(CacheMetricSnapshot.created_at.desc())
+            .limit(1)
+        )).scalar()
+        if fb_row:
+            cache_stats = fb_row.details.get("cache_stats")
+
+    # ── 8. Estimated cache stats from DB when live cache unavailable ─────────
+    estimated_cache = None
+    if cache_stats is None:
+        # Analyse query log to estimate what the cache would do
+        from collections import Counter
+
+        # Repeated queries within TTL windows ≈ cache hits
+        entity_ttl = 600   # 10 min
+        traversal_ttl = 300  # 5 min
+
+        all_queries_stmt = (
+            select(
+                KnowledgeQueryLog.query_type,
+                KnowledgeQueryLog.params,
+                KnowledgeQueryLog.created_at,
+                KnowledgeQueryLog.result_count,
+            )
+            .where(KnowledgeQueryLog.created_at >= since)
+            .order_by(KnowledgeQueryLog.created_at.asc())
+        )
+        all_rows = (await db.execute(all_queries_stmt)).all()
+
+        entity_hits = entity_misses = 0
+        traversal_hits = traversal_misses = 0
+        seen_entity = {}   # key → last_seen_at
+        seen_traversal = {}
+
+        for row in all_rows:
+            params = row.params or {}
+            clean = {k: v for k, v in params.items() if k != "__trace"}
+            cache_key = f"{row.query_type}:{json_lib.dumps(clean, sort_keys=True, default=str)}"
+
+            if row.query_type in ("search", "skill_for_task", "get_entity"):
+                ttl = entity_ttl
+                last = seen_entity.get(cache_key)
+                if last and (row.created_at - last).total_seconds() < ttl:
+                    entity_hits += 1
+                else:
+                    entity_misses += 1
+                seen_entity[cache_key] = row.created_at
+            elif row.query_type == "traverse":
+                ttl = traversal_ttl
+                last = seen_traversal.get(cache_key)
+                if last and (row.created_at - last).total_seconds() < ttl:
+                    traversal_hits += 1
+                else:
+                    traversal_misses += 1
+                seen_traversal[cache_key] = row.created_at
+
+        entity_total = entity_hits + entity_misses
+        traversal_total = traversal_hits + traversal_misses
+        unique_entities_queried = len(seen_entity)
+        unique_traversals_queried = len(seen_traversal)
+
+        estimated_cache = {
+            "source": "estimated",
+            "entity_cache": {
+                "hits": entity_hits,
+                "misses": entity_misses,
+                "hit_rate": round(entity_hits / entity_total, 3) if entity_total else 0,
+                "size": min(unique_entities_queried, 1000),
+                "maxsize": 1000,
+                "evictions": max(0, unique_entities_queried - 1000),
+                "ttl_seconds": entity_ttl,
+            },
+            "traversal_cache": {
+                "hits": traversal_hits,
+                "misses": traversal_misses,
+                "hit_rate": round(traversal_hits / traversal_total, 3) if traversal_total else 0,
+                "size": min(unique_traversals_queried, 500),
+                "maxsize": 500,
+                "evictions": max(0, unique_traversals_queried - 500),
+                "ttl_seconds": traversal_ttl,
+            },
+            "total_items": min(unique_entities_queried, 1000) + min(unique_traversals_queried, 500),
+        }
+
+    total_queries = sum(q["count"] for q in query_volume)
+
+    return {
+        "period_hours": hours,
+        "total_queries": total_queries,
+        "entity_count": entity_count,
+        "relation_count": relation_count,
+        "query_volume": query_volume,
+        "query_timeline": query_timeline,
+        "query_sources": query_sources,
+        "entity_types": entity_types,
+        "recent_queries": recent_queries,
+        "cache_stats": cache_stats,
+        "estimated_cache": estimated_cache,
+    }
 

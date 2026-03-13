@@ -90,30 +90,43 @@ class RoundtableSummary(BaseModel):
     created_at: str | None = None
 
 
+# Title patterns that identify cron-triggered roundtable sessions.
+_ROUNDTABLE_TITLE_PATTERNS = ("Roundtable:%", "%Roundtable Architecture Review%")
+# Session types that are NOT real roundtable parent sessions (sub-agent work).
+_EXCLUDED_CRON_RT_TYPES = ("scoped",)
+
+
+def _roundtable_filter(model, allowed_types: tuple[str, ...]):
+    """Build an OR filter: session_type in *allowed_types* OR title matches roundtable patterns."""
+    title_clauses = [
+        and_(
+            model.title.ilike(pat),
+            model.session_type.not_in(_EXCLUDED_CRON_RT_TYPES),
+        )
+        for pat in _ROUNDTABLE_TITLE_PATTERNS
+    ]
+    return or_(model.session_type.in_(allowed_types), *title_clauses)
+
+
 async def _load_any_session(
     db: AsyncSession,
     session_id: str,
     allowed_types: tuple[str, ...],
+    *,
+    include_cron_roundtables: bool = False,
 ) -> tuple[Any, bool]:
     """Load session row from working first, then archive; returns (row, is_archived)."""
-    working_stmt = select(EngineChatSession).where(
-        and_(
-            EngineChatSession.id == session_id,
-            EngineChatSession.session_type.in_(allowed_types),
-        )
-    )
-    working_result = await db.execute(working_stmt)
+    def _where(model):
+        if include_cron_roundtables:
+            return and_(model.id == session_id, _roundtable_filter(model, allowed_types))
+        return and_(model.id == session_id, model.session_type.in_(allowed_types))
+
+    working_result = await db.execute(select(EngineChatSession).where(_where(EngineChatSession)))
     working_row = working_result.scalar_one_or_none()
     if working_row is not None:
         return working_row, False
 
-    archive_stmt = select(EngineChatSessionArchive).where(
-        and_(
-            EngineChatSessionArchive.id == session_id,
-            EngineChatSessionArchive.session_type.in_(allowed_types),
-        )
-    )
-    archive_result = await db.execute(archive_stmt)
+    archive_result = await db.execute(select(EngineChatSessionArchive).where(_where(EngineChatSessionArchive)))
     archive_row = archive_result.scalar_one_or_none()
     if archive_row is not None:
         return archive_row, True
@@ -135,6 +148,87 @@ async def _load_messages_for_session(
     )
     result = await db.execute(stmt)
     return result.scalars().all()
+
+
+async def _build_cron_roundtable_detail(
+    db: AsyncSession,
+    session_row: Any,
+    messages: list[Any],
+    is_archived: bool,
+) -> dict[str, Any]:
+    """Build roundtable detail from a cron-triggered session.
+
+    Cron roundtables use normal chat messages (user/assistant/tool) instead
+    of the structured round-N / synthesis roles.  We reconstruct:
+
+    * **participants** — extracted from tool-result payloads that contain
+      sub-agent ``session_id`` + ``focus`` fields.
+    * **turns** — the longest assistant response from each sub-agent session.
+    * **synthesis** — the last substantial assistant message in the parent session.
+    """
+    sub_sessions: dict[str, str] = {}  # sub-session-id → focus/display_name
+    synthesis = ""
+
+    for msg in messages:
+        if msg.role == "tool" and msg.content:
+            try:
+                payload = json.loads(msg.content) if isinstance(msg.content, str) else msg.content
+                data = payload.get("data", {}) if isinstance(payload, dict) else {}
+                sid = data.get("session_id")
+                focus = data.get("focus") or data.get("display_name")
+                if sid and focus and "status" not in data:
+                    sub_sessions[sid] = focus
+            except (json.JSONDecodeError, AttributeError):
+                pass
+        elif msg.role == "assistant" and msg.content and len(msg.content) > 200:
+            synthesis = msg.content  # keep overwriting; last long one wins
+
+    participants = sorted(set(sub_sessions.values()))
+    turns: list[dict[str, Any]] = []
+
+    # Load the primary contribution from each sub-agent session
+    if sub_sessions:
+        MsgModel = EngineChatMessageArchive if is_archived else EngineChatMessage
+        SessModel = EngineChatSessionArchive if is_archived else EngineChatSession
+        for sub_id, focus in sub_sessions.items():
+            stmt = (
+                select(MsgModel.content)
+                .where(
+                    and_(
+                        MsgModel.session_id == sub_id,
+                        MsgModel.role == "assistant",
+                        func.length(MsgModel.content) > 100,
+                    )
+                )
+                .order_by(func.length(MsgModel.content).desc())
+                .limit(1)
+            )
+            res = await db.execute(stmt)
+            content = res.scalar_one_or_none()
+            if content:
+                turns.append({
+                    "agent_id": focus,
+                    "round": 1,
+                    "content": content,
+                    "duration_ms": 0,
+                })
+
+    return {
+        "session_id": str(session_row.id),
+        "topic": (session_row.title or ""),
+        "participants": participants,
+        "rounds": 1 if turns else 0,
+        "turn_count": len(turns),
+        "synthesis": synthesis,
+        "synthesizer_id": "aria",
+        "total_duration_ms": 0,
+        "chunked_mode": False,
+        "chunk_count": 0,
+        "chunk_notice": None,
+        "chunk_kind": None,
+        "created_at": session_row.created_at.isoformat() if session_row.created_at else None,
+        "turns": turns,
+    }
 
 
 class PaginatedRoundtables(BaseModel):
@@ -406,13 +500,11 @@ async def list_roundtables(
 
         async with _db_session() as session:
             allowed_types = ["roundtable", "swarm"]
+            _wf = _roundtable_filter(EngineChatSession, tuple(allowed_types))
+            _af = _roundtable_filter(EngineChatSessionArchive, tuple(allowed_types))
 
-            working_count_stmt = select(func.count(EngineChatSession.id)).where(
-                EngineChatSession.session_type.in_(allowed_types)
-            )
-            archive_count_stmt = select(func.count(EngineChatSessionArchive.id)).where(
-                EngineChatSessionArchive.session_type.in_(allowed_types)
-            )
+            working_count_stmt = select(func.count(EngineChatSession.id)).where(_wf)
+            archive_count_stmt = select(func.count(EngineChatSessionArchive.id)).where(_af)
             working_count_res = await session.execute(working_count_stmt)
             archive_count_res = await session.execute(archive_count_stmt)
             total = (working_count_res.scalar() or 0) + (archive_count_res.scalar() or 0)
@@ -421,13 +513,13 @@ async def list_roundtables(
             fetch_limit = offset + page_size
             working_stmt = (
                 select(EngineChatSession)
-                .where(EngineChatSession.session_type.in_(allowed_types))
+                .where(_wf)
                 .order_by(EngineChatSession.created_at.desc())
                 .limit(fetch_limit)
             )
             archive_stmt = (
                 select(EngineChatSessionArchive)
-                .where(EngineChatSessionArchive.session_type.in_(allowed_types))
+                .where(_af)
                 .order_by(EngineChatSessionArchive.created_at.desc())
                 .limit(fetch_limit)
             )
@@ -567,11 +659,18 @@ async def get_roundtable(session_id: str):
                 session,
                 session_id,
                 ("roundtable",),
+                include_cron_roundtables=True,
             )
             if session_row is None:
                 raise HTTPException(status_code=404, detail=f"Roundtable {session_id} not found")
 
             messages = await _load_messages_for_session(session, session_id, is_archived)
+
+            # Cron-triggered roundtable: messages use chat roles (user/assistant/tool)
+            # instead of round-N / synthesis.  Reconstruct from sub-agent sessions.
+            is_cron_rt = session_row.session_type != "roundtable"
+            if is_cron_rt:
+                return await _build_cron_roundtable_detail(session, session_row, messages, is_archived)
 
             metadata = session_row.metadata_json or {}
             participants = metadata.get("participants", []) if isinstance(metadata, dict) else []
@@ -668,10 +767,18 @@ async def get_roundtable_turns(session_id: str):
             session,
             session_id,
             ("roundtable",),
+            include_cron_roundtables=True,
         )
         if session_row is None:
             raise HTTPException(status_code=404, detail=f"Roundtable {session_id} not found")
         messages = await _load_messages_for_session(session, session_id, is_archived)
+
+    # Cron-triggered roundtable: extract turns from sub-agent sessions
+    is_cron_rt = session_row.session_type != "roundtable"
+    if is_cron_rt:
+        async with _db_session() as session:
+            detail = await _build_cron_roundtable_detail(session, session_row, messages, is_archived)
+        return {"session_id": session_id, "turns": detail.get("turns", [])}
 
     turns = []
     for msg in messages:

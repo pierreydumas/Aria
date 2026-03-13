@@ -25,7 +25,7 @@ from litellm import acompletion, token_counter
 
 from aria_engine.config import EngineConfig
 from aria_engine.circuit_breaker import CircuitBreaker
-from aria_engine.exceptions import LLMError
+from aria_engine.exceptions import LLMError, safe_fire_and_forget
 from aria_models.loader import load_catalog, get_routing_config, normalize_model_id
 
 logger = logging.getLogger("aria.engine.llm")
@@ -321,7 +321,7 @@ class LLMGateway:
                 )
                 elapsed_ms = int((time.monotonic() - start) * 1000)
                 self._cb.record_success()
-                asyncio.create_task(self._cb_persist())
+                safe_fire_and_forget(self._cb_persist(), name="cb-persist-success")
                 self._latency_samples.append(elapsed_ms)
 
                 choice = response.choices[0]
@@ -382,7 +382,7 @@ class LLMGateway:
 
             except Exception as e:
                 self._cb.record_failure()
-                asyncio.create_task(self._cb_persist())
+                safe_fire_and_forget(self._cb_persist(), name="cb-persist-failure")
                 last_error = e
                 retriable = isinstance(e, asyncio.TimeoutError) or self._is_retriable_error(e)
                 has_next = idx < len(candidates) - 1
@@ -486,7 +486,7 @@ class LLMGateway:
                     )
 
                 self._cb.record_success()
-                asyncio.create_task(self._cb_persist())
+                safe_fire_and_forget(self._cb_persist(), name="cb-persist-stream-ok")
                 if idx > 0:
                     logger.warning(
                         "LLM streaming fallback succeeded on candidate %s (attempt %d/%d)",
@@ -507,7 +507,7 @@ class LLMGateway:
 
             except Exception as e:
                 self._cb.record_failure()
-                asyncio.create_task(self._cb_persist())
+                safe_fire_and_forget(self._cb_persist(), name="cb-persist-stream-fail")
                 last_error = e
 
                 retriable = isinstance(e, asyncio.TimeoutError) or self._is_retriable_error(e)

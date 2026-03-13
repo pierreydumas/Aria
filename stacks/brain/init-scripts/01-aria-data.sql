@@ -495,6 +495,7 @@ CREATE TABLE IF NOT EXISTS aria_data.skill_invocations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     skill_name VARCHAR(100) NOT NULL,
     tool_name VARCHAR(100) NOT NULL,
+    agent_id VARCHAR(100),
     duration_ms INTEGER,
     success BOOLEAN DEFAULT true,
     error_type VARCHAR(100),
@@ -505,6 +506,31 @@ CREATE TABLE IF NOT EXISTS aria_data.skill_invocations (
 CREATE INDEX IF NOT EXISTS idx_invocation_skill   ON aria_data.skill_invocations(skill_name);
 CREATE INDEX IF NOT EXISTS idx_invocation_created ON aria_data.skill_invocations(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_invocation_success ON aria_data.skill_invocations(success);
+CREATE INDEX IF NOT EXISTS idx_invocation_agent   ON aria_data.skill_invocations(agent_id);
+
+-- ============================================================================
+-- Website Sources — Curated website preferences and reviews
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS aria_data.website_sources (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    url TEXT NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    category VARCHAR(100) DEFAULT 'general',
+    rating VARCHAR(20) DEFAULT 'preferred',
+    reason TEXT,
+    alternative TEXT,
+    last_used TIMESTAMP WITH TIME ZONE,
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    CONSTRAINT uq_ws_url UNIQUE (url)
+);
+CREATE INDEX IF NOT EXISTS idx_ws_url       ON aria_data.website_sources(url);
+CREATE INDEX IF NOT EXISTS idx_ws_category  ON aria_data.website_sources(category);
+CREATE INDEX IF NOT EXISTS idx_ws_rating    ON aria_data.website_sources(rating);
+CREATE INDEX IF NOT EXISTS idx_ws_last_used ON aria_data.website_sources(last_used DESC);
+CREATE INDEX IF NOT EXISTS idx_ws_created   ON aria_data.website_sources(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ws_metadata_gin ON aria_data.website_sources USING gin (metadata);
 
 -- ============================================================================
 -- Seed data

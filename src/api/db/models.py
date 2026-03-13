@@ -249,6 +249,7 @@ class KnowledgeEntity(Base):
 
 Index("idx_kg_entity_name", KnowledgeEntity.name)
 Index("idx_kg_entity_type", KnowledgeEntity.type)
+Index("idx_kg_entity_created", KnowledgeEntity.created_at.desc())
 Index("idx_kg_properties_gin", KnowledgeEntity.properties, postgresql_using="gin")
 
 
@@ -270,6 +271,7 @@ class KnowledgeRelation(Base):
 Index("idx_kg_relation_from", KnowledgeRelation.from_entity)
 Index("idx_kg_relation_to", KnowledgeRelation.to_entity)
 Index("idx_kg_relation_type", KnowledgeRelation.relation_type)
+Index("idx_kg_relation_created", KnowledgeRelation.created_at.desc())
 
 
 # ── Skill Graph (separate from organic knowledge) ────────────────────────────
@@ -748,6 +750,9 @@ Index("idx_semantic_importance", SemanticMemory.importance)
 Index("idx_semantic_created", SemanticMemory.created_at.desc())
 Index("idx_semantic_source", SemanticMemory.source)
 Index("idx_semantic_cat_importance", SemanticMemory.category, SemanticMemory.importance.desc())
+Index("idx_semantic_accessed", SemanticMemory.accessed_at.desc())
+if HAS_PGVECTOR:
+    Index("idx_semantic_embedding_hnsw", SemanticMemory.embedding, postgresql_using="hnsw", postgresql_with={"m": 16, "ef_construction": 64}, postgresql_ops={"embedding": "vector_cosine_ops"})
 
 
 # ── Lessons Learned (S5-02) ──────────────────────────────────────────────────
@@ -776,6 +781,7 @@ class LessonLearned(Base):
 Index("idx_lesson_pattern", LessonLearned.error_pattern)
 Index("idx_lesson_type", LessonLearned.error_type)
 Index("idx_lesson_skill", LessonLearned.skill_name)
+Index("idx_lesson_created", LessonLearned.created_at.desc())
 
 
 # ── Improvement Proposals (S5-06) ────────────────────────────────────────────
@@ -802,6 +808,31 @@ class ImprovementProposal(Base):
 Index("idx_proposal_status", ImprovementProposal.status)
 Index("idx_proposal_risk", ImprovementProposal.risk_level)
 Index("idx_proposal_category", ImprovementProposal.category)
+
+
+# ── Cache Metric Snapshots ───────────────────────────────────────────────────
+# Periodic snapshots of in-process cache performance.  Written by the analytics
+# endpoints so cache hit-rates, latency, and timeseries survive restarts.
+
+class CacheMetricSnapshot(Base):
+    __tablename__ = "cache_metric_snapshots"
+    __table_args__ = {"schema": "aria_data"}
+
+    id: Mapped[Any] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    cache_type: Mapped[str] = mapped_column(String(20), nullable=False)  # 'memory' or 'kg'
+    total_hits: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    total_misses: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    total_items: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    hit_rate: Mapped[float] = mapped_column(Float, server_default=text("0"))
+    latency_p50: Mapped[float | None] = mapped_column(Float, nullable=True)
+    latency_p95: Mapped[float | None] = mapped_column(Float, nullable=True)
+    latency_p99: Mapped[float | None] = mapped_column(Float, nullable=True)
+    details: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
+
+
+Index("idx_cache_snap_type_created", CacheMetricSnapshot.cache_type, CacheMetricSnapshot.created_at.desc())
+Index("idx_cache_snap_created", CacheMetricSnapshot.created_at.desc())
 
 
 # ── Skill Invocations (S5-07) ────────────────────────────────────────────────

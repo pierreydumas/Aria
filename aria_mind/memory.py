@@ -15,6 +15,7 @@ Enhanced with:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -45,6 +46,7 @@ class MemoryManager:
         self._db = db_skill
         self._max_short_term = 200  # Increased from 100 - she deserves more context
         self._short_term: deque = deque(maxlen=self._max_short_term)
+        self._short_term_lock = asyncio.Lock()
         self._connected = False
         self.logger = logging.getLogger("aria.memory")
 
@@ -221,7 +223,8 @@ class MemoryManager:
         Returns:
             Dict with consolidation results
         """
-        entries = list(self._short_term)
+        async with self._short_term_lock:
+            entries = list(self._short_term)
         # Merge extra entries (from DB bridge) — deduplicate by content hash
         if extra_entries:
             seen = {e.get("content", "")[:120] for e in entries}

@@ -529,6 +529,11 @@ class AriaAPIClient(BaseSkill):
                 "type": entity_type,
                 "properties": properties or {}
             })
+            try:
+                from aria_skills.knowledge_graph.cache import get_shared_cache
+                get_shared_cache().invalidate(name)
+            except Exception:
+                pass
             return SkillResult.ok(resp.json())
         except Exception as e:
             return SkillResult.fail(f"Failed to create entity: {e}")
@@ -548,6 +553,13 @@ class AriaAPIClient(BaseSkill):
                 "relation_type": relation_type,
                 "properties": properties or {}
             })
+            try:
+                from aria_skills.knowledge_graph.cache import get_shared_cache
+                cache = get_shared_cache()
+                cache.invalidate(from_entity)
+                cache.invalidate(to_entity)
+            except Exception:
+                pass
             return SkillResult.ok(resp.json())
         except Exception as e:
             return SkillResult.fail(f"Failed to create relation: {e}")
@@ -561,11 +573,22 @@ class AriaAPIClient(BaseSkill):
     ) -> SkillResult:
         """BFS traversal from a starting entity. Token-efficient graph exploration."""
         try:
+            from aria_skills.knowledge_graph.cache import get_shared_cache
+            cache = get_shared_cache()
+            cached = cache.get_traversal(start, max_depth, relation_type)
+            if cached is not None:
+                return SkillResult.ok(cached)
+        except Exception:
+            cache = None
+        try:
             params = {"start": start, "max_depth": max_depth, "direction": direction}
             if relation_type:
                 params["relation_type"] = relation_type
             resp = await self._request_with_retry("GET", "/knowledge-graph/traverse", params=params)
-            return SkillResult.ok(resp.json())
+            data = resp.json()
+            if cache and not data.get("error"):
+                cache.put_traversal(start, max_depth, data, relation_type)
+            return SkillResult.ok(data)
         except Exception as e:
             return SkillResult.fail(f"Failed to traverse graph: {e}")
 
@@ -577,11 +600,24 @@ class AriaAPIClient(BaseSkill):
     ) -> SkillResult:
         """ILIKE text search for entities matching a query string."""
         try:
+            from aria_skills.knowledge_graph.cache import get_shared_cache
+            cache = get_shared_cache()
+            cache_key = f"gsearch:{query}:{entity_type}:{limit}"
+            cached = cache._entities.get(cache_key)
+            if cached is not None:
+                return SkillResult.ok(cached)
+        except Exception:
+            cache = None
+            cache_key = None
+        try:
             params: dict[str, Any] = {"q": query, "limit": limit}
             if entity_type:
                 params["entity_type"] = entity_type
             resp = await self._request_with_retry("GET", "/knowledge-graph/search", params=params)
-            return SkillResult.ok(resp.json())
+            data = resp.json()
+            if cache and cache_key:
+                cache._entities.put(cache_key, data)
+            return SkillResult.ok(data)
         except Exception as e:
             return SkillResult.fail(f"Failed to search graph: {e}")
 
@@ -594,11 +630,22 @@ class AriaAPIClient(BaseSkill):
     ) -> SkillResult:
         """BFS traversal on the organic knowledge graph (not skill graph)."""
         try:
+            from aria_skills.knowledge_graph.cache import get_shared_cache
+            cache = get_shared_cache()
+            cached = cache.get_traversal(start, max_depth, relation_type)
+            if cached is not None:
+                return SkillResult.ok(cached)
+        except Exception:
+            cache = None
+        try:
             params: dict[str, Any] = {"start": start, "max_depth": max_depth, "direction": direction}
             if relation_type:
                 params["relation_type"] = relation_type
             resp = await self._request_with_retry("GET", "/knowledge-graph/kg-traverse", params=params)
-            return SkillResult.ok(resp.json())
+            data = resp.json()
+            if cache and not data.get("error"):
+                cache.put_traversal(start, max_depth, data, relation_type)
+            return SkillResult.ok(data)
         except Exception as e:
             return SkillResult.fail(f"Failed to traverse KG: {e}")
 
@@ -610,22 +657,48 @@ class AriaAPIClient(BaseSkill):
     ) -> SkillResult:
         """ILIKE text search on the organic knowledge graph."""
         try:
+            from aria_skills.knowledge_graph.cache import get_shared_cache
+            cache = get_shared_cache()
+            cache_key = f"search:{query}:{entity_type}:{limit}"
+            cached = cache._entities.get(cache_key)
+            if cached is not None:
+                return SkillResult.ok(cached)
+        except Exception:
+            cache = None
+            cache_key = None
+        try:
             params: dict[str, Any] = {"q": query, "limit": limit}
             if entity_type:
                 params["entity_type"] = entity_type
             resp = await self._request_with_retry("GET", "/knowledge-graph/kg-search", params=params)
-            return SkillResult.ok(resp.json())
+            data = resp.json()
+            if cache and cache_key:
+                cache._entities.put(cache_key, data)
+            return SkillResult.ok(data)
         except Exception as e:
             return SkillResult.fail(f"Failed to search KG: {e}")
 
     async def find_skill_for_task(self, task: str, limit: int = 5) -> SkillResult:
         """Find the best skill for a given task description. ~100-200 tokens."""
         try:
+            from aria_skills.knowledge_graph.cache import get_shared_cache
+            cache = get_shared_cache()
+            cache_key = f"sft:{task[:120]}:{limit}"
+            cached = cache._entities.get(cache_key)
+            if cached is not None:
+                return SkillResult.ok(cached)
+        except Exception:
+            cache = None
+            cache_key = None
+        try:
             resp = await self._request_with_retry("GET", 
                 "/knowledge-graph/skill-for-task",
                 params={"task": task, "limit": limit},
             )
-            return SkillResult.ok(resp.json())
+            data = resp.json()
+            if cache and cache_key:
+                cache._entities.put(cache_key, data)
+            return SkillResult.ok(data)
         except Exception as e:
             return SkillResult.fail(f"Failed to find skill for task: {e}")
 

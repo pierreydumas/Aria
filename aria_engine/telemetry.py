@@ -50,7 +50,7 @@ async def log_model_usage(
         # db namespace unavailable (non-Docker / local dev) — expected, not a bug.
         logger.warning("telemetry.log_model_usage: db not available — telemetry is dark: %s", e)
     except Exception as e:
-        logger.debug("telemetry.log_model_usage failed (non-fatal): %s", e)
+        logger.warning("telemetry.log_model_usage failed (non-fatal): %s", e)
 
 
 async def log_skill_invocation(
@@ -86,7 +86,7 @@ async def log_skill_invocation(
     except ImportError as e:
         logger.warning("telemetry.log_skill_invocation: db not available — telemetry is dark: %s", e)
     except Exception as e:
-        logger.debug("telemetry.log_skill_invocation failed (non-fatal): %s", e)
+        logger.warning("telemetry.log_skill_invocation failed (non-fatal): %s", e)
 
 
 def _infer_provider(model: str, provider: str | None) -> str:

@@ -484,6 +484,7 @@ services:
       # /aria_skills is bind-mounted; PYTHONPATH=/ makes it importable
       PYTHONPATH: /
       API_INTERNAL_PORT: ${API_INTERNAL_PORT:-8000}
+      API_WORKERS: ${API_WORKERS:-1}
       DATABASE_URL: postgresql://${DB_USER:-admin}:${DB_PASSWORD:-admin}@aria-db:${DB_INTERNAL_PORT:-5432}/${DB_NAME:-aria_warehouse}
       # S-103: API authentication keys
       ARIA_API_KEY: ${ARIA_API_KEY:-}

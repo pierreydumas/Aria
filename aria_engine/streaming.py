@@ -41,7 +41,7 @@ from typing import Any
 from starlette.websockets import WebSocket, WebSocketDisconnect, WebSocketState
 
 from aria_engine.config import EngineConfig
-from aria_engine.exceptions import SessionError, LLMError
+from aria_engine.exceptions import SessionError, LLMError, safe_fire_and_forget
 from aria_engine.llm_gateway import LLMGateway, StreamChunk
 from aria_engine.telemetry import log_model_usage, log_skill_invocation, _parse_skill_from_tool
 from aria_engine.tool_registry import ToolRegistry, ToolResult
@@ -1164,7 +1164,7 @@ class StreamManager:
                         _exec_trace["edges"].append({"from": f"llm_{_exec_trace['iterations']}", "to": tool_node_id, "label": "call", "arrows": "to", "font": {"size": 10, "color": "#888"}})
 
                         # Telemetry → aria_data.skill_invocations
-                        asyncio.ensure_future(log_skill_invocation(
+                        safe_fire_and_forget(log_skill_invocation(
                             self._db_factory,
                             skill_name=_parse_skill_from_tool(fn_name),
                             tool_name=fn_name,
@@ -1172,7 +1172,7 @@ class StreamManager:
                             duration_ms=tool_result.duration_ms,
                             success=tool_result.success,
                             model_used=accumulator.model,
-                        ))
+                        ), name=f"telemetry-stream-skill-{fn_name}")
 
                         # Notify client about tool result
                         parsed_content = None
@@ -1406,7 +1406,7 @@ class StreamManager:
                 )
 
             # Telemetry → aria_data.model_usage
-            asyncio.ensure_future(log_model_usage(
+            safe_fire_and_forget(log_model_usage(
                 self._db_factory,
                 model=accumulator.model or "unknown",
                 input_tokens=accumulator.input_tokens,
@@ -1414,7 +1414,7 @@ class StreamManager:
                 cost_usd=accumulator.cost_usd,
                 latency_ms=accumulator.latency_ms,
                 success=True,
-            ))
+            ), name="telemetry-stream-model-usage")
 
             if promise_repair_triggered and (accumulator.tool_calls or accumulator.tool_results or accumulator.content.strip()):
                 self._repair_stats["succeeded"] += 1
@@ -1599,9 +1599,9 @@ class StreamManager:
             messages.append({"role": "system", "content": session.system_prompt})
 
         # ── ARIA-REV-001: Inject semantic memory into context ────────────
-        # Query the top-N most similar semantic memories for the current
-        # user message and prepend them as a system-level memory block.
-        memory_block = await self._retrieve_semantic_memories(db, current_content)
+        # Shared retrieval function — same cache for REST + WS paths.
+        from aria_engine.memory_cache import retrieve_semantic_memories
+        memory_block = await retrieve_semantic_memories(db, current_content)
         if memory_block:
             messages.append({"role": "system", "content": memory_block})
 
@@ -1792,6 +1792,8 @@ class StreamManager:
 
         Returns a formatted string to inject as a system message, or None
         if no relevant memories are found.
+
+        Results are cached by MemoryCacheManager (Tier 2 — 2 min TTL).
         """
         if not user_message or len(user_message.strip()) < 10:
             return None
@@ -1800,9 +1802,44 @@ class StreamManager:
             from db.models import SemanticMemory
             from sqlalchemy import select
 
-            # Generate embedding for the user message
+            # ── Memory cache integration ────────────────────────────────
+            try:
+                from aria_engine.memory_cache import get_memory_cache
+                _mcache = get_memory_cache()
+            except Exception:
+                _mcache = None
+
+            # Generate embedding for the user message (Tier 1 cached)
             from routers.memories import generate_embedding
             query_embedding = await generate_embedding(user_message)
+
+            # ── Check Tier 2 cache for semantic results ─────────────────
+            if _mcache:
+                import time as _time
+                _sem_t0 = _time.monotonic()
+                cached_results = _mcache.get_semantic_results(
+                    query_embedding, self.SEMANTIC_MEMORY_LIMIT, self.SEMANTIC_MEMORY_MIN_SIMILARITY
+                )
+                if cached_results is not None:
+                    _mcache.record_semantic_latency(
+                        (_time.monotonic() - _sem_t0) * 1000,
+                        result_count=len(cached_results),
+                        cached=True,
+                    )
+                    if not cached_results:
+                        return None
+                    lines = ["[Recalled Memories — relevant context from past experience]"]
+                    for mem in cached_results:
+                        truncated = mem["content"][:500] + "..." if len(mem["content"]) > 500 else mem["content"]
+                        lines.append(f"- [{mem['category']}] {truncated}")
+                    logger.info(
+                        "Semantic memory injection (cached): %d memories",
+                        len(cached_results),
+                    )
+                    return "\n".join(lines)
+            else:
+                import time as _time
+                _sem_t0 = _time.monotonic()
 
             distance_col = SemanticMemory.embedding.cosine_distance(query_embedding).label("distance")
             stmt = (
@@ -1814,6 +1851,8 @@ class StreamManager:
             rows = result.all()
 
             if not rows:
+                if _mcache:
+                    _mcache.put_semantic_results(query_embedding, [], self.SEMANTIC_MEMORY_LIMIT, self.SEMANTIC_MEMORY_MIN_SIMILARITY)
                 return None
 
             # Filter by minimum similarity threshold
@@ -1824,7 +1863,25 @@ class StreamManager:
                     relevant.append((content, category, importance, similarity))
 
             if not relevant:
+                if _mcache:
+                    _mcache.put_semantic_results(query_embedding, [], self.SEMANTIC_MEMORY_LIMIT, self.SEMANTIC_MEMORY_MIN_SIMILARITY)
+                    _mcache.record_semantic_latency(
+                        (_time.monotonic() - _sem_t0) * 1000,
+                        result_count=0, cached=False,
+                    )
                 return None
+
+            # Store results in Tier 2 cache
+            if _mcache:
+                cache_entries = [
+                    {"content": c, "category": cat, "importance": float(imp), "similarity": float(sim)}
+                    for c, cat, imp, sim in relevant
+                ]
+                _mcache.put_semantic_results(query_embedding, cache_entries, self.SEMANTIC_MEMORY_LIMIT, self.SEMANTIC_MEMORY_MIN_SIMILARITY)
+                _mcache.record_semantic_latency(
+                    (_time.monotonic() - _sem_t0) * 1000,
+                    result_count=len(relevant), cached=False,
+                )
 
             # Format as a context block
             lines = ["[Recalled Memories — relevant context from past experience]"]

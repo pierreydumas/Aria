@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS aria_engine.chat_messages (
     tokens_output INTEGER,
     cost NUMERIC(10,6),
     latency_ms INTEGER,
-    embedding vector(1536),
+    embedding vector(768),
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -331,7 +331,7 @@ CREATE TABLE IF NOT EXISTS aria_engine.chat_messages_archive (
     tokens_output INTEGER,
     cost NUMERIC(10,6),
     latency_ms INTEGER,
-    embedding vector(1536),
+    embedding vector(768),
     metadata JSONB NOT NULL DEFAULT '{}',
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     archived_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
